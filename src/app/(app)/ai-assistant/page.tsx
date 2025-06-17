@@ -47,7 +47,7 @@ const suggestTasksSchema = z.object({
 });
 type SuggestTasksFormValues = z.infer<typeof suggestTasksSchema>;
 
-const answerQuestionSchema = z.object({ // This is for the dialog form if we keep it, chat uses direct input
+const answerQuestionSchema = z.object({ 
   question: z.string().min(10, "Question seems too short. Please elaborate."),
   context: z.string().optional(),
 });
@@ -80,7 +80,6 @@ export default function AiAssistantPage() {
   const { toast } = useToast();
   const [isMounted, setIsMounted] = useState(false);
 
-  // States for dialogs and their results
   const [openDialog, setOpenDialog] = useState<AiFunctionKey | null>(null);
 
   const [summarizeResult, setSummarizeResult] = useState<SummarizeTeamCommunicationOutput | null>(null);
@@ -97,7 +96,6 @@ export default function AiAssistantPage() {
   const [isAnsweringQuestionDialog, setIsAnsweringQuestionDialog] = useState(false);
 
 
-  // Chat states
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [chatInput, setChatInput] = useState("");
   const [isAiChatProcessing, setIsAiChatProcessing] = useState(false);
@@ -373,6 +371,3 @@ export default function AiAssistantPage() {
     </div>
   );
 }
-
-
-    

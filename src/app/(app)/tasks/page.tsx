@@ -177,36 +177,38 @@ export default function TasksPage() {
       ) : (
         <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
           {sortedTasks.map((task) => (
-            <Link href={`/tasks/${task.id}`} key={task.id} legacyBehavior>
-              <a className="block hover:shadow-xl transition-shadow duration-300 rounded-lg">
-                <Card className="flex flex-col h-full shadow-lg">
-                  <CardHeader>
-                    <CardTitle className="font-headline text-lg">{task.name}</CardTitle>
-                    <CardDescription>Due: {task.dueDate ? format(task.dueDate, "PPP") : "No due date"}</CardDescription>
-                  </CardHeader>
-                  <CardContent className="flex-grow space-y-3">
-                    <div className="text-sm text-muted-foreground">Assigned to: {task.assignedTo}</div>
-                    <div className="flex items-center justify-between">
-                        <Badge className={cn(statusColors[task.status], "text-white")}>{task.status}</Badge>
-                        <Badge variant={task.priority === "High" ? "destructive" : task.priority === "Medium" ? "secondary" : "outline"}>
-                            {task.priority}
-                        </Badge>
+            <Link 
+              href={`/tasks/${task.id}`} 
+              key={task.id} 
+              className="block hover:shadow-xl transition-shadow duration-300 rounded-lg"
+            >
+              <Card className="flex flex-col h-full shadow-lg">
+                <CardHeader>
+                  <CardTitle className="font-headline text-lg">{task.name}</CardTitle>
+                  <CardDescription>Due: {task.dueDate ? format(task.dueDate, "PPP") : "No due date"}</CardDescription>
+                </CardHeader>
+                <CardContent className="flex-grow space-y-3">
+                  <div className="text-sm text-muted-foreground">Assigned to: {task.assignedTo}</div>
+                  <div className="flex items-center justify-between">
+                      <Badge className={cn(statusColors[task.status], "text-white")}>{task.status}</Badge>
+                      <Badge variant={task.priority === "High" ? "destructive" : task.priority === "Medium" ? "secondary" : "outline"}>
+                          {task.priority}
+                      </Badge>
+                  </div>
+                  <div>
+                    <div className="flex justify-between text-xs text-muted-foreground mb-1">
+                      <span>Progress</span>
+                      <span>{task.progress}%</span>
                     </div>
-                    <div>
-                      <div className="flex justify-between text-xs text-muted-foreground mb-1">
-                        <span>Progress</span>
-                        <span>{task.progress}%</span>
-                      </div>
-                      <Progress value={task.progress} className="h-2" indicatorClassName={task.progress === 100 ? "bg-green-500" : task.status === "Blocked" ? "bg-red-500" : "bg-primary"}/>
-                    </div>
-                  </CardContent>
-                   {task.description && (
-                    <CardFooter className="pt-0">
-                        <p className="text-xs text-muted-foreground line-clamp-2">{task.description}</p>
-                    </CardFooter>
-                  )}
-                </Card>
-              </a>
+                    <Progress value={task.progress} className="h-2" indicatorClassName={task.progress === 100 ? "bg-green-500" : task.status === "Blocked" ? "bg-red-500" : "bg-primary"}/>
+                  </div>
+                </CardContent>
+                 {task.description && (
+                  <CardFooter className="pt-0">
+                      <p className="text-xs text-muted-foreground line-clamp-2">{task.description}</p>
+                  </CardFooter>
+                )}
+              </Card>
             </Link>
           ))}
         </div>
