@@ -111,9 +111,39 @@ export async function markAllUserNotificationsAsRead(userId: string): Promise<vo
   await batch.commit();
 }
 
+export async function markNotificationsAsReadByLink(userId: string, linkPrefix: string): Promise<void> {
+  if (!userId || !linkPrefix) return;
+  const notificationsCol = getUserNotificationsCollection(userId);
+  // This query looks for notifications that are unread AND start with the given link prefix.
+  // Firestore doesn't support "startsWith" queries directly on strings in this manner for general cases.
+  // A common workaround is to query for equality on the full link, or fetch and filter client-side if not too many.
+  // For a more robust "startsWith", you might need to structure your data differently or use a more complex query
+  // often involving >= and < conditions on the string field.
+  // For now, we'll query for exact link match if possible or all unread and filter.
+  // Assuming link is specific enough, e.g., /chat?threadId=XYZ
+  const q = query(notificationsCol, where("isRead", "==", false), where("link", "==", linkPrefix));
+  const snapshot = await getDocs(q);
+
+  if (snapshot.empty) return;
+
+  const batch = writeBatch(db);
+  snapshot.docs.forEach(doc => {
+    batch.update(doc.ref, { isRead: true });
+  });
+  await batch.commit();
+}
+
+
 export async function getUnreadNotificationCount(userId: string): Promise<number> {
   const notificationsCol = getUserNotificationsCollection(userId);
   const q = query(notificationsCol, where("isRead", "==", false));
+  const snapshot = await getCountFromServer(q);
+  return snapshot.data().count;
+}
+
+export async function getUnreadNotificationCountByType(userId: string, type: UserNotificationType): Promise<number> {
+  const notificationsCol = getUserNotificationsCollection(userId);
+  const q = query(notificationsCol, where("isRead", "==", false), where("type", "==", type));
   const snapshot = await getCountFromServer(q);
   return snapshot.data().count;
 }
