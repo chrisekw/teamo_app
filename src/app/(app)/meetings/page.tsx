@@ -1,3 +1,4 @@
+
 "use client";
 
 import { Button } from "@/components/ui/button";
@@ -24,7 +25,7 @@ const mockMeetings: Meeting[] = [
   {
     id: "1",
     title: "Project Alpha Kick-off",
-    dateTime: new Date(new Date().setDate(new Date().getDate() + 1)),
+    dateTime: new Date(new Date().setDate(new Date().getDate() + 1)), // Tomorrow
     durationMinutes: 60,
     participants: ["Alice", "Bob", "Charlie"],
     description: "Initial meeting to discuss Project Alpha scope and timelines.",
@@ -32,7 +33,7 @@ const mockMeetings: Meeting[] = [
   {
     id: "2",
     title: "Weekly Sync",
-    dateTime: new Date(new Date().setDate(new Date().getDate() + 2)),
+    dateTime: new Date(new Date(new Date().setDate(new Date().getDate() + 2)).setHours(14,0,0,0)), // Day after tomorrow at 2 PM
     durationMinutes: 30,
     participants: ["Alice", "Bob", "David", "Eve"],
     description: "Regular team sync to discuss progress and blockers.",
@@ -40,7 +41,7 @@ const mockMeetings: Meeting[] = [
   {
     id: "3",
     title: "Client Demo Prep",
-    dateTime: new Date(new Date().setDate(new Date().getDate() + 3)),
+    dateTime: new Date(new Date(new Date().setDate(new Date().getDate() + 3)).setHours(10,30,0,0)), // 3 days from now at 10:30 AM
     durationMinutes: 45,
     participants: ["Charlie", "David"],
     description: "Preparation session for the upcoming client demonstration.",
@@ -48,7 +49,7 @@ const mockMeetings: Meeting[] = [
 ];
 
 export default function MeetingsPage() {
-  const [meetings, setMeetings] = useState<Meeting[]>(mockMeetings);
+  const [meetings, setMeetings] = useState<Meeting[]>(mockMeetings.sort((a,b) => a.dateTime.getTime() - b.dateTime.getTime()));
   const [selectedDate, setSelectedDate] = useState<Date | undefined>(new Date());
   const [isScheduleDialogOpen, setIsScheduleDialogOpen] = useState(false);
 
@@ -65,13 +66,13 @@ export default function MeetingsPage() {
     
     const [hours, minutes] = newMeetingTime.split(':').map(Number);
     const combinedDateTime = new Date(newMeetingDate);
-    combinedDateTime.setHours(hours, minutes);
+    combinedDateTime.setHours(hours, minutes, 0, 0); // Set seconds and ms to 0 for consistency
 
     const newMeeting: Meeting = {
       id: Date.now().toString(),
       title: newMeetingTitle,
       dateTime: combinedDateTime,
-      durationMinutes: parseInt(newMeetingDuration, 10),
+      durationMinutes: parseInt(newMeetingDuration, 10) || 30,
       participants: newMeetingParticipants.split(',').map(p => p.trim()).filter(p => p),
       description: newMeetingDescription,
     };
@@ -89,7 +90,7 @@ export default function MeetingsPage() {
   
   const filteredMeetings = meetings.filter(meeting => 
     selectedDate ? meeting.dateTime.toDateString() === selectedDate.toDateString() : true
-  );
+  ).sort((a,b) => a.dateTime.getTime() - b.dateTime.getTime());
 
   return (
     <div className="container mx-auto p-4 sm:p-6 lg:p-8">
@@ -113,7 +114,7 @@ export default function MeetingsPage() {
               </div>
               <div className="grid gap-2">
                 <Label htmlFor="date">Date</Label>
-                <Calendar mode="single" selected={newMeetingDate} onSelect={setNewMeetingDate} className="rounded-md border p-0" />
+                <Calendar mode="single" selected={newMeetingDate} onSelect={setNewMeetingDate} className="rounded-md border p-0 w-full" />
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div className="grid gap-2">
@@ -135,6 +136,7 @@ export default function MeetingsPage() {
               </div>
             </div>
             <DialogFooter>
+              <Button variant="outline" onClick={() => setIsScheduleDialogOpen(false)}>Cancel</Button>
               <Button onClick={handleScheduleMeeting}>Schedule Meeting</Button>
             </DialogFooter>
           </DialogContent>
@@ -153,6 +155,7 @@ export default function MeetingsPage() {
                 selected={selectedDate}
                 onSelect={setSelectedDate}
                 className="rounded-md border"
+                disabled={(date) => date < new Date(new Date().setDate(new Date().getDate() -1))} // Disable past dates
               />
             </CardContent>
           </Card>
@@ -160,12 +163,13 @@ export default function MeetingsPage() {
 
         <div className="md:col-span-2">
           <h2 className="text-2xl font-headline font-semibold mb-4">
-            Upcoming Meetings {selectedDate ? `for ${selectedDate.toLocaleDateString()}` : ""}
+            Meetings {selectedDate ? `for ${selectedDate.toLocaleDateString()}` : "Upcoming"}
           </h2>
           {filteredMeetings.length === 0 ? (
-            <div className="text-center py-10 bg-muted/50 rounded-md">
-              <Image src="https://placehold.co/200x150.png" alt="No meetings" width={200} height={150} className="mx-auto mb-4 rounded" data-ai-hint="empty calendar" />
+            <div className="text-center py-10 bg-muted/50 rounded-md flex flex-col items-center justify-center">
+              <Image src="https://placehold.co/200x150.png" alt="No meetings" width={150} height={112} className="mx-auto mb-4 rounded" data-ai-hint="empty calendar" />
               <p className="text-muted-foreground">No meetings scheduled {selectedDate ? `for this date` : "yet"}.</p>
+              <p className="text-sm text-muted-foreground">{selectedDate ? "Try selecting another date or schedule a new meeting." : "Schedule a new meeting to get started."}</p>
             </div>
           ) : (
             <div className="space-y-4">
@@ -176,9 +180,9 @@ export default function MeetingsPage() {
                       <Video className="mr-2 h-5 w-5 text-primary" />
                       {meeting.title}
                     </CardTitle>
-                    <CardDescription className="flex items-center space-x-4 text-sm">
-                      <span className="flex items-center"><Clock className="mr-1 h-4 w-4" /> {meeting.dateTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} ({meeting.durationMinutes} min)</span>
-                      <span className="flex items-center"><Users className="mr-1 h-4 w-4" /> {meeting.participants.length} participants</span>
+                    <CardDescription className="flex flex-col sm:flex-row sm:items-center sm:space-x-4 text-sm pt-1">
+                      <span className="flex items-center mb-1 sm:mb-0"><Clock className="mr-1 h-4 w-4" /> {meeting.dateTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} ({meeting.durationMinutes} min)</span>
+                      <span className="flex items-center"><Users className="mr-1 h-4 w-4" /> {meeting.participants.length > 0 ? meeting.participants.join(', ') : "No participants listed"}</span>
                     </CardDescription>
                   </CardHeader>
                   {meeting.description && (
@@ -200,3 +204,4 @@ export default function MeetingsPage() {
     </div>
   );
 }
+
