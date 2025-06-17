@@ -4,6 +4,7 @@
 import { useState, useEffect, FormEvent, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
+import dynamic from 'next/dynamic';
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -11,7 +12,6 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Calendar } from "@/components/ui/calendar";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
 import { Calendar as CalendarIcon, ArrowLeft, Save, Trash2, ListChecks, Loader2 } from "lucide-react";
@@ -23,6 +23,12 @@ import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { getOfficesForUser, type Office } from "@/lib/firebase/firestore/offices";
+import { Skeleton } from "@/components/ui/skeleton";
+
+const DynamicCalendar = dynamic(() => import('@/components/ui/calendar').then(mod => mod.Calendar), {
+  ssr: false,
+  loading: () => <Skeleton className="w-full h-[280px]" />
+});
 
 
 export default function TaskDetailPage() {
@@ -202,7 +208,7 @@ export default function TaskDetailPage() {
                     </Button>
                   </PopoverTrigger>
                   <PopoverContent className="w-auto p-0">
-                    <Calendar mode="single" selected={dueDate} onSelect={setDueDate} initialFocus />
+                    <DynamicCalendar mode="single" selected={dueDate} onSelect={setDueDate} initialFocus />
                   </PopoverContent>
                 </Popover>
               </div>
@@ -285,3 +291,6 @@ export default function TaskDetailPage() {
     </div>
   );
 }
+
+
+    

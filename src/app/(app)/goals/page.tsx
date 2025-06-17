@@ -23,11 +23,17 @@ import { useAuth } from "@/lib/firebase/auth";
 import { useToast } from "@/hooks/use-toast";
 import { addGoalForUser, getGoalsForUser, updateGoalForUser, deleteGoalForUser } from "@/lib/firebase/firestore/goals";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
-import { Calendar } from "@/components/ui/calendar";
+import dynamic from 'next/dynamic';
 import { cn } from "@/lib/utils";
 import { format } from "date-fns";
 import { Calendar as CalendarIcon } from "lucide-react";
 import { getOfficesForUser, type Office } from "@/lib/firebase/firestore/offices";
+import { Skeleton } from "@/components/ui/skeleton";
+
+const DynamicCalendar = dynamic(() => import('@/components/ui/calendar').then(mod => mod.Calendar), {
+  ssr: false,
+  loading: () => <Skeleton className="w-full h-[280px]" />
+});
 
 
 export default function GoalsPage() {
@@ -316,7 +322,7 @@ export default function GoalsPage() {
                   </Button>
                 </PopoverTrigger>
                 <PopoverContent className="w-auto p-0">
-                  <Calendar mode="single" selected={goalDeadline} onSelect={setGoalDeadline} initialFocus />
+                  <DynamicCalendar mode="single" selected={goalDeadline} onSelect={setGoalDeadline} initialFocus />
                 </PopoverContent>
               </Popover>
             </div>
@@ -333,3 +339,6 @@ export default function GoalsPage() {
     </div>
   );
 }
+
+
+    

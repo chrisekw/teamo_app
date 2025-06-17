@@ -5,6 +5,7 @@ import { useState, useEffect } from "react";
 import { useForm, SubmitHandler, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
+import dynamic from 'next/dynamic';
 
 import { summarizeTeamCommunication, SummarizeTeamCommunicationInput, SummarizeTeamCommunicationOutput } from "@/ai/flows/summarize-team-communication";
 import { suggestTeamAlignmentActions, SuggestTeamAlignmentActionsInput, SuggestTeamAlignmentActionsOutput } from "@/ai/flows/suggest-team-alignment-actions";
@@ -23,9 +24,14 @@ import { Loader2, Sparkles, MessageSquare, CheckSquare, AlertTriangleIcon, ListC
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { useToast } from "@/hooks/use-toast";
 import { Badge } from "@/components/ui/badge";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Separator } from "@/components/ui/separator";
+import { Skeleton } from "@/components/ui/skeleton";
+
+const DynamicScrollArea = dynamic(() => import('@/components/ui/scroll-area').then(mod => mod.ScrollArea), {
+  ssr: false,
+  loading: () => <Skeleton className="h-full w-full" />
+});
 
 
 const summarizeSchema = z.object({
@@ -317,7 +323,7 @@ export default function AiAssistantPage() {
           <h2 className="text-2xl font-headline font-semibold mb-4">Chat with your AI Assistant</h2>
           <Card className="flex-1 flex flex-col shadow-lg min-h-0">
             <CardContent className="flex-1 p-0 overflow-hidden">
-                <ScrollArea className="h-full p-4">
+                <DynamicScrollArea className="h-full p-4">
                 <div className="space-y-4">
                     {chatMessages.map((msg) => (
                     <div key={msg.id} className={`flex items-end space-x-2 ${msg.sender === 'user' ? 'justify-end' : ''}`}>
@@ -348,7 +354,7 @@ export default function AiAssistantPage() {
                         </div>
                     )}
                 </div>
-                </ScrollArea>
+                </DynamicScrollArea>
             </CardContent>
             <div className="border-t p-2 sm:p-4 bg-background">
                 <div className="flex items-center space-x-2">
@@ -371,3 +377,6 @@ export default function AiAssistantPage() {
     </div>
   );
 }
+
+
+    

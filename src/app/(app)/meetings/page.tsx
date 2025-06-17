@@ -7,18 +7,48 @@ import { Dialog, DialogTrigger, DialogContent, DialogHeader, DialogTitle, Dialog
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { PlusCircle, Video, Users, Clock, MicOff, VideoOff, ScreenShare, PhoneOff, Loader2, Trash2 } from "lucide-react";
+import { PlusCircle, Video, Users, Clock, Loader2, Trash2 } from "lucide-react";
 import { useState, useEffect, useRef, useCallback } from "react";
 import Image from "next/image";
-import { Calendar as ShadCNCalendar } from "@/components/ui/calendar";
+import dynamic from 'next/dynamic';
 import { useToast } from "@/hooks/use-toast";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import type { Meeting } from "@/types";
 import { useAuth } from "@/lib/firebase/auth";
 import { addMeetingForUser, getMeetingsForUser, deleteMeetingForUser } from "@/lib/firebase/firestore/meetings";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { getOfficesForUser, type Office } from "@/lib/firebase/firestore/offices";
+import { Skeleton } from "@/components/ui/skeleton";
+
+const ShadCNCalendar = dynamic(() => import('@/components/ui/calendar').then(mod => mod.Calendar), {
+  ssr: false,
+  loading: () => <Skeleton className="w-full h-[280px]" />
+});
+
+const VideoCallView = dynamic(() => import('@/components/meetings/video-call-view').then(mod => mod.VideoCallView), {
+  ssr: false,
+  loading: () => (
+    <Card className="shadow-xl">
+      <CardHeader className="flex flex-row justify-between items-center">
+        <Skeleton className="h-6 w-1/2" />
+        <Skeleton className="h-10 w-24" />
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <Skeleton className="md:col-span-2 aspect-video rounded-md" />
+          <div className="space-y-2">
+            <Skeleton className="h-5 w-1/3 mb-2" />
+            <Skeleton className="h-64 rounded-md border p-2" />
+          </div>
+        </div>
+      </CardContent>
+      <CardFooter className="flex flex-col sm:flex-row justify-center items-center space-y-2 sm:space-y-0 sm:space-x-3 pt-4 border-t">
+        <Skeleton className="h-12 w-24" />
+        <Skeleton className="h-12 w-28" />
+        <Skeleton className="h-12 w-32" />
+      </CardFooter>
+    </Card>
+  )
+});
 
 export default function MeetingsPage() {
   const { user, loading: authLoading } = useAuth();
@@ -338,68 +368,18 @@ export default function MeetingsPage() {
           )}
         </div>
       ) : (
-        // Video Call UI
-        <Card className="shadow-xl">
-          <CardHeader className="flex flex-row justify-between items-center">
-            <CardTitle className="font-headline flex items-center">
-              <Video className="mr-2 h-5 w-5 text-primary" />
-              {selectedMeetingForPreview.title}
-            </CardTitle>
-            <Button variant="destructive" onClick={handleLeaveMeeting}>
-              <PhoneOff className="mr-2 h-4 w-4" /> Leave Meeting
-            </Button>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="md:col-span-2 bg-muted rounded-md aspect-video relative flex items-center justify-center">
-                <video ref={videoRef} className="w-full h-full object-cover rounded-md" autoPlay muted playsInline />
-                {isJoiningMeeting && (
-                  <div className="absolute inset-0 flex items-center justify-center bg-black/50 rounded-md">
-                    <Loader2 className="h-12 w-12 text-white animate-spin" />
-                  </div>
-                )}
-                {hasCameraPermission === false && !isJoiningMeeting && (
-                   <div className="absolute inset-0 p-4 flex items-center justify-center">
-                    <Alert variant="destructive" className="w-full max-w-md">
-                        <VideoOff className="h-4 w-4" />
-                        <AlertTitle>Camera Access Denied</AlertTitle>
-                        <AlertDescription>
-                        Please enable camera and microphone permissions in your browser to join the meeting. You might need to refresh the page after granting permissions.
-                        </AlertDescription>
-                    </Alert>
-                   </div>
-                )}
-              </div>
-              <div className="space-y-2">
-                <h3 className="text-lg font-semibold">Participants ({selectedMeetingForPreview.participants.length +1})</h3>
-                 <div className="h-64 overflow-y-auto space-y-2 pr-2 rounded-md border p-2 bg-background">
-                    <div className="flex items-center space-x-2 p-2 rounded bg-muted/50">
-                        <Avatar className="h-8 w-8">
-                            <AvatarImage src={user?.photoURL || "https://placehold.co/40x40.png?text=YOU"} alt={user?.displayName || "You"} data-ai-hint="person avatar" />
-                            <AvatarFallback>{user?.displayName?.substring(0,1) || "Y"}</AvatarFallback>
-                        </Avatar>
-                        <span>You (Local)</span>
-                    </div>
-                    {selectedMeetingForPreview.participants.map((name, index) => (
-                    <div key={index} className="flex items-center space-x-2 p-2 rounded hover:bg-muted/50">
-                        <Avatar className="h-8 w-8">
-                        <AvatarImage src={`https://placehold.co/40x40.png?text=${name.substring(0,1)}`} alt={name} data-ai-hint="person avatar" />
-                        <AvatarFallback>{name.substring(0,1)}</AvatarFallback>
-                        </Avatar>
-                        <span>{name}</span>
-                    </div>
-                    ))}
-                </div>
-              </div>
-            </div>
-          </CardContent>
-          <CardFooter className="flex flex-col sm:flex-row justify-center items-center space-y-2 sm:space-y-0 sm:space-x-3 pt-4 border-t">
-            <Button variant="outline" size="lg"><MicOff className="mr-2 h-5 w-5" /> Mute</Button>
-            <Button variant="outline" size="lg"><VideoOff className="mr-2 h-5 w-5" /> Stop Video</Button>
-            <Button variant="outline" size="lg"><ScreenShare className="mr-2 h-5 w-5" /> Share Screen</Button>
-          </CardFooter>
-        </Card>
+        <VideoCallView
+            selectedMeeting={selectedMeetingForPreview}
+            user={user}
+            onLeaveMeeting={handleLeaveMeeting}
+            videoRef={videoRef}
+            isJoining={isJoiningMeeting}
+            hasCameraPermission={hasCameraPermission}
+        />
       )}
     </div>
   );
 }
+
+
+    
