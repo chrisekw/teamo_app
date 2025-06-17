@@ -1,9 +1,13 @@
+
 "use client";
 
+import Link from "next/link";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { UserNav } from "./user-nav";
 import { TeamoTextLogo } from "@/components/icons";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { Button } from "@/components/ui/button";
+import { Building2 } from "lucide-react";
 
 export function Header() {
   const isMobile = useIsMobile();
@@ -15,7 +19,14 @@ export function Header() {
           {isMobile && <SidebarTrigger className="mr-2" />}
           <TeamoTextLogo className="h-6 fill-foreground" />
         </div>
-        <div className="flex flex-1 items-center justify-end space-x-4">
+        <div className="flex flex-1 items-center justify-end space-x-2 sm:space-x-4">
+          {isMobile && (
+            <Link href="/office-designer" passHref legacyBehavior>
+              <Button variant="ghost" size="icon" aria-label="Office Designer">
+                <Building2 className="h-5 w-5" />
+              </Button>
+            </Link>
+          )}
           <UserNav />
         </div>
       </div>
