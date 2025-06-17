@@ -27,9 +27,11 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         className="border-r-0 bg-sidebar text-sidebar-foreground group-data-[collapsible=icon]:border-r-0"
       >
         <SidebarHeader className="h-auto items-center border-b border-sidebar-border p-4 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:py-3 space-y-4">
-          <div className="flex items-center space-x-2 w-full group-data-[collapsible=icon]:justify-center">
-            <Logo className="h-8 w-8 fill-sidebar-primary group-data-[collapsible=icon]:h-7 group-data-[collapsible=icon]:w-7" />
-            <span className="font-headline text-xl font-semibold text-sidebar-foreground group-data-[collapsible=icon]:hidden">Teamo</span>
+          <div className="flex items-center justify-center w-full h-8 group-data-[collapsible=icon]:h-7"> {/* Added fixed height for alignment */}
+            {/* Show TeamoTextLogo (Icon + Text) when sidebar is expanded */}
+            <TeamoTextLogo className="h-full w-auto group-data-[collapsible=icon]:hidden" />
+            {/* Show Logo (Icon only) when sidebar is collapsed */}
+            <Logo className="h-full w-auto hidden group-data-[collapsible=icon]:block" />
           </div>
           <Button variant="default" className="w-full bg-sidebar-primary text-sidebar-primary-foreground hover:bg-sidebar-primary/90 group-data-[collapsible=icon]:hidden">
             <Plus className="mr-2 h-5 w-5" /> Create New
