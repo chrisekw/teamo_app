@@ -1,3 +1,4 @@
+
 import type { LucideIcon } from 'lucide-react';
 
 export interface NavItem {
@@ -9,4 +10,15 @@ export interface NavItem {
   external?: boolean;
   variant?: "default" | "ghost";
   children?: NavItem[];
+}
+
+export interface Task {
+  id: string;
+  name: string;
+  assignedTo: string;
+  dueDate: Date;
+  status: "To Do" | "In Progress" | "Done" | "Blocked";
+  priority: "Low" | "Medium" | "High";
+  progress: number;
+  description?: string;
 }
