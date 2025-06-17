@@ -2,7 +2,6 @@
 "use client";
 
 import { Button } from "@/components/ui/button";
-import { Calendar } from "@/components/ui/calendar";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogTrigger, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -11,6 +10,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { PlusCircle, Video, Users, Clock } from "lucide-react";
 import { useState, useEffect } from "react";
 import Image from "next/image";
+import { Calendar as ShadCNCalendar } from "@/components/ui/calendar"; // Renamed to avoid conflict if we use a different Calendar component
 
 interface Meeting {
   id: string;
@@ -50,7 +50,6 @@ const mockMeetings: Meeting[] = [
 
 export default function MeetingsPage() {
   const [meetings, setMeetings] = useState<Meeting[]>(mockMeetings.sort((a,b) => a.dateTime.getTime() - b.dateTime.getTime()));
-  const [selectedDate, setSelectedDate] = useState<Date | undefined>(new Date());
   const [isScheduleDialogOpen, setIsScheduleDialogOpen] = useState(false);
 
   // Form state for new meeting
@@ -88,9 +87,8 @@ export default function MeetingsPage() {
     setIsScheduleDialogOpen(false);
   };
   
-  const filteredMeetings = meetings.filter(meeting => 
-    selectedDate ? meeting.dateTime.toDateString() === selectedDate.toDateString() : true
-  ).sort((a,b) => a.dateTime.getTime() - b.dateTime.getTime());
+  // All meetings are now displayed, sorted by date
+  const sortedMeetings = [...meetings].sort((a,b) => a.dateTime.getTime() - b.dateTime.getTime());
 
   return (
     <div className="container mx-auto p-4 sm:p-6 lg:p-8">
@@ -114,7 +112,7 @@ export default function MeetingsPage() {
               </div>
               <div className="grid gap-2">
                 <Label htmlFor="date">Date</Label>
-                <Calendar mode="single" selected={newMeetingDate} onSelect={setNewMeetingDate} className="rounded-md border p-0 w-full" />
+                <ShadCNCalendar mode="single" selected={newMeetingDate} onSelect={setNewMeetingDate} className="rounded-md border p-0 w-full" />
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div className="grid gap-2">
@@ -143,65 +141,45 @@ export default function MeetingsPage() {
         </Dialog>
       </div>
 
-      <div className="grid md:grid-cols-3 gap-8">
-        <div className="md:col-span-1">
-          <Card className="shadow-lg">
-            <CardHeader>
-              <CardTitle className="font-headline">Select Date</CardTitle>
-            </CardHeader>
-            <CardContent className="flex justify-center">
-              <Calendar
-                mode="single"
-                selected={selectedDate}
-                onSelect={setSelectedDate}
-                className="rounded-md border"
-                disabled={(date) => date < new Date(new Date().setDate(new Date().getDate() -1))} // Disable past dates
-              />
-            </CardContent>
-          </Card>
-        </div>
-
-        <div className="md:col-span-2">
-          <h2 className="text-2xl font-headline font-semibold mb-4">
-            Meetings {selectedDate ? `for ${selectedDate.toLocaleDateString()}` : "Upcoming"}
-          </h2>
-          {filteredMeetings.length === 0 ? (
-            <div className="text-center py-10 bg-muted/50 rounded-md flex flex-col items-center justify-center">
-              <Image src="https://placehold.co/200x150.png" alt="No meetings" width={150} height={112} className="mx-auto mb-4 rounded" data-ai-hint="empty calendar" />
-              <p className="text-muted-foreground">No meetings scheduled {selectedDate ? `for this date` : "yet"}.</p>
-              <p className="text-sm text-muted-foreground">{selectedDate ? "Try selecting another date or schedule a new meeting." : "Schedule a new meeting to get started."}</p>
-            </div>
-          ) : (
-            <div className="space-y-4">
-              {filteredMeetings.map((meeting) => (
-                <Card key={meeting.id} className="shadow-lg hover:shadow-xl transition-shadow duration-300">
-                  <CardHeader>
-                    <CardTitle className="font-headline flex items-center">
-                      <Video className="mr-2 h-5 w-5 text-primary" />
-                      {meeting.title}
-                    </CardTitle>
-                    <CardDescription className="flex flex-col sm:flex-row sm:items-center sm:space-x-4 text-sm pt-1">
-                      <span className="flex items-center mb-1 sm:mb-0"><Clock className="mr-1 h-4 w-4" /> {meeting.dateTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} ({meeting.durationMinutes} min)</span>
-                      <span className="flex items-center"><Users className="mr-1 h-4 w-4" /> {meeting.participants.length > 0 ? meeting.participants.join(', ') : "No participants listed"}</span>
-                    </CardDescription>
-                  </CardHeader>
-                  {meeting.description && (
-                    <CardContent>
-                      <p className="text-sm text-muted-foreground">{meeting.description}</p>
-                    </CardContent>
-                  )}
-                  <CardFooter>
-                    <Button className="w-full sm:w-auto">
-                      <Video className="mr-2 h-4 w-4" /> Join Meeting
-                    </Button>
-                  </CardFooter>
-                </Card>
-              ))}
-            </div>
-          )}
-        </div>
+      <div className="w-full"> {/* Changed from grid to full width for the list */}
+        <h2 className="text-2xl font-headline font-semibold mb-4">
+          All Scheduled Meetings
+        </h2>
+        {sortedMeetings.length === 0 ? (
+          <div className="text-center py-10 bg-muted/50 rounded-md flex flex-col items-center justify-center">
+            <Image src="https://placehold.co/200x150.png" alt="No meetings" width={150} height={112} className="mx-auto mb-4 rounded" data-ai-hint="empty calendar" />
+            <p className="text-muted-foreground">No meetings scheduled yet.</p>
+            <p className="text-sm text-muted-foreground">Schedule a new meeting to get started.</p>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {sortedMeetings.map((meeting) => (
+              <Card key={meeting.id} className="shadow-lg hover:shadow-xl transition-shadow duration-300">
+                <CardHeader>
+                  <CardTitle className="font-headline flex items-center">
+                    <Video className="mr-2 h-5 w-5 text-primary" />
+                    {meeting.title}
+                  </CardTitle>
+                  <CardDescription className="flex flex-col sm:flex-row sm:items-center sm:space-x-4 text-sm pt-1">
+                    <span className="flex items-center mb-1 sm:mb-0"><Clock className="mr-1 h-4 w-4" /> {meeting.dateTime.toLocaleDateString()} at {meeting.dateTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} ({meeting.durationMinutes} min)</span>
+                    <span className="flex items-center"><Users className="mr-1 h-4 w-4" /> {meeting.participants.length > 0 ? meeting.participants.join(', ') : "No participants listed"}</span>
+                  </CardDescription>
+                </CardHeader>
+                {meeting.description && (
+                  <CardContent>
+                    <p className="text-sm text-muted-foreground">{meeting.description}</p>
+                  </CardContent>
+                )}
+                <CardFooter>
+                  <Button className="w-full sm:w-auto">
+                    <Video className="mr-2 h-4 w-4" /> Join Meeting
+                  </Button>
+                </CardFooter>
+              </Card>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );
 }
-
