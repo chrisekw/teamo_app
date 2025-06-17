@@ -56,7 +56,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                     alt="Mobile app promotion"
                     layout="fill"
                     objectFit="contain"
-                    data-ai-hint="abstract mobile interface"
+                    data-ai-hint="mobile app promo"
                   />
                 </div>
                 <p className="text-sm font-medium text-sidebar-foreground mb-3">Get mobile app</p>

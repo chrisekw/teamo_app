@@ -14,6 +14,8 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { Separator } from "@/components/ui/separator";
+import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu";
+import { cn } from "@/lib/utils";
 
 // --- Enums and Types ---
 type RoomType = "Team Hub" | "Meeting Room" | "Focus Booth" | "Social Lounge";
@@ -233,7 +235,7 @@ export default function OfficeDesignerPage() {
   if (!activeOffice) {
     return (
       <div className="container mx-auto p-4 sm:p-6 lg:p-8 flex flex-col items-center justify-center min-h-[calc(100vh-150px)]">
-        <Image src="https://placehold.co/300x200.png" alt="Empty office illustration" width={300} height={200} className="mb-8 rounded-md" data-ai-hint="empty office blueprint" />
+        <Image src="https://placehold.co/300x200.png" alt="Empty office illustration" width={300} height={200} className="mb-8 rounded-md" data-ai-hint="office blueprint" />
         <h1 className="text-3xl font-headline font-bold mb-4 text-center">Welcome to the Office Designer!</h1>
         <p className="text-muted-foreground mb-8 text-center max-w-md">Create your own virtual office space or join an existing one to start collaborating with your team.</p>
         <div className="flex space-x-4">
@@ -366,7 +368,7 @@ export default function OfficeDesignerPage() {
         </div>
         {activeOffice.rooms.length === 0 ? (
           <div className="text-center py-12 bg-muted/20 rounded-lg">
-            <Image src="https://placehold.co/300x200.png" alt="Empty office rooms" width={300} height={200} className="mx-auto mb-4 rounded-md" data-ai-hint="empty office blueprint" />
+            <Image src="https://placehold.co/300x200.png" alt="Empty office rooms" width={300} height={200} className="mx-auto mb-4 rounded-md" data-ai-hint="office blueprint" />
             <p className="text-lg text-muted-foreground">This office has no rooms yet.</p>
             <p className="text-sm text-muted-foreground">Click "Add Room" to design your virtual space.</p>
           </div>
@@ -537,12 +539,3 @@ export default function OfficeDesignerPage() {
     </div>
   );
 }
-
-// Helper components from DropdownMenu for member actions (simplified for direct use here)
-// In a larger app, these might be actual DropdownMenu components.
-const DropdownMenu: React.FC<{children: ReactNode}> = ({ children }) => <div className="relative">{children}</div>;
-const DropdownMenuTrigger: React.FC<{children: ReactNode, asChild?: boolean}> = ({ children }) => <div>{children}</div>; // Simplified
-const DropdownMenuContent: React.FC<{children: ReactNode, align?: string}> = ({ children }) => <div className="absolute right-0 mt-2 w-48 bg-card border rounded-md shadow-lg z-10 py-1">{children}</div>; // Simplified
-const DropdownMenuItem: React.FC<{children: ReactNode, onClick?: () => void, className?: string}> = ({ children, onClick, className }) => <button onClick={onClick} className={cn("block w-full text-left px-3 py-1.5 text-sm hover:bg-muted", className)}>{children}</button>; // Simplified
-
-    

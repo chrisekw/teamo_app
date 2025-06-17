@@ -216,7 +216,7 @@ export default function MeetingsPage() {
           </h2>
           {sortedMeetings.length === 0 ? (
             <div className="text-center py-10 bg-muted/50 rounded-md flex flex-col items-center justify-center">
-              <Image src="https://placehold.co/200x150.png" alt="No meetings" width={150} height={112} className="mx-auto mb-4 rounded" data-ai-hint="empty calendar" />
+              <Image src="https://placehold.co/200x150.png" alt="No meetings" width={150} height={112} className="mx-auto mb-4 rounded" data-ai-hint="calendar illustration" />
               <p className="text-muted-foreground">No meetings scheduled yet.</p>
               <p className="text-sm text-muted-foreground">Schedule a new meeting to get started.</p>
             </div>
@@ -298,7 +298,7 @@ export default function MeetingsPage() {
                  <div className="h-64 overflow-y-auto space-y-2 pr-2 rounded-md border p-2 bg-background">
                     <div className="flex items-center space-x-2 p-2 rounded bg-muted/50">
                         <Avatar className="h-8 w-8">
-                            <AvatarImage src="https://placehold.co/40x40.png?text=YOU" data-ai-hint="person placeholder" />
+                            <AvatarImage src="https://placehold.co/40x40.png?text=YOU" data-ai-hint="person avatar" />
                             <AvatarFallback>YOU</AvatarFallback>
                         </Avatar>
                         <span>You (Local)</span>
@@ -306,7 +306,7 @@ export default function MeetingsPage() {
                     {selectedMeetingForPreview.participants.map((name, index) => (
                     <div key={index} className="flex items-center space-x-2 p-2 rounded hover:bg-muted/50">
                         <Avatar className="h-8 w-8">
-                        <AvatarImage src={`https://placehold.co/40x40.png?text=${name.substring(0,1)}`} data-ai-hint="person placeholder" />
+                        <AvatarImage src={`https://placehold.co/40x40.png?text=${name.substring(0,1)}`} data-ai-hint="person avatar" />
                         <AvatarFallback>{name.substring(0,1)}</AvatarFallback>
                         </Avatar>
                         <span>{name}</span>
@@ -326,4 +326,3 @@ export default function MeetingsPage() {
     </div>
   );
 }
-

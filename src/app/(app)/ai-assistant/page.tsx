@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useState } from "react";
@@ -135,15 +136,15 @@ export default function AiAssistantPage() {
                 <AlertTitle>Overall Summary</AlertTitle>
                 <AlertDescription>{summarizeResult.summary}</AlertDescription>
               </Alert>
-              <Alert variant="default" className="mb-4 bg-green-50 border-green-200 dark:bg-green-900/30 dark:border-green-700">
-                 <CheckSquare className="h-4 w-4 text-green-600 dark:text-green-400" />
-                <AlertTitle className="text-green-700 dark:text-green-300">Key Decisions</AlertTitle>
-                <AlertDescription className="text-green-700 dark:text-green-500">{summarizeResult.keyDecisions}</AlertDescription>
+              <Alert variant="default" className="mb-4">
+                 <CheckSquare className="h-4 w-4" />
+                <AlertTitle>Key Decisions</AlertTitle>
+                <AlertDescription>{summarizeResult.keyDecisions}</AlertDescription>
               </Alert>
-              <Alert variant="destructive" className="mb-4 bg-red-50 border-red-200 dark:bg-red-900/30 dark:border-red-700">
-                <AlertTriangle className="h-4 w-4 text-red-600 dark:text-red-400" />
-                <AlertTitle className="text-red-700 dark:text-red-300">Identified Roadblocks</AlertTitle>
-                <AlertDescription className="text-red-700 dark:text-red-500">{summarizeResult.roadblocks}</AlertDescription>
+              <Alert variant="destructive" className="mb-4">
+                <AlertTriangle className="h-4 w-4" />
+                <AlertTitle>Identified Roadblocks</AlertTitle>
+                <AlertDescription>{summarizeResult.roadblocks}</AlertDescription>
               </Alert>
             </div>
           )}
