@@ -61,7 +61,6 @@ export default function MeetingsPage() {
   const [meetingToDelete, setMeetingToDelete] = useState<Meeting | null>(null);
   const [userOffices, setUserOffices] = useState<Office[]>([]);
 
-  // Form state for new meeting
   const [newMeetingTitle, setNewMeetingTitle] = useState("");
   const [newMeetingDate, setNewMeetingDate] = useState<Date | undefined>(new Date());
   const [newMeetingTime, setNewMeetingTime] = useState("10:00");
@@ -69,14 +68,13 @@ export default function MeetingsPage() {
   const [newMeetingParticipants, setNewMeetingParticipants] = useState("");
   const [newMeetingDescription, setNewMeetingDescription] = useState("");
 
-  // Video call state
   const [selectedMeetingForPreview, setSelectedMeetingForPreview] = useState<Meeting | null>(null);
   const [hasCameraPermission, setHasCameraPermission] = useState<boolean | undefined>(undefined);
   const [isJoiningMeeting, setIsJoiningMeeting] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
 
-  const fetchUserOfficesForActivityLog = useCallback(async () => {
+  const fetchUserOffices = useCallback(async () => {
     if (user) {
       const offices = await getOfficesForUser(user.uid);
       setUserOffices(offices);
@@ -84,10 +82,10 @@ export default function MeetingsPage() {
   }, [user]);
 
   useEffect(() => {
-    if (!authLoading) {
-      fetchUserOfficesForActivityLog();
+    if (!authLoading && user) {
+      fetchUserOffices();
     }
-  }, [authLoading, user, fetchUserOfficesForActivityLog]);
+  }, [authLoading, user, fetchUserOffices]);
 
   const fetchMeetings = useCallback(async () => {
     if (user) {
@@ -186,11 +184,11 @@ export default function MeetingsPage() {
       participants: newMeetingParticipants.split(',').map(p => p.trim()).filter(p => p),
       description: newMeetingDescription,
     };
-    const actorName = user.displayName || "User";
-    const officeIdForLog = userOffices.length > 0 ? userOffices[0].id : undefined;
+    const actorName = user.displayName || user.email || "User";
+    const officeForMeeting = userOffices.length > 0 ? userOffices[0] : undefined;
 
     try {
-        await addMeetingForUser(user.uid, meetingData, actorName, officeIdForLog);
+        await addMeetingForUser(user.uid, meetingData, actorName, officeForMeeting?.id, officeForMeeting?.name);
         toast({ title: "Meeting Scheduled", description: `"${meetingData.title}" has been scheduled.` });
         fetchMeetings();
         setIsScheduleDialogOpen(false);
@@ -231,7 +229,7 @@ export default function MeetingsPage() {
     setSelectedMeetingForPreview(null);
   };
   
-  if (authLoading || isLoadingMeetings) {
+  if (authLoading || (isLoadingMeetings && meetings.length === 0 && userOffices.length === 0)) {
      return <div className="container mx-auto p-8 text-center"><Loader2 className="h-12 w-12 animate-spin text-primary" /></div>;
   }
 
@@ -258,7 +256,7 @@ export default function MeetingsPage() {
                 </div>
                 <div className="grid gap-2">
                   <Label htmlFor="date">Date</Label>
-                  <ShadCNCalendar mode="single" selected={newMeetingDate} onSelect={setNewMeetingDate} className="rounded-md border p-0 w-full" disabled={isSubmitting}/>
+                  <ShadCNCalendar mode="single" selected={newMeetingDate} onSelect={setNewMeetingDate} className="rounded-md border p-0 w-full" disabled={(date) => date < new Date(new Date().setHours(0,0,0,0)) || isSubmitting}/>
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div className="grid gap-2">
@@ -380,4 +378,3 @@ export default function MeetingsPage() {
     </div>
   );
 }
-

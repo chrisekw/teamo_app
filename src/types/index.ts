@@ -25,7 +25,7 @@ export interface Task {
   description?: string;
   createdAt?: Date;
   updatedAt?: Date;
-  userId?: string; // Added for context when logging activity
+  userId?: string;
 }
 
 export type TaskFirestoreData = Omit<Task, 'id' | 'dueDate' | 'createdAt' | 'updatedAt' | 'userId'> & {
@@ -46,7 +46,7 @@ export interface Goal {
   deadline?: Date;
   createdAt?: Date;
   updatedAt?: Date;
-  userId?: string; // Added for context when logging activity
+  userId?: string;
 }
 
 export type GoalFirestoreData = Omit<Goal, 'id' | 'deadline' | 'createdAt' | 'updatedAt' | 'userId'> & {
@@ -65,7 +65,7 @@ export interface Meeting {
   description?: string;
   createdAt?: Date;
   updatedAt?: Date;
-  userId?: string; // Added for context
+  userId?: string;
 }
 
 export type MeetingFirestoreData = Omit<Meeting, 'id' | 'dateTime' | 'createdAt' | 'updatedAt' | 'userId'> & {
@@ -134,15 +134,15 @@ export interface ActivityLogItem {
   title: string;
   description: string;
   timestamp: Date;
-  iconName: string; // Lucide icon name as string
+  iconName: string;
   actorName?: string;
   actorId?: string;
-  entityId?: string; // ID of the related task, goal, etc.
+  entityId?: string;
   entityType?: 'task' | 'goal' | 'meeting' | 'member' | 'room' | 'office';
 }
 
 export type ActivityLogItemFirestoreData = Omit<ActivityLogItem, 'id' | 'timestamp'> & {
-  timestamp: Timestamp; // Firestore Timestamp for server-side ordering
+  timestamp: Timestamp;
 };
 
 
@@ -178,11 +178,6 @@ export interface ChatThread {
   participantIds: string[];
   lastMessage?: Pick<ChatMessage, 'text' | 'senderName' | 'timestamp'>;
   updatedAt?: Date;
-  // For group chats, could add:
-  // officeId?: string; // Link to an office for general chats
-  // name?: string;
-  // groupAvatarUrl?: string;
-  // type: 'dm' | 'group';
 }
 
 export type ChatThreadFirestoreData = Omit<ChatThread, 'id' | 'lastMessage' | 'updatedAt'> & {
@@ -192,4 +187,31 @@ export type ChatThreadFirestoreData = Omit<ChatThread, 'id' | 'lastMessage' | 'u
       timestamp: Timestamp;
   };
   updatedAt?: Timestamp;
+};
+
+// --- User Notification Types ---
+export type UserNotificationType =
+  | "task-new"
+  | "goal-new"
+  | "meeting-new"
+  | "office-invite" // Example for future use
+  | "generic";
+
+export interface UserNotification {
+  id: string;
+  userId: string; // The ID of the user this notification is for
+  type: UserNotificationType;
+  title: string;
+  message: string;
+  link?: string; // Optional link to navigate to (e.g., /tasks/taskId)
+  timestamp: Date;
+  isRead: boolean;
+  officeId?: string; // Optional: context if it's an office-related notification
+  actorName?: string; // Optional: name of the user who triggered the event
+  entityId?: string; // ID of the related task, goal, meeting, etc.
+  entityType?: 'task' | 'goal' | 'meeting' | 'office'; // Type of the related entity
+}
+
+export type UserNotificationFirestoreData = Omit<UserNotification, 'id' | 'timestamp' | 'userId'> & {
+  timestamp: Timestamp;
 };

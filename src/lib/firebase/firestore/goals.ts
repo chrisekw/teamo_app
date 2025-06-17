@@ -17,6 +17,8 @@ import {
 } from 'firebase/firestore';
 import type { Goal, GoalFirestoreData } from '@/types';
 import { addActivityLog } from './activity';
+import { getMembersForOffice } from './offices';
+import { addUserNotification } from './notifications';
 
 const goalConverter: FirestoreDataConverter<Goal, GoalFirestoreData> = {
   toFirestore: (goalInput: Partial<Goal>): DocumentData => {
@@ -68,13 +70,14 @@ export async function getGoalsForUser(userId: string): Promise<Goal[]> {
 }
 
 export async function addGoalForUser(
-  userId: string, 
+  actorUserId: string, 
   goalData: Omit<Goal, 'id' | 'createdAt' | 'updatedAt' | 'userId'>,
   actorName: string,
-  officeId?: string
+  officeId?: string,
+  officeName?: string
 ): Promise<Goal> {
-  if (!userId) throw new Error("User ID is required to add a goal.");
-  const goalsCol = getGoalsCollection(userId);
+  if (!actorUserId) throw new Error("Actor User ID is required to add a goal.");
+  const goalsCol = getGoalsCollection(actorUserId);
   const docRef = await addDoc(goalsCol, goalData as Goal); 
   
   const newDocSnap = await getDoc(docRef);
@@ -87,13 +90,34 @@ export async function addGoalForUser(
     addActivityLog(officeId, {
       type: "goal-new",
       title: `New Goal Set: ${newGoal.name}`,
-      description: `Target: ${newGoal.targetValue} ${newGoal.unit}`,
+      description: `Target: ${newGoal.targetValue} ${newGoal.unit}. Set by ${actorName}.`,
       iconName: "Target",
-      actorId: userId,
+      actorId: actorUserId,
       actorName,
       entityId: newGoal.id,
       entityType: "goal",
     });
+
+    // Send notifications to other office members
+    try {
+      const members = await getMembersForOffice(officeId);
+      for (const member of members) {
+        if (member.userId !== actorUserId) { 
+          await addUserNotification(member.userId, {
+            type: "goal-new",
+            title: `New Goal in ${officeName || 'Office'}: ${newGoal.name}`,
+            message: `${actorName} set a new goal: "${newGoal.name}". Target: ${newGoal.targetValue} ${newGoal.unit}.`,
+            link: `/goals`, // No specific goal detail page yet
+            officeId: officeId,
+            actorName: actorName,
+            entityId: newGoal.id,
+            entityType: "goal"
+          });
+        }
+      }
+    } catch (error) {
+      console.error("Failed to send goal creation notifications for office members:", error);
+    }
   }
   return newGoal;
 }
@@ -121,12 +145,13 @@ export async function updateGoalForUser(
 
   if (officeId && originalGoal && goalData.currentValue !== undefined && goalData.currentValue !== originalGoal.currentValue) {
     const progress = (goalData.currentValue / originalGoal.targetValue) * 100;
-    const isAchieved = progress >= 100;
+    const isAchieved = progress >= 100 && !originalGoal.unit.toLowerCase().includes("lower is better") || (originalGoal.unit.toLowerCase().includes("lower is better") && goalData.currentValue <= originalGoal.targetValue);
+
 
     addActivityLog(officeId, {
       type: isAchieved ? "goal-achieved" : "goal-progress-update",
       title: isAchieved ? `Goal Achieved: ${originalGoal.name}` : `Goal Update: ${originalGoal.name}`,
-      description: `Progress: ${goalData.currentValue} / ${originalGoal.targetValue} ${originalGoal.unit} (${Math.round(progress)}%)`,
+      description: `Progress: ${goalData.currentValue} / ${originalGoal.targetValue} ${originalGoal.unit} (${Math.round(progress)}%). Updated by ${actorName}.`,
       iconName: isAchieved ? "CheckSquare" : "TrendingUp",
       actorId: userId,
       actorName,
@@ -140,5 +165,4 @@ export async function deleteGoalForUser(userId: string, goalId: string): Promise
   if (!userId || !goalId) throw new Error("User ID and Goal ID are required for delete.");
   const goalDocRef = getGoalDoc(userId, goalId);
   await deleteDoc(goalDocRef);
-  // Consider logging deletion if officeId context is available
 }

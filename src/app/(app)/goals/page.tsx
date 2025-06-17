@@ -45,9 +45,8 @@ export default function GoalsPage() {
   const [isGoalDialogOpen, setIsGoalDialogOpen] = useState(false);
   const [currentGoalToEdit, setCurrentGoalToEdit] = useState<Goal | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [userOffices, setUserOffices] = useState<Office[]>([]); // To get officeId for activity log
+  const [userOffices, setUserOffices] = useState<Office[]>([]);
 
-  // Form state
   const [goalName, setGoalName] = useState("");
   const [goalDescription, setGoalDescription] = useState("");
   const [goalTargetValue, setGoalTargetValue] = useState(100);
@@ -55,7 +54,7 @@ export default function GoalsPage() {
   const [goalUnit, setGoalUnit] = useState("%");
   const [goalDeadline, setGoalDeadline] = useState<Date | undefined>();
 
-  const fetchUserOfficesForActivityLog = useCallback(async () => {
+  const fetchUserOffices = useCallback(async () => {
     if (user) {
       const offices = await getOfficesForUser(user.uid);
       setUserOffices(offices);
@@ -64,9 +63,9 @@ export default function GoalsPage() {
 
   useEffect(() => {
     if (!authLoading && user) {
-      fetchUserOfficesForActivityLog();
+      fetchUserOffices();
     }
-  }, [authLoading, user, fetchUserOfficesForActivityLog]);
+  }, [authLoading, user, fetchUserOffices]);
 
 
   const fetchGoals = useCallback(async () => {
@@ -134,16 +133,16 @@ export default function GoalsPage() {
       unit: goalUnit,
       deadline: goalDeadline,
     };
-    const actorName = user.displayName || "User";
-    const officeIdForLog = userOffices.length > 0 ? userOffices[0].id : undefined;
+    const actorName = user.displayName || user.email || "User";
+    const officeForGoal = userOffices.length > 0 ? userOffices[0] : undefined;
 
 
     try {
       if (currentGoalToEdit) {
-        await updateGoalForUser(user.uid, currentGoalToEdit.id, goalData, actorName, officeIdForLog);
+        await updateGoalForUser(user.uid, currentGoalToEdit.id, goalData, actorName, officeForGoal?.id);
         toast({ title: "Goal Updated", description: `"${goalData.name}" has been updated.` });
       } else {
-        await addGoalForUser(user.uid, goalData, actorName, officeIdForLog);
+        await addGoalForUser(user.uid, goalData, actorName, officeForGoal?.id, officeForGoal?.name);
         toast({ title: "Goal Added", description: `"${goalData.name}" has been added.` });
       }
       fetchGoals(); 
@@ -174,21 +173,16 @@ export default function GoalsPage() {
   
   const getProgressPercentage = (current: number, target: number, unit: string) => {
     if (unit.toLowerCase().includes("lower is better")) {
-        if (target === 0 && current === 0) return 100; // Special case: target 0 bugs, current 0 bugs means 100% achieved
+        if (target === 0 && current === 0) return 100;
         if (current <= target) return 100;
         if (target === 0 && current > 0) return 0; 
-        // For "lower is better", if current is higher than target, progress is less than 100%.
-        // This specific calculation might need refinement based on exact needs.
-        // A simple approach: progress = (initial_value - current_value) / (initial_value - target_value) * 100
-        // Assuming initial_value could be e.g., 2 * target if not explicitly set.
-        // For now, if current > target, it's not 100%.
-        return Math.max(0, ( (target * 1.5) - current) / ( (target*1.5) - target) * 100 ); // Placeholder logic
+        return Math.max(0, ( (target * 1.5) - current) / ( (target*1.5) - target) * 100 );
     }
     if (target === 0) return current > 0 ? 100 : 0;
     return Math.min(Math.max((current / target) * 100, 0), 100);
   };
 
-  if (authLoading || isLoadingGoals) {
+  if (authLoading || (isLoadingGoals && goals.length === 0 && userOffices.length === 0)) {
     return <div className="container mx-auto p-8 text-center"><Loader2 className="h-12 w-12 animate-spin text-primary" /></div>;
   }
 
@@ -196,7 +190,7 @@ export default function GoalsPage() {
     <div className="container mx-auto p-4 sm:p-6 lg:p-8">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-8">
         <h1 className="text-3xl font-headline font-bold mb-4 sm:mb-0">Goal Tracker</h1>
-        <Button onClick={() => handleOpenDialog()}>
+        <Button onClick={() => handleOpenDialog()} disabled={isSubmitting}>
           <PlusCircle className="mr-2 h-4 w-4" /> Add New Goal
         </Button>
       </div>
@@ -213,8 +207,8 @@ export default function GoalsPage() {
         <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
           {goals.map((goal) => {
             const progress = getProgressPercentage(goal.currentValue, goal.targetValue, goal.unit);
-            const isCompletedNonLowerIsBetter = progress >= 100 && !goal.unit.toLowerCase().includes("lower is better");
             const isLowerBetterAchieved = goal.unit.toLowerCase().includes("lower is better") && goal.currentValue <= goal.targetValue;
+            const isCompletedNonLowerIsBetter = progress >= 100 && !goal.unit.toLowerCase().includes("lower is better");
             const isAchieved = isCompletedNonLowerIsBetter || isLowerBetterAchieved;
 
             return (
@@ -322,7 +316,7 @@ export default function GoalsPage() {
                   </Button>
                 </PopoverTrigger>
                 <PopoverContent className="w-auto p-0">
-                  <DynamicCalendar mode="single" selected={goalDeadline} onSelect={setGoalDeadline} initialFocus />
+                  <DynamicCalendar mode="single" selected={goalDeadline} onSelect={setGoalDeadline} initialFocus disabled={isSubmitting}/>
                 </PopoverContent>
               </Popover>
             </div>
@@ -339,5 +333,3 @@ export default function GoalsPage() {
     </div>
   );
 }
-
-    

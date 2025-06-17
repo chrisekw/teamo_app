@@ -2,7 +2,9 @@
 import { db } from '@/lib/firebase/client';
 import { collection, addDoc, getDocs, doc, getDoc, updateDoc, deleteDoc, query, Timestamp, orderBy, serverTimestamp, type DocumentData, type FirestoreDataConverter } from 'firebase/firestore';
 import type { Task, TaskFirestoreData } from '@/types';
-import { addActivityLog } from './activity'; // Import activity logger
+import { addActivityLog } from './activity';
+import { getMembersForOffice } from './offices';
+import { addUserNotification } from './notifications';
 
 const taskConverter: FirestoreDataConverter<Task, TaskFirestoreData> = {
   toFirestore: (taskInput: Partial<Task>): DocumentData => {
@@ -33,7 +35,6 @@ const taskConverter: FirestoreDataConverter<Task, TaskFirestoreData> = {
       description: data.description || "",
       createdAt: data.createdAt instanceof Timestamp ? data.createdAt.toDate() : new Date(),
       updatedAt: data.updatedAt instanceof Timestamp ? data.updatedAt.toDate() : new Date(),
-      // userId is not stored on the task document itself but can be inferred or passed if needed
     };
   }
 };
@@ -62,13 +63,16 @@ export async function getTaskByIdForUser(userId: string, taskId: string): Promis
 }
 
 export async function addTaskForUser(
-  userId: string, 
+  actorUserId: string, 
   taskData: Omit<Task, 'id' | 'createdAt' | 'updatedAt' | 'userId'>,
   actorName: string,
-  officeId?: string // Optional: if tasks are associated with offices for activity logging
+  officeId?: string,
+  officeName?: string
 ): Promise<Task> {
-  if (!userId) throw new Error("User ID is required to add a task.");
-  const tasksCol = getTasksCollection(userId);
+  if (!actorUserId) throw new Error("Actor User ID is required to add a task.");
+  // Task is added to the actor's own tasks collection for now
+  // If tasks were global to an office, this would change.
+  const tasksCol = getTasksCollection(actorUserId);
   const docRef = await addDoc(tasksCol, taskData as Task); 
   
   const newDocSnap = await getDoc(docRef);
@@ -77,18 +81,42 @@ export async function addTaskForUser(
   }
   const newTask = newDocSnap.data()!;
 
-  if (officeId) { // Log activity if officeId is provided
+  if (officeId) {
     addActivityLog(officeId, {
       type: "task-new",
       title: `New Task: ${newTask.name}`,
-      description: `Assigned to: ${newTask.assignedTo || 'Unassigned'}`,
+      description: `Assigned to: ${newTask.assignedTo || 'Unassigned'} by ${actorName}`,
       iconName: "ListChecks",
-      actorId: userId,
+      actorId: actorUserId,
       actorName: actorName,
       entityId: newTask.id,
       entityType: "task",
     });
+
+    // Send notifications to other office members
+    try {
+      const members = await getMembersForOffice(officeId);
+      for (const member of members) {
+        if (member.userId !== actorUserId) { // Don't notify the actor
+          await addUserNotification(member.userId, {
+            type: "task-new",
+            title: `New Task in ${officeName || 'Office'}: ${newTask.name}`,
+            message: `${actorName} created task: "${newTask.name}". Assigned to: ${newTask.assignedTo || 'Unassigned'}.`,
+            link: `/tasks/${newTask.id}`, // Link to task detail page (assuming tasks are user-specific for viewing)
+            officeId: officeId,
+            actorName: actorName,
+            entityId: newTask.id,
+            entityType: "task"
+          });
+        }
+      }
+    } catch (error) {
+      console.error("Failed to send task creation notifications for office members:", error);
+    }
   }
+  // If not an office task, perhaps notify the assignee if different from actor and if assignee is a known userId.
+  // For now, this example focuses on office context notifications.
+
   return newTask;
 }
 
@@ -108,45 +136,28 @@ export async function updateTaskForUser(
   if (taskData.dueDate && taskData.dueDate instanceof Date) {
     updatePayload.dueDate = Timestamp.fromDate(taskData.dueDate);
   }
-  // updatedAt is handled by converter
   await updateDoc(taskDocRef, updatePayload);
 
   if (officeId && originalTask) {
-    let activityLogged = false;
     if (taskData.status && taskData.status !== originalTask.status) {
-      if (taskData.status === "Done") {
-        addActivityLog(officeId, {
-          type: "task-completed",
-          title: `Task Completed: ${originalTask.name}`,
-          description: `Status changed to Done by ${actorName}`,
-          iconName: "CheckCircle2",
-          actorId: userId,
-          actorName,
-          entityId: taskId,
-          entityType: "task",
-        });
-        activityLogged = true;
-      } else {
-        addActivityLog(officeId, {
-          type: "task-status-update",
-          title: `Task Update: ${originalTask.name}`,
-          description: `Status changed to ${taskData.status} by ${actorName}`,
-          iconName: "Edit3",
-          actorId: userId,
-          actorName,
-          entityId: taskId,
-          entityType: "task",
-        });
-        activityLogged = true;
-      }
+      const activityType = taskData.status === "Done" ? "task-completed" : "task-status-update";
+      const iconName = taskData.status === "Done" ? "CheckSquare" : "Edit3";
+      addActivityLog(officeId, {
+        type: activityType,
+        title: `Task ${taskData.status === "Done" ? 'Completed' : 'Update'}: ${originalTask.name}`,
+        description: `Status changed to ${taskData.status} by ${actorName}`,
+        iconName: iconName,
+        actorId: userId,
+        actorName,
+        entityId: taskId,
+        entityType: "task",
+      });
     }
-    // Potentially log other significant updates if needed
   }
 }
 
 export async function deleteTaskForUser(userId: string, taskId: string): Promise<void> {
   if (!userId || !taskId) throw new Error("User ID and Task ID are required for delete.");
-  // Consider logging deletion if officeId context is available
   const taskDocRef = getTaskDoc(userId, taskId);
   await deleteDoc(taskDocRef);
 }

@@ -20,7 +20,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
@@ -30,6 +29,14 @@ import { statusColors, addTaskForUser, getTasksForUser } from "@/lib/firebase/fi
 import { useAuth } from "@/lib/firebase/auth";
 import { useToast } from "@/hooks/use-toast";
 import { getOfficesForUser, type Office } from "@/lib/firebase/firestore/offices";
+import dynamic from 'next/dynamic';
+import { Skeleton } from "@/components/ui/skeleton";
+
+
+const DynamicCalendar = dynamic(() => import('@/components/ui/calendar').then(mod => mod.Calendar), {
+  ssr: false,
+  loading: () => <Skeleton className="w-full h-[280px]" />
+});
 
 
 export default function TasksPage() {
@@ -41,7 +48,6 @@ export default function TasksPage() {
   const [isCreateTaskDialogOpen, setIsCreateTaskDialogOpen] = useState(false);
   const [userOffices, setUserOffices] = useState<Office[]>([]);
 
-  // Form state for new task dialog
   const [newTaskName, setNewTaskName] = useState("");
   const [newAssignedTo, setNewAssignedTo] = useState("");
   const [newDueDate, setNewDueDate] = useState<Date | undefined>(new Date());
@@ -51,7 +57,7 @@ export default function TasksPage() {
   const [newProgress, setNewProgress] = useState(0);
   const [isSubmittingTask, setIsSubmittingTask] = useState(false);
 
-  const fetchUserOfficesForActivityLog = useCallback(async () => {
+  const fetchUserOffices = useCallback(async () => {
     if (user) {
       const offices = await getOfficesForUser(user.uid);
       setUserOffices(offices);
@@ -59,10 +65,10 @@ export default function TasksPage() {
   }, [user]);
 
   useEffect(() => {
-    if (!authLoading) {
-      fetchUserOfficesForActivityLog();
+    if (!authLoading && user) {
+      fetchUserOffices();
     }
-  }, [authLoading, fetchUserOfficesForActivityLog]);
+  }, [authLoading, user, fetchUserOffices]);
 
 
   const fetchTasks = useCallback(async () => {
@@ -117,11 +123,12 @@ export default function TasksPage() {
       description: newDescription,
       progress: newProgress,
     };
-    const actorName = user.displayName || "User";
-    const officeIdForLog = userOffices.length > 0 ? userOffices[0].id : undefined;
+    
+    const actorName = user.displayName || user.email || "User";
+    const officeForTask = userOffices.length > 0 ? userOffices[0] : undefined;
 
     try {
-      await addTaskForUser(user.uid, taskData, actorName, officeIdForLog);
+      await addTaskForUser(user.uid, taskData, actorName, officeForTask?.id, officeForTask?.name);
       toast({ title: "Task Created", description: `"${taskData.name}" has been added.` });
       setIsCreateTaskDialogOpen(false);
       resetCreateForm();
@@ -147,7 +154,7 @@ export default function TasksPage() {
     return (a.dueDate?.getTime() || 0) - (b.dueDate?.getTime() || 0);
   });
 
-  if (authLoading || (isLoadingTasks && !tasks.length && !userOffices.length)) {
+  if (authLoading || (isLoadingTasks && tasks.length === 0 && userOffices.length === 0)) {
     return <div className="container mx-auto p-8 text-center"><Loader2 className="h-12 w-12 animate-spin text-primary" /></div>;
   }
 
@@ -223,16 +230,16 @@ export default function TasksPage() {
           <div className="grid gap-4 py-4 max-h-[70vh] overflow-y-auto pr-2">
             <div className="grid gap-2">
               <Label htmlFor="newTaskName">Task Name</Label>
-              <Input id="newTaskName" value={newTaskName} onChange={(e) => setNewTaskName(e.target.value)} placeholder="e.g., Design new logo" />
+              <Input id="newTaskName" value={newTaskName} onChange={(e) => setNewTaskName(e.target.value)} placeholder="e.g., Design new logo" disabled={isSubmittingTask}/>
             </div>
              <div className="grid gap-2">
               <Label htmlFor="newDescription">Description (Optional)</Label>
-              <Textarea id="newDescription" value={newDescription} onChange={(e) => setNewDescription(e.target.value)} placeholder="Detailed description of the task" />
+              <Textarea id="newDescription" value={newDescription} onChange={(e) => setNewDescription(e.target.value)} placeholder="Detailed description of the task" disabled={isSubmittingTask}/>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="grid gap-2">
                   <Label htmlFor="newAssignedTo">Assigned To</Label>
-                  <Input id="newAssignedTo" value={newAssignedTo} onChange={(e) => setNewAssignedTo(e.target.value)} placeholder="e.g., John Doe" />
+                  <Input id="newAssignedTo" value={newAssignedTo} onChange={(e) => setNewAssignedTo(e.target.value)} placeholder="e.g., John Doe" disabled={isSubmittingTask}/>
                 </div>
                  <div className="grid gap-2">
                     <Label htmlFor="newDueDate">Due Date</Label>
@@ -244,17 +251,19 @@ export default function TasksPage() {
                             "w-full justify-start text-left font-normal",
                             !newDueDate && "text-muted-foreground"
                           )}
+                          disabled={isSubmittingTask}
                         >
                           <CalendarIcon className="mr-2 h-4 w-4" />
                           {newDueDate ? format(newDueDate, "PPP") : <span>Pick a date</span>}
                         </Button>
                       </PopoverTrigger>
                       <PopoverContent className="w-auto p-0">
-                        <Calendar
+                        <DynamicCalendar
                           mode="single"
                           selected={newDueDate}
                           onSelect={setNewDueDate}
                           initialFocus
+                          disabled={isSubmittingTask}
                         />
                       </PopoverContent>
                     </Popover>
@@ -263,7 +272,7 @@ export default function TasksPage() {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="grid gap-2">
                     <Label htmlFor="newStatus">Status</Label>
-                    <Select value={newStatus} onValueChange={(value) => setNewStatus(value as Task["status"])}>
+                    <Select value={newStatus} onValueChange={(value) => setNewStatus(value as Task["status"])} disabled={isSubmittingTask}>
                         <SelectTrigger id="newStatus">
                         <SelectValue placeholder="Select status" />
                         </SelectTrigger>
@@ -277,7 +286,7 @@ export default function TasksPage() {
                 </div>
                  <div className="grid gap-2">
                     <Label htmlFor="newPriority">Priority</Label>
-                    <Select value={newPriority} onValueChange={(value) => setNewPriority(value as Task["priority"])}>
+                    <Select value={newPriority} onValueChange={(value) => setNewPriority(value as Task["priority"])} disabled={isSubmittingTask}>
                         <SelectTrigger id="newPriority">
                         <SelectValue placeholder="Select priority" />
                         </SelectTrigger>
@@ -291,7 +300,7 @@ export default function TasksPage() {
             </div>
             <div className="grid gap-2">
                 <Label htmlFor="newProgress">Progress ({newProgress}%)</Label>
-                <Input id="newProgress" type="range" min="0" max="100" value={newProgress} onChange={(e) => setNewProgress(parseInt(e.target.value))} />
+                <Input id="newProgress" type="range" min="0" max="100" value={newProgress} onChange={(e) => setNewProgress(parseInt(e.target.value))} disabled={isSubmittingTask}/>
             </div>
           </div>
           <DialogFooter>
