@@ -38,7 +38,7 @@ const roomTypeDetails: Record<RoomType, { icon: React.ElementType; defaultName: 
   "Social Lounge": { icon: Coffee, defaultName: "Social Lounge", imageHint: "office lounge", iconName: "Coffee" },
 };
 
-const lucideIcons: Record<string, React.ElementType> = { Users, Briefcase, Zap, Coffee, Building }; // Added Building
+const lucideIcons: Record<string, React.ElementType> = { Users, Briefcase, Zap, Coffee, Building }; 
 
 const roleIcons: Record<MemberRole, React.ElementType> = {
   "Owner": ShieldCheck,

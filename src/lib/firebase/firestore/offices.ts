@@ -65,10 +65,15 @@ const roomConverter: FirestoreDataConverter<Room, RoomFirestoreData> = {
 };
 
 const officeMemberConverter: FirestoreDataConverter<OfficeMember, OfficeMemberFirestoreData> = {
-  toFirestore: (memberInput: Partial<OfficeMember>): DocumentData => { // Changed to Partial for flexibility
+  toFirestore: (memberInput: Partial<OfficeMember>): DocumentData => { 
     const data: any = { ...memberInput };
-    delete data.userId; // userId is the doc ID
+    // userId is the doc ID, so it's not part of the data being set/updated directly here
+    // It will be used as the document ID when calling setDoc.
+    if (data.hasOwnProperty('userId')) delete data.userId;
+
     if (!memberInput.joinedAt) data.joinedAt = serverTimestamp();
+    else if (memberInput.joinedAt instanceof Date) data.joinedAt = Timestamp.fromDate(memberInput.joinedAt);
+    
     return data;
   },
   fromFirestore: (snapshot, options): OfficeMember => {
@@ -84,7 +89,7 @@ const officeMemberConverter: FirestoreDataConverter<OfficeMember, OfficeMemberFi
 };
 
 const officesCol = () => collection(db, 'offices').withConverter(officeConverter);
-const officeDocRef = (officeId: string) => doc(db, 'offices', officeId).withConverter(officeConverter); // Renamed for clarity
+const officeDocRef = (officeId: string) => doc(db, 'offices', officeId).withConverter(officeConverter);
 
 const roomsCol = (officeId: string) => collection(officeDocRef(officeId).path, 'rooms').withConverter(roomConverter);
 const roomDocRef = (officeId: string, roomId: string) => doc(roomsCol(officeId).path, roomId).withConverter(roomConverter);
@@ -106,12 +111,12 @@ export async function createOffice(currentUserId: string, currentUserName: strin
 
   const newOfficeDocRef = await addDoc(officesCol(), newOfficeData as Office);
   
-  const ownerMemberData: Omit<OfficeMember, 'joinedAt'> = {
-    userId: currentUserId,
+  const ownerMemberData: Omit<OfficeMember, 'joinedAt' | 'userId'> = { // Exclude userId as it's the doc key
     name: currentUserName,
     role: "Owner",
     avatarUrl: currentUserAvatar,
   };
+  // Use officeMemberConverter here
   await setDoc(memberDocRef(newOfficeDocRef.id, currentUserId), officeMemberConverter.toFirestore(ownerMemberData));
 
   await setDoc(doc(userOfficesCol(currentUserId), newOfficeDocRef.id), { officeId: newOfficeDocRef.id, officeName: officeName, role: "Owner", joinedAt: serverTimestamp() });
@@ -158,8 +163,7 @@ export async function joinOfficeByCode(currentUserId: string, currentUserName: s
   const memberSnap = await getDoc(memberDocRef(officeId, currentUserId));
   if (memberSnap.exists()) throw new Error("User is already a member of this office.");
 
-  const newMemberData: Omit<OfficeMember, 'joinedAt'> = {
-    userId: currentUserId,
+  const newMemberData: Omit<OfficeMember, 'joinedAt' | 'userId'> = { // Exclude userId
     name: currentUserName,
     role: "Member",
     avatarUrl: currentUserAvatar,
@@ -217,7 +221,7 @@ export async function addRoomToOffice(
     type: "room-new",
     title: `New Room: ${newRoom.name}`,
     description: `Type: ${newRoom.type}, created by ${actorName}`,
-    iconName: roomData.iconName, // Assuming iconName is part of roomData
+    iconName: roomData.iconName, 
     actorId: actorId,
     actorName: actorName,
     entityId: newRoom.id,
