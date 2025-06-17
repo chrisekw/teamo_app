@@ -41,7 +41,7 @@ export default function TaskDetailPage() {
   const [currentTask, setCurrentTask] = useState<Task | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [userOffices, setUserOffices] = useState<Office[]>([]);
+  const [userOffices, setUserOffices] = useState<Office[]>([]); // For activity log context
 
   // Form states
   const [taskName, setTaskName] = useState("");
@@ -61,10 +61,10 @@ export default function TaskDetailPage() {
   }, [user]);
 
   useEffect(() => {
-    if (!authLoading) {
+    if (!authLoading && user) { // Fetch offices once user is available
       fetchUserOfficesForActivityLog();
     }
-  }, [authLoading, fetchUserOfficesForActivityLog]);
+  }, [authLoading, user, fetchUserOfficesForActivityLog]);
 
   const fetchTask = useCallback(async () => {
     if (user && taskId) {
@@ -143,7 +143,7 @@ export default function TaskDetailPage() {
     setIsDeleteDialogOpen(false);
   };
 
-  if (authLoading || isLoading || (user && userOffices.length === 0 && !isLoading)) { // Also wait for offices if user exists
+  if (authLoading || isLoading) { 
     return <div className="container mx-auto p-8 text-center"><Loader2 className="h-12 w-12 animate-spin text-primary"/></div>;
   }
 
@@ -292,5 +292,3 @@ export default function TaskDetailPage() {
   );
 }
 
-
-    

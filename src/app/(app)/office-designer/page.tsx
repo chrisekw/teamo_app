@@ -94,6 +94,14 @@ export default function OfficeDesignerPage() {
       fetchUserOffices();
     }
   }, [authLoading, user, fetchUserOffices]);
+  
+  useEffect(() => {
+    // If userOffices are loaded, and there's only one office,
+    // and no activeOffice is set, automatically set it.
+    if (!activeOffice && userOffices.length === 1 && !isLoading) {
+        setActiveOffice(userOffices[0]);
+    }
+  }, [userOffices, activeOffice, isLoading]);
 
   const fetchActiveOfficeDetails = useCallback(async (officeId: string) => {
     setIsLoadingDetails(true);
@@ -139,7 +147,7 @@ export default function OfficeDesignerPage() {
       setIsCreateOfficeDialogOpen(false);
       toast({ title: "Office Created!", description: `Your new office "${newOffice.name}" is ready.` });
     } catch (error: any) {
-      toast({ variant: "destructive", title: "Error Creating Office", description: error.message });
+      toast({ variant: "destructive", title: "Error Creating Office", description: String(error.message || error || "An unexpected error occurred.") });
     } finally {
       setIsSubmitting(false);
     }
@@ -167,7 +175,7 @@ export default function OfficeDesignerPage() {
         toast({ variant: "destructive", title: "Invalid Code", description: "No office found with that invitation code or you might already be a member."});
       }
     } catch (error: any) {
-      toast({ variant: "destructive", title: "Error Joining Office", description: error.message });
+      toast({ variant: "destructive", title: "Error Joining Office", description: String(error.message || error || "An unexpected error occurred.") });
     } finally {
       setIsSubmitting(false);
     }
@@ -606,3 +614,4 @@ export default function OfficeDesignerPage() {
     </div>
   );
 }
+

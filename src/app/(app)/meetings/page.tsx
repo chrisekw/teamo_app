@@ -87,7 +87,7 @@ export default function MeetingsPage() {
     if (!authLoading) {
       fetchUserOfficesForActivityLog();
     }
-  }, [authLoading, fetchUserOfficesForActivityLog]);
+  }, [authLoading, user, fetchUserOfficesForActivityLog]);
 
   const fetchMeetings = useCallback(async () => {
     if (user) {
@@ -231,7 +231,7 @@ export default function MeetingsPage() {
     setSelectedMeetingForPreview(null);
   };
   
-  if (authLoading || (isLoadingMeetings && !meetings.length && !userOffices.length)) {
+  if (authLoading || isLoadingMeetings) {
      return <div className="container mx-auto p-8 text-center"><Loader2 className="h-12 w-12 animate-spin text-primary" /></div>;
   }
 
@@ -299,7 +299,7 @@ export default function MeetingsPage() {
           {isLoadingMeetings && meetings.length > 0 && <div className="text-center my-4"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>}
           {!isLoadingMeetings && meetings.length === 0 ? (
             <div className="text-center py-10 bg-muted/50 rounded-md flex flex-col items-center justify-center">
-              <Image src="https://placehold.co/200x150.png" alt="No meetings" width={150} height={112} className="mx-auto mb-4 rounded" data-ai-hint="calendar illustration" />
+              <Image src="https://placehold.co/200x150.png" alt="No meetings" width={200} height={150} className="mx-auto mb-4 rounded" data-ai-hint="calendar illustration" />
               <p className="text-muted-foreground">No meetings scheduled yet.</p>
               <p className="text-sm text-muted-foreground">Schedule a new meeting to get started.</p>
             </div>

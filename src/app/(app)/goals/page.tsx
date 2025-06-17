@@ -63,10 +63,10 @@ export default function GoalsPage() {
   }, [user]);
 
   useEffect(() => {
-    if (!authLoading) {
+    if (!authLoading && user) {
       fetchUserOfficesForActivityLog();
     }
-  }, [authLoading, fetchUserOfficesForActivityLog]);
+  }, [authLoading, user, fetchUserOfficesForActivityLog]);
 
 
   const fetchGoals = useCallback(async () => {
@@ -188,7 +188,7 @@ export default function GoalsPage() {
     return Math.min(Math.max((current / target) * 100, 0), 100);
   };
 
-  if (authLoading || (isLoadingGoals && !goals.length && !userOffices.length)) {
+  if (authLoading || isLoadingGoals) {
     return <div className="container mx-auto p-8 text-center"><Loader2 className="h-12 w-12 animate-spin text-primary" /></div>;
   }
 
@@ -339,6 +339,5 @@ export default function GoalsPage() {
     </div>
   );
 }
-
 
     
