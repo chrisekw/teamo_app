@@ -2,6 +2,7 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from 'react';
+import Link from "next/link"; // Added missing import
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -23,22 +24,20 @@ export default function ChatPage() {
   const { toast } = useToast();
   
   const [mobileView, setMobileView] = useState<'list' | 'chat'>('list');
-  const [activeChatId, setActiveChatId] = useState<string>("general"); // Default to general chat of the first office
-  const [allMessages, setAllMessages] = useState<Record<string, ChatMessage[]>>({}); // Will be fetched from Firestore eventually
+  const [activeChatId, setActiveChatId] = useState<string>("initial-placeholder"); 
+  const [allMessages, setAllMessages] = useState<Record<string, ChatMessage[]>>({}); 
   const [newMessage, setNewMessage] = useState("");
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   
   const [currentUserForChat, setCurrentUserForChat] = useState<ChatUser | null>(null);
-  const [currentOfficeMembers, setCurrentOfficeMembers] = useState<ChatUser[]>([]); // For DM list
+  const [currentOfficeMembers, setCurrentOfficeMembers] = useState<ChatUser[]>([]); 
   const [activeOfficeForChat, setActiveOfficeForChat] = useState<Office | null>(null);
 
 
-  // Video call and voice note states
   const [isCallActiveForChat, setIsCallActiveForChat] = useState<Record<string, boolean>>({});
   const [isRecordingVoiceNote, setIsRecordingVoiceNote] = useState(false);
   const voiceRecordingStartTimeRef = useRef<number | null>(null);
 
-  // Fetch user's offices and set the first one as active for chat context
   useEffect(() => {
     const fetchInitialChatContext = async () => {
       if (user) {
@@ -46,7 +45,7 @@ export default function ChatPage() {
         if (offices.length > 0) {
           const firstOffice = offices[0];
           setActiveOfficeForChat(firstOffice);
-          setActiveChatId(`general-${firstOffice.id}`); // General chat ID for the office
+          setActiveChatId(`general-${firstOffice.id}`); 
 
           const members = await getMembersForOffice(firstOffice.id);
           const chatUsers: ChatUser[] = members.map(m => ({
@@ -55,8 +54,11 @@ export default function ChatPage() {
             role: m.role,
             avatarUrl: m.avatarUrl,
           }));
-          // Filter out current user from members for DM list
           setCurrentOfficeMembers(chatUsers.filter(m => m.id !== user.uid));
+        } else {
+          setActiveOfficeForChat(null);
+          setCurrentOfficeMembers([]);
+          setActiveChatId("initial-placeholder");
         }
       }
     };
@@ -70,15 +72,13 @@ export default function ChatPage() {
       const chatUser: ChatUser = {
         id: user.uid,
         name: user.displayName || user.email?.split('@')[0] || 'You',
-        role: 'Lead', // This role should ideally come from the active office member data
+        role: 'Lead', 
         avatarUrl: user.photoURL || `https://placehold.co/40x40.png?text=${(user.displayName || 'U').substring(0,1)}`,
       };
       setCurrentUserForChat(chatUser);
 
-      // Initialize mock messages (TODO: replace with Firebase fetching)
-      // This part needs to be dynamic based on activeOfficeForChat
-      if (activeOfficeForChat && currentOfficeMembers.length > 0) {
-          const member1 = currentOfficeMembers.find(m => m.id !== user.uid); // Just take the first other member for mock DM
+      if (activeOfficeForChat && currentOfficeMembers.length >= 0) { // Allow empty currentOfficeMembers for general chat
+          const member1 = currentOfficeMembers.find(m => m.id !== user.uid);
 
           setAllMessages({
             [`general-${activeOfficeForChat.id}`]: [
@@ -90,22 +90,20 @@ export default function ChatPage() {
                 ]
             } : {})
           });
+          if (activeChatId === "initial-placeholder") { // If was initial, now set to general
+            setActiveChatId(`general-${activeOfficeForChat.id}`);
+          }
+
       } else {
          setAllMessages({
             "initial-placeholder": [
                  { id: 'g1', text: `Select an office or join one to start chatting.`, senderId: 'system', timestamp: new Date(Date.now() - 1000 * 60 * 5), senderName: 'System', type: 'text', chatThreadId: "initial-placeholder" },
             ]
          });
-         if (!activeChatId.startsWith("general-") && activeChatId !== "initial-placeholder") {
-            setActiveChatId("initial-placeholder");
-         } else if (!activeChatId && activeOfficeForChat) {
-            setActiveChatId(`general-${activeOfficeForChat.id}`);
-         } else if (!activeChatId && !activeOfficeForChat){
-            setActiveChatId("initial-placeholder");
-         }
+         setActiveChatId("initial-placeholder");
       }
     }
-  }, [user, activeOfficeForChat, currentOfficeMembers]); // Rerun if activeOfficeForChat changes
+  }, [user, activeOfficeForChat, currentOfficeMembers]);
 
 
   useEffect(() => {
@@ -151,7 +149,6 @@ export default function ChatPage() {
       chatThreadId: activeChatId,
     };
 
-    // TODO: Persist to Firestore
     setAllMessages(prev => ({
       ...prev,
       [activeChatId]: [...(prev[activeChatId] || []), message]
@@ -170,7 +167,6 @@ export default function ChatPage() {
       callDuration,
       chatThreadId: chatId,
     };
-    // TODO: Persist to Firestore if necessary (or handle locally for simulation)
     setAllMessages(prev => ({
       ...prev,
       [chatId]: [...(prev[chatId] || []), systemMessage]
@@ -217,7 +213,6 @@ export default function ChatPage() {
         voiceNoteDuration: `${String(Math.floor(durationSec / 60)).padStart(2, '0')}:${String(durationSec % 60).padStart(2, '0')}`,
         chatThreadId: activeChatId,
       };
-      // TODO: Persist to Firestore and upload voice file
       setAllMessages(prev => ({
         ...prev,
         [activeChatId]: [...(prev[activeChatId] || []), voiceNote]
@@ -289,10 +284,12 @@ export default function ChatPage() {
               ))}
             </>
           ) : (
-            <p className="text-sm text-muted-foreground p-4 text-center">
-              Join or create an office to start chatting.
-              <Button variant="link" asChild className="block mx-auto mt-2"><Link href="/office-designer">Go to Offices</Link></Button>
-            </p>
+            <div className="text-sm text-muted-foreground p-4 text-center">
+              <p>Join or create an office to start chatting.</p>
+              <Button variant="link" asChild className="block mx-auto mt-2">
+                <Link href="/office-designer">Go to Offices</Link>
+              </Button>
+            </div>
           )}
         </CardContent>
       </ScrollArea>
@@ -421,7 +418,7 @@ export default function ChatPage() {
                     <Paperclip className="h-4 w-4 sm:h-5 sm:w-5" />
                 </Button>
                 <Button variant="ghost" size="icon" onClick={handleToggleVoiceRecording} aria-label={isRecordingVoiceNote ? "Stop recording" : "Record voice note"} className={cn(isMobileLayout && "h-8 w-8", isRecordingVoiceNote && "text-destructive animate-pulse")}>
-                    {isRecordingVoiceNote ? <Square className="h-4 w-4 sm:h-5 sm:w-5" /> : <Mic className="h-4 w-4 sm:h-5 sm-w-5" />}
+                    {isRecordingVoiceNote ? <Square className="h-4 w-4 sm:h-5 sm:w-5" /> : <Mic className="h-4 w-4 sm:h-5 sm:w-5" />}
                 </Button>
                 {isRecordingVoiceNote ? (
                      <p className="text-sm text-muted-foreground flex-1">Recording voice note...</p>
@@ -459,3 +456,4 @@ export default function ChatPage() {
     </div>
   );
 }
+
