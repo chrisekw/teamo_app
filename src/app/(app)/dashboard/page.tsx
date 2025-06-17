@@ -5,12 +5,13 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter }
 import { Button } from "@/components/ui/button";
 import { Activity, Briefcase, MessageCircle, Users, Zap, ArrowUpRight, CalendarPlus, ListChecks, UserPlus, Target, TrendingUp } from "lucide-react";
 import Image from "next/image";
-import { AreaChart, Area, XAxis, YAxis, CartesianGrid, ResponsiveContainer } from 'recharts';
-import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from "@/components/ui/chart";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { useEffect, useState } from "react";
+import dynamic from 'next/dynamic';
+import { Skeleton } from "@/components/ui/skeleton";
+import type { ChartConfig } from "@/components/ui/chart";
 
 
 interface ActivityItem {
@@ -50,6 +51,14 @@ const chartConfig = {
     color: "hsl(var(--muted-foreground))",
   }
 } satisfies ChartConfig;
+
+const DynamicProgressChart = dynamic(
+  () => import('@/components/dashboard/progress-chart').then((mod) => mod.ProgressChart),
+  { 
+    ssr: false, 
+    loading: () => <Skeleton className="h-[250px] w-full" /> 
+  }
+);
 
 
 export default function DashboardPage() {
@@ -163,58 +172,7 @@ export default function DashboardPage() {
             <CardDescription>Team's cumulative progress over the past months.</CardDescription>
           </CardHeader>
           <CardContent className="flex-grow flex items-center justify-center">
-             {progressData.length > 0 ? (
-                <ChartContainer config={chartConfig} className="w-full h-[250px]">
-                  <AreaChart
-                    accessibilityLayer
-                    data={progressData}
-                    margin={{
-                      left: -20, // Adjusted to bring YAxis labels closer
-                      right: 10,
-                      top: 5,
-                      bottom: 5,
-                    }}
-                  >
-                    <CartesianGrid vertical={false} strokeDasharray="3 3" className="stroke-muted-foreground/30" />
-                    <XAxis
-                      dataKey="month"
-                      tickLine={false}
-                      axisLine={false}
-                      tickMargin={8}
-                      tickFormatter={(value) => value.slice(0, 3)}
-                      className="text-xs fill-muted-foreground"
-                    />
-                    <YAxis 
-                        tickLine={false} 
-                        axisLine={false} 
-                        tickMargin={8}
-                        className="text-xs fill-muted-foreground"
-                    />
-                    <ChartTooltip
-                      cursor={false}
-                      content={<ChartTooltipContent indicator="dot" hideLabel />}
-                    />
-                    <Area
-                      dataKey="progress"
-                      type="natural"
-                      fill="var(--color-progress)"
-                      fillOpacity={0.3}
-                      stroke="var(--color-progress)"
-                      stackId="a"
-                    />
-                     <Area
-                      dataKey="target"
-                      type="natural"
-                      fill="var(--color-target)"
-                      fillOpacity={0.1}
-                      stroke="var(--color-target)"
-                      stackId="b" // Different stackId or no stackId if you want them separate
-                    />
-                  </AreaChart>
-                </ChartContainer>
-             ) : (
-                <div className="text-muted-foreground text-sm">Not enough data for chart.</div>
-             )}
+             <DynamicProgressChart data={progressData} config={chartConfig} />
           </CardContent>
         </Card>
       </div>
@@ -266,5 +224,3 @@ export default function DashboardPage() {
     </div>
   );
 }
-
-    
