@@ -4,13 +4,13 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
-  LayoutGrid,
-  DraftingCompass,
-  MessagesSquare,
-  Video,
-  ListChecks,
-  Target,
-  Sparkles,
+  LayoutDashboard, // Changed from LayoutGrid
+  Building2,       // Changed from DraftingCompass
+  MessageCircleMore, // Changed from MessagesSquare
+  CalendarDays,    // Changed from Video
+  ClipboardCheck,  // Changed from ListChecks
+  TrendingUp,      // Changed from Target
+  BrainCircuit,    // Changed from Sparkles
   ChevronDown,
   ChevronRight,
 } from "lucide-react";
@@ -35,37 +35,37 @@ const navItems: NavItem[] = [
   {
     title: "Dashboard",
     href: "/dashboard",
-    icon: LayoutGrid,
+    icon: LayoutDashboard,
   },
   {
     title: "Office Designer",
     href: "/office-designer",
-    icon: DraftingCompass,
+    icon: Building2,
   },
   {
     title: "Team Chat",
     href: "/chat",
-    icon: MessagesSquare,
+    icon: MessageCircleMore,
   },
   {
     title: "Meetings",
     href: "/meetings",
-    icon: Video,
+    icon: CalendarDays,
   },
   {
     title: "Task Management",
     href: "/tasks",
-    icon: ListChecks,
+    icon: ClipboardCheck,
   },
   {
     title: "Goal Tracker",
     href: "/goals",
-    icon: Target,
+    icon: TrendingUp,
   },
   {
     title: "AI Assistant",
     href: "/ai-assistant",
-    icon: Sparkles,
+    icon: BrainCircuit,
   },
 ];
 

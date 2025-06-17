@@ -35,14 +35,14 @@ body {
     --radius: 0.5rem;
 
     /* Sidebar specific theme variables */
-    --sidebar-background: 240 5.9% 10%; /* Darker sidebar for contrast with light app bg */
-    --sidebar-foreground: 0 0% 98%; /* Light text on dark sidebar */
-    --sidebar-primary: 245 60% 75%; /* Lighter primary for sidebar active items */
-    --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 240 3.7% 15.9%; /* Slightly lighter than sidebar bg for hover */
-    --sidebar-accent-foreground: 0 0% 98%;
-    --sidebar-border: 240 3.7% 15.9%;
-    --sidebar-ring: 245 60% 65%;
+    --sidebar-background: 220 45% 28%;  /* Deep Formal Blue */
+    --sidebar-foreground: 220 25% 95%;  /* Very Light Blue/White for text */
+    --sidebar-primary: 220 60% 65%;     /* Brighter Blue for active items */
+    --sidebar-primary-foreground: 0 0% 100%; /* White text on primary */
+    --sidebar-accent: 220 45% 35%;      /* Slightly Lighter Blue for hover */
+    --sidebar-accent-foreground: 220 25% 98%; /* Very Light Blue/White for hover text */
+    --sidebar-border: 220 45% 22%;       /* Darker Blue for borders */
+    --sidebar-ring: 220 60% 65%;        /* Primary color for rings */
   }
 
   .dark {
@@ -72,14 +72,14 @@ body {
     --chart-5: 340 75% 55%;
 
     /* Sidebar specific theme variables for dark mode */
-    --sidebar-background: 0 0% 8%; 
-    --sidebar-foreground: 0 0% 90%;
-    --sidebar-primary: 245 60% 70%;
-    --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 0 0% 12%;
-    --sidebar-accent-foreground: 0 0% 98%;
-    --sidebar-border: 0 0% 12%;
-    --sidebar-ring: 245 60% 65%;
+    --sidebar-background: 220 45% 28%;  /* Deep Formal Blue */
+    --sidebar-foreground: 220 25% 95%;  /* Very Light Blue/White for text */
+    --sidebar-primary: 220 60% 65%;     /* Brighter Blue for active items */
+    --sidebar-primary-foreground: 0 0% 100%; /* White text on primary */
+    --sidebar-accent: 220 45% 35%;      /* Slightly Lighter Blue for hover */
+    --sidebar-accent-foreground: 220 25% 98%; /* Very Light Blue/White for hover text */
+    --sidebar-border: 220 45% 22%;       /* Darker Blue for borders */
+    --sidebar-ring: 220 60% 65%;        /* Primary color for rings */
   }
 }
 
