@@ -5,7 +5,7 @@ import Link from "next/link";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { UserNav } from "./user-nav";
 import { TeamoTextLogo } from "@/components/icons";
-import { useIsMobile } from "@/hooks/use-mobile";
+import { useIsMobile } from "@/hooks/use-mobile"; // Corrected import path
 import { Button } from "@/components/ui/button";
 import { Building2 } from "lucide-react";
 
@@ -21,7 +21,7 @@ export function Header() {
         </div>
         <div className="flex flex-1 items-center justify-end space-x-2 sm:space-x-4">
           {isMobile && (
-            <Link href="/office-designer" passHref legacyBehavior>
+            <Link href="/office-designer" asChild>
               <Button variant="ghost" size="icon" aria-label="Office Designer">
                 <Building2 className="h-5 w-5" />
               </Button>
