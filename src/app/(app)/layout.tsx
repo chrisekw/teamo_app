@@ -13,11 +13,13 @@ import { Button } from "@/components/ui/button";
 import { Logo, TeamoTextLogo } from "@/components/icons";
 import { SidebarNav } from "@/components/layout/sidebar-nav";
 import { Header } from "@/components/layout/header";
-import { Plus, Play, Apple } from "lucide-react";
+import { Plus, Play, Apple, Sparkles } from "lucide-react";
 import Image from "next/image";
 import { Card, CardContent } from "@/components/ui/card";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { BottomNav } from "@/components/layout/bottom-nav";
+import Link from "next/link";
+import { cn } from "@/lib/utils";
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const isMobile = useIsMobile();
@@ -80,8 +82,27 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             {children}
           </SidebarInset>
         </main>
-        {isMobile && <BottomNav />}
+        {isMobile && (
+          <>
+            <BottomNav />
+            <Link href="/ai-assistant" passHref legacyBehavior>
+              <a
+                className={cn(
+                  "fixed bottom-20 right-4 z-50 p-0", // Adjusted bottom to avoid overlap with BottomNav
+                  "bg-primary text-primary-foreground rounded-full shadow-lg",
+                  "w-14 h-14 flex items-center justify-center", // Explicit size
+                  "hover:bg-primary/90 transition-colors"
+                )}
+                aria-label="AI Assistant"
+              >
+                <Sparkles className="h-7 w-7" />
+              </a>
+            </Link>
+          </>
+        )}
       </div>
     </SidebarProvider>
   );
 }
+
+    
