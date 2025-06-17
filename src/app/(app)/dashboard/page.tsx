@@ -87,7 +87,7 @@ export default function DashboardPage() {
       </div>
       
       {/* Top Stats Cards */}
-      <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3 mb-8">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
         <Card className="shadow-lg hover:shadow-xl transition-shadow duration-300">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Active Projects</CardTitle>
@@ -123,7 +123,7 @@ export default function DashboardPage() {
       </div>
 
       {/* Activity Feed and Progress Graph */}
-      <div className="grid gap-6 md:grid-cols-1 lg:grid-cols-3 mb-8">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
         <Card className="lg:col-span-2 shadow-lg hover:shadow-xl transition-shadow duration-300 flex flex-col">
           <CardHeader>
             <CardTitle className="font-headline flex items-center"><Activity className="mr-2 h-5 w-5" />Recent Team Activity</CardTitle>
@@ -220,7 +220,7 @@ export default function DashboardPage() {
       </div>
       
       {/* Quick Actions and Virtual Office */}
-      <div className="grid gap-6 md:grid-cols-1 lg:grid-cols-3">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <Card className="lg:col-span-1 shadow-lg hover:shadow-xl transition-shadow duration-300">
           <CardHeader>
             <CardTitle className="font-headline">Quick Actions</CardTitle>
