@@ -6,8 +6,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
-import { PlusCircle, ListChecks, Filter } from "lucide-react";
-import { useState, useEffect } from "react";
+import { PlusCircle, ListChecks, Filter, Loader2 } from "lucide-react";
+import { useState, useEffect, useCallback } from "react";
 import {
   Dialog,
   DialogContent,
@@ -15,7 +15,6 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -27,11 +26,16 @@ import { format } from "date-fns";
 import { cn } from "@/lib/utils";
 import { Calendar as CalendarIcon } from "lucide-react";
 import type { Task } from "@/types";
-import { mockTasks as initialMockTasks, statusColors, addTask } from "@/lib/data/tasks-data"; // Import from shared data
+import { statusColors, addTaskForUser, getTasksForUser } from "@/lib/firebase/firestore/tasks";
+import { useAuth } from "@/lib/firebase/auth";
+import { useToast } from "@/hooks/use-toast";
 
 export default function TasksPage() {
-  // Use a state to force re-render when mockTasks array is mutated by other pages or actions.
-  const [renderTrigger, setRenderTrigger] = useState(0);
+  const { user, loading: authLoading } = useAuth();
+  const { toast } = useToast();
+  
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [isLoadingTasks, setIsLoadingTasks] = useState(true);
   const [isCreateTaskDialogOpen, setIsCreateTaskDialogOpen] = useState(false);
 
   // Form state for new task dialog
@@ -42,12 +46,28 @@ export default function TasksPage() {
   const [newPriority, setNewPriority] = useState<Task["priority"]>("Medium");
   const [newDescription, setNewDescription] = useState("");
   const [newProgress, setNewProgress] = useState(0);
+  const [isSubmittingTask, setIsSubmittingTask] = useState(false);
+
+  const fetchTasks = useCallback(async () => {
+    if (user) {
+      setIsLoadingTasks(true);
+      try {
+        const userTasks = await getTasksForUser(user.uid);
+        setTasks(userTasks);
+      } catch (error) {
+        console.error("Failed to fetch tasks:", error);
+        toast({ variant: "destructive", title: "Error", description: "Could not fetch tasks." });
+      } finally {
+        setIsLoadingTasks(false);
+      }
+    }
+  }, [user, toast]);
 
   useEffect(() => {
-    // This effect can be used to listen to events that might indicate mockTasks changed,
-    // or simply rely on navigation to re-render the component.
-    // For now, renderTrigger handles local changes.
-  }, [renderTrigger]);
+    if (!authLoading && user) {
+      fetchTasks();
+    }
+  }, [user, authLoading, fetchTasks]);
 
 
   const resetCreateForm = () => {
@@ -60,24 +80,42 @@ export default function TasksPage() {
     setNewProgress(0);
   };
 
-  const handleCreateTask = () => {
+  const handleCreateTask = async () => {
+    if (!user) {
+      toast({ variant: "destructive", title: "Error", description: "You must be logged in to create tasks." });
+      return;
+    }
+    if (!newTaskName.trim()) {
+      toast({ variant: "destructive", title: "Validation Error", description: "Task name cannot be empty." });
+      return;
+    }
+
+    setIsSubmittingTask(true);
     const taskData = {
       name: newTaskName,
-      assignedTo: newAssignedTo,
+      assignedTo: newAssignedTo || "Unassigned",
       dueDate: newDueDate || new Date(),
       status: newStatus,
       priority: newPriority,
       description: newDescription,
       progress: newProgress,
+      // createdAt and updatedAt will be handled by Firestore serverTimestamp
     };
-    addTask(taskData);
-    setIsCreateTaskDialogOpen(false);
-    resetCreateForm();
-    setRenderTrigger(val => val + 1); // Force re-render to show the new task
+    try {
+      await addTaskForUser(user.uid, taskData);
+      toast({ title: "Task Created", description: `"${taskData.name}" has been added.` });
+      setIsCreateTaskDialogOpen(false);
+      resetCreateForm();
+      fetchTasks(); // Re-fetch tasks to show the new one
+    } catch (error) {
+      console.error("Failed to create task:", error);
+      toast({ variant: "destructive", title: "Error", description: "Could not create task." });
+    } finally {
+        setIsSubmittingTask(false);
+    }
   };
   
-  // Sort tasks: To Do, In Progress, Blocked, Done. Then by due date.
-  const sortedTasks = [...initialMockTasks].sort((a, b) => {
+  const sortedTasks = [...tasks].sort((a, b) => {
     const statusOrder: Record<Task["status"], number> = {
       "To Do": 1,
       "In Progress": 2,
@@ -87,9 +125,12 @@ export default function TasksPage() {
     if (statusOrder[a.status] !== statusOrder[b.status]) {
       return statusOrder[a.status] - statusOrder[b.status];
     }
-    return a.dueDate.getTime() - b.dueDate.getTime();
+    return (a.dueDate?.getTime() || 0) - (b.dueDate?.getTime() || 0);
   });
 
+  if (authLoading || (isLoadingTasks && !tasks.length)) {
+    return <div className="container mx-auto p-8 text-center"><Loader2 className="h-12 w-12 animate-spin text-primary" /></div>;
+  }
 
   return (
     <div className="container mx-auto p-4 sm:p-6 lg:p-8">
@@ -105,7 +146,9 @@ export default function TasksPage() {
         </div>
       </div>
 
-      {sortedTasks.length === 0 ? (
+      {isLoadingTasks && tasks.length > 0 && <div className="text-center my-4"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>}
+
+      {!isLoadingTasks && sortedTasks.length === 0 ? (
          <Card className="shadow-lg">
          <CardContent className="text-center py-10 text-muted-foreground">
             <ListChecks className="mx-auto h-12 w-12 mb-3 text-gray-400" />
@@ -120,7 +163,7 @@ export default function TasksPage() {
                 <Card className="flex flex-col h-full shadow-lg">
                   <CardHeader>
                     <CardTitle className="font-headline text-lg">{task.name}</CardTitle>
-                    <CardDescription>Due: {format(task.dueDate, "PPP")}</CardDescription>
+                    <CardDescription>Due: {task.dueDate ? format(task.dueDate, "PPP") : "No due date"}</CardDescription>
                   </CardHeader>
                   <CardContent className="flex-grow space-y-3">
                     <div className="text-sm text-muted-foreground">Assigned to: {task.assignedTo}</div>
@@ -231,8 +274,11 @@ export default function TasksPage() {
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setIsCreateTaskDialogOpen(false)}>Cancel</Button>
-            <Button onClick={handleCreateTask}>Create Task</Button>
+            <Button variant="outline" onClick={() => setIsCreateTaskDialogOpen(false)} disabled={isSubmittingTask}>Cancel</Button>
+            <Button onClick={handleCreateTask} disabled={isSubmittingTask}>
+                {isSubmittingTask && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                Create Task
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

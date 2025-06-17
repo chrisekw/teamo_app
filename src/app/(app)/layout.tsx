@@ -13,16 +13,41 @@ import { Button } from "@/components/ui/button";
 import { Logo, TeamoTextLogo } from "@/components/icons";
 import { SidebarNav } from "@/components/layout/sidebar-nav";
 import { Header } from "@/components/layout/header";
-import { Plus, Play, Apple, Sparkles } from "lucide-react";
+import { Plus, Play, Apple, Sparkles, Loader2 } from "lucide-react";
 import Image from "next/image";
 import { Card, CardContent } from "@/components/ui/card";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { BottomNav } from "@/components/layout/bottom-nav";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
+import { useAuth } from "@/lib/firebase/auth";
+import { useRouter } from "next/navigation";
+import React, { useEffect } from "react";
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const isMobile = useIsMobile();
+  const { user, loading } = useAuth();
+  const router = useRouter();
+
+  useEffect(() => {
+    if (!loading && !user) {
+      router.push('/login');
+    }
+  }, [user, loading, router]);
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-screen">
+        <Loader2 className="h-12 w-12 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  if (!user) {
+    // This check is mainly for the brief moment before redirect effect runs or if JS is disabled.
+    // The useEffect above handles the redirect for client-side navigation.
+    return null; 
+  }
 
   return (
     <SidebarProvider defaultOpen={true}>
@@ -58,7 +83,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                     alt="Mobile app promotion"
                     layout="fill"
                     objectFit="contain"
-                    data-ai-hint="mobile app promo"
+                    data-ai-hint="mobile app promo" 
                   />
                 </div>
                 <p className="text-sm font-medium text-sidebar-foreground mb-3">Get mobile app</p>
@@ -88,9 +113,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             <Link href="/ai-assistant" passHref legacyBehavior>
               <a
                 className={cn(
-                  "fixed bottom-20 right-4 z-50 p-0", // Adjusted bottom to avoid overlap with BottomNav
+                  "fixed bottom-20 right-4 z-50 p-0", 
                   "bg-primary text-primary-foreground rounded-full shadow-lg",
-                  "w-14 h-14 flex items-center justify-center", // Explicit size
+                  "w-14 h-14 flex items-center justify-center", 
                   "hover:bg-primary/90 transition-colors"
                 )}
                 aria-label="AI Assistant"
@@ -104,5 +129,3 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     </SidebarProvider>
   );
 }
-
-    

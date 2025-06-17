@@ -1,7 +1,7 @@
 
 "use client";
 
-import { useState, useEffect, FormEvent } from 'react';
+import { useState, useEffect, FormEvent, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Button } from "@/components/ui/button";
@@ -14,9 +14,10 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Calendar } from "@/components/ui/calendar";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
-import { Calendar as CalendarIcon, ArrowLeft, Save, Trash2, ListChecks } from "lucide-react";
+import { Calendar as CalendarIcon, ArrowLeft, Save, Trash2, ListChecks, Loader2 } from "lucide-react";
 import type { Task } from "@/types";
-import { getTaskById, updateTask, deleteTask, statusColors } from "@/lib/data/tasks-data";
+import { getTaskByIdForUser, updateTaskForUser, deleteTaskForUser, statusColors } from "@/lib/firebase/firestore/tasks";
+import { useAuth } from "@/lib/firebase/auth";
 import { useToast } from "@/hooks/use-toast";
 import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
@@ -26,11 +27,13 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 export default function TaskDetailPage() {
   const router = useRouter();
   const params = useParams();
+  const { user, loading: authLoading } = useAuth();
   const { toast } = useToast();
   const taskId = params.taskId as string;
 
   const [currentTask, setCurrentTask] = useState<Task | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Form states
   const [taskName, setTaskName] = useState("");
@@ -42,61 +45,84 @@ export default function TaskDetailPage() {
   const [progress, setProgress] = useState(0);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
 
-  useEffect(() => {
-    if (taskId) {
-      const taskData = getTaskById(taskId);
-      if (taskData) {
-        setCurrentTask(taskData);
-        setTaskName(taskData.name);
-        setAssignedTo(taskData.assignedTo);
-        setDueDate(taskData.dueDate);
-        setStatus(taskData.status);
-        setPriority(taskData.priority);
-        setDescription(taskData.description || "");
-        setProgress(taskData.progress);
+  const fetchTask = useCallback(async () => {
+    if (user && taskId) {
+      setIsLoading(true);
+      try {
+        const taskData = await getTaskByIdForUser(user.uid, taskId);
+        if (taskData) {
+          setCurrentTask(taskData);
+          setTaskName(taskData.name);
+          setAssignedTo(taskData.assignedTo);
+          setDueDate(taskData.dueDate);
+          setStatus(taskData.status);
+          setPriority(taskData.priority);
+          setDescription(taskData.description || "");
+          setProgress(taskData.progress);
+        } else {
+           toast({ variant: "destructive", title: "Not Found", description: "Task not found or you don't have access." });
+           router.push("/tasks"); // Redirect if task not found
+        }
+      } catch (error) {
+        console.error("Failed to fetch task:", error);
+        toast({ variant: "destructive", title: "Error", description: "Could not fetch task details." });
+      } finally {
+        setIsLoading(false);
       }
-      setIsLoading(false);
     }
-  }, [taskId]);
+  }, [user, taskId, toast, router]);
 
-  const handleSaveChanges = (e: FormEvent) => {
+  useEffect(() => {
+    if (!authLoading && user) {
+      fetchTask();
+    }
+  }, [authLoading, user, fetchTask]);
+
+  const handleSaveChanges = async (e: FormEvent) => {
     e.preventDefault();
-    if (!currentTask) return;
+    if (!currentTask || !user) return;
 
-    const updatedTaskData: Task = {
-      ...currentTask,
+    setIsSubmitting(true);
+    const updatedTaskData: Partial<Omit<Task, 'id' | 'createdAt' | 'updatedAt'>> = {
       name: taskName,
       assignedTo,
-      dueDate: dueDate || currentTask.dueDate, // Keep original if undefined
+      dueDate: dueDate || currentTask.dueDate,
       status,
       priority,
       description,
       progress,
     };
 
-    const success = updateTask(updatedTaskData);
-    if (success) {
+    try {
+      await updateTaskForUser(user.uid, currentTask.id, updatedTaskData);
       toast({ title: "Task Updated", description: "Your changes have been saved." });
       router.push("/tasks");
-    } else {
+    } catch (error) {
+      console.error("Failed to update task:", error);
       toast({ variant: "destructive", title: "Error", description: "Could not update task." });
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
-  const handleDelete = () => {
-    if (!currentTask) return;
-    const success = deleteTask(currentTask.id);
-    if (success) {
+  const handleDelete = async () => {
+    if (!currentTask || !user) return;
+    setIsSubmitting(true);
+    try {
+      await deleteTaskForUser(user.uid, currentTask.id);
       toast({ title: "Task Deleted", description: `"${currentTask.name}" has been removed.` });
       router.push("/tasks");
-    } else {
+    } catch (error) {
+      console.error("Failed to delete task:", error);
       toast({ variant: "destructive", title: "Error", description: "Could not delete task." });
+      setIsSubmitting(false); // Only reset if delete fails, otherwise page unmounts
     }
     setIsDeleteDialogOpen(false);
+    // No finally for setIsSubmitting here because if successful, component unmounts.
   };
 
-  if (isLoading) {
-    return <div className="container mx-auto p-8 text-center">Loading task details...</div>;
+  if (authLoading || isLoading) {
+    return <div className="container mx-auto p-8 text-center"><Loader2 className="h-12 w-12 animate-spin text-primary"/></div>;
   }
 
   if (!currentTask && !isLoading) {
@@ -112,7 +138,7 @@ export default function TaskDetailPage() {
     );
   }
   
-  if (!currentTask) return null; // Should be covered by above, but for TS
+  if (!currentTask) return null;
 
   return (
     <div className="container mx-auto p-4 sm:p-6 lg:p-8">
@@ -134,17 +160,17 @@ export default function TaskDetailPage() {
           <CardContent className="grid gap-6 py-6 max-h-[calc(100vh-250px)] overflow-y-auto pr-2 sm:pr-3">
             <div className="grid gap-2">
               <Label htmlFor="taskName">Task Name</Label>
-              <Input id="taskName" value={taskName} onChange={(e) => setTaskName(e.target.value)} />
+              <Input id="taskName" value={taskName} onChange={(e) => setTaskName(e.target.value)} disabled={isSubmitting} />
             </div>
             <div className="grid gap-2">
               <Label htmlFor="description">Description</Label>
-              <Textarea id="description" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Detailed description of the task" rows={4}/>
+              <Textarea id="description" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Detailed description of the task" rows={4} disabled={isSubmitting}/>
             </div>
             
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div className="grid gap-2">
                 <Label htmlFor="assignedTo">Assigned To</Label>
-                <Input id="assignedTo" value={assignedTo} onChange={(e) => setAssignedTo(e.target.value)} />
+                <Input id="assignedTo" value={assignedTo} onChange={(e) => setAssignedTo(e.target.value)} disabled={isSubmitting}/>
               </div>
               <div className="grid gap-2">
                 <Label htmlFor="dueDate">Due Date</Label>
@@ -153,6 +179,7 @@ export default function TaskDetailPage() {
                     <Button
                       variant={"outline"}
                       className={cn("w-full justify-start text-left font-normal", !dueDate && "text-muted-foreground")}
+                      disabled={isSubmitting}
                     >
                       <CalendarIcon className="mr-2 h-4 w-4" />
                       {dueDate ? format(dueDate, "PPP") : <span>Pick a date</span>}
@@ -168,7 +195,7 @@ export default function TaskDetailPage() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div className="grid gap-2">
                 <Label htmlFor="status">Status</Label>
-                <Select value={status} onValueChange={(value) => setStatus(value as Task["status"])}>
+                <Select value={status} onValueChange={(value) => setStatus(value as Task["status"])} disabled={isSubmitting}>
                   <SelectTrigger id="status"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="To Do">To Do</SelectItem>
@@ -180,7 +207,7 @@ export default function TaskDetailPage() {
               </div>
               <div className="grid gap-2">
                 <Label htmlFor="priority">Priority</Label>
-                <Select value={priority} onValueChange={(value) => setPriority(value as Task["priority"])}>
+                <Select value={priority} onValueChange={(value) => setPriority(value as Task["priority"])} disabled={isSubmitting}>
                   <SelectTrigger id="priority"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="Low">Low</SelectItem>
@@ -204,6 +231,7 @@ export default function TaskDetailPage() {
                 value={progress} 
                 onChange={(e) => setProgress(parseInt(e.target.value))} 
                 className="cursor-pointer"
+                disabled={isSubmitting}
               />
                <Progress value={progress} className="h-2 mt-1" indicatorClassName={progress === 100 ? "bg-green-500" : status === "Blocked" ? "bg-red-500" : "bg-primary"}/>
             </div>
@@ -211,7 +239,7 @@ export default function TaskDetailPage() {
           <CardFooter className="flex flex-col sm:flex-row justify-between items-center pt-6 border-t">
             <AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
               <AlertDialogTrigger asChild>
-                <Button type="button" variant="destructive" className="w-full sm:w-auto mb-2 sm:mb-0">
+                <Button type="button" variant="destructive" className="w-full sm:w-auto mb-2 sm:mb-0" disabled={isSubmitting}>
                   <Trash2 className="mr-2 h-4 w-4" /> Delete Task
                 </Button>
               </AlertDialogTrigger>
@@ -223,12 +251,16 @@ export default function TaskDetailPage() {
                   </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
-                  <AlertDialogCancel>Cancel</AlertDialogCancel>
-                  <AlertDialogAction onClick={handleDelete}>Delete</AlertDialogAction>
+                  <AlertDialogCancel disabled={isSubmitting}>Cancel</AlertDialogCancel>
+                  <AlertDialogAction onClick={handleDelete} disabled={isSubmitting} className="bg-destructive hover:bg-destructive/90">
+                    {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin"/>}
+                    Delete
+                  </AlertDialogAction>
                 </AlertDialogFooter>
               </AlertDialogContent>
             </AlertDialog>
-            <Button type="submit" className="w-full sm:w-auto">
+            <Button type="submit" className="w-full sm:w-auto" disabled={isSubmitting}>
+              {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               <Save className="mr-2 h-4 w-4" /> Save Changes
             </Button>
           </CardFooter>
