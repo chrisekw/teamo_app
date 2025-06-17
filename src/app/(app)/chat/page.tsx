@@ -153,8 +153,8 @@ export default function ChatPage() {
 
   const renderChatList = (isMobileLayout: boolean) => (
     <Card className={cn(
-      "flex flex-col shadow-lg",
-      isMobileLayout ? "flex-1 rounded-none border-0" : "w-64 sm:w-72 md:w-1/4 lg:w-1/5 mr-2"
+      "flex flex-col",
+      isMobileLayout ? "flex-1 rounded-none border-0" : "w-64 sm:w-72 md:w-1/4 lg:w-1/5 mr-2 shadow-lg"
     )}>
       <CardHeader className="p-3 border-b">
         <CardTitle className="font-headline text-lg">Chats</CardTitle>
@@ -192,8 +192,8 @@ export default function ChatPage() {
 
   const renderMessageView = (isMobileLayout: boolean) => (
      <Card className={cn(
-        "flex-1 flex flex-col shadow-lg h-full",
-        isMobileLayout && "rounded-none border-0"
+        "flex-1 flex flex-col h-full",
+        isMobileLayout ? "rounded-none border-0" : "shadow-lg"
      )}>
         <CardHeader className={cn(
             "border-b",
@@ -297,3 +297,4 @@ export default function ChatPage() {
     </div>
   );
 }
+
