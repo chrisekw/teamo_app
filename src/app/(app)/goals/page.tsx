@@ -1,10 +1,11 @@
+
 "use client";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
-import { PlusCircle, Target, Edit3, Trash2, TrendingUp, TrendingDown, CheckCircle2 } from "lucide-react";
-import { useState } from "react";
+import { PlusCircle, Target, Edit3, Trash2, CheckCircle2, Loader2 } from "lucide-react";
+import { useState, useEffect, useCallback } from "react";
 import {
   Dialog,
   DialogContent,
@@ -12,35 +13,31 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Slider } from "@/components/ui/slider";
+import type { Goal } from "@/types";
+import { useAuth } from "@/lib/firebase/auth";
+import { useToast } from "@/hooks/use-toast";
+import { addGoalForUser, getGoalsForUser, updateGoalForUser, deleteGoalForUser } from "@/lib/firebase/firestore/goals";
+import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
+import { Calendar } from "@/components/ui/calendar";
+import { cn } from "@/lib/utils";
+import { format } from "date-fns";
+import { Calendar as CalendarIcon } from "lucide-react";
 
-
-interface Goal {
-  id: string;
-  name: string;
-  description: string;
-  targetValue: number;
-  currentValue: number;
-  unit: string; // e.g., "%", "USD", "Tasks"
-  deadline?: Date;
-}
-
-const mockGoals: Goal[] = [
-  { id: "1", name: "Increase Q3 Revenue", description: "Boost quarterly revenue by 20% through new marketing initiatives.", targetValue: 120000, currentValue: 75000, unit: "USD", deadline: new Date("2024-09-30") },
-  { id: "2", name: "Improve Customer Satisfaction", description: "Achieve a CSAT score of 90% or higher.", targetValue: 90, currentValue: 82, unit: "%", deadline: new Date("2024-12-31") },
-  { id: "3", name: "Launch New Product Feature", description: "Successfully launch the 'Advanced Analytics' module.", targetValue: 100, currentValue: 100, unit: "% Completion", deadline: new Date("2024-08-15") },
-  { id: "4", name: "Reduce Churn Rate", description: "Lower monthly customer churn to below 5%.", targetValue: 5, currentValue: 7, unit: "% (Lower is better)", deadline: new Date("2024-10-31") },
-];
 
 export default function GoalsPage() {
-  const [goals, setGoals] = useState<Goal[]>(mockGoals);
+  const { user, loading: authLoading } = useAuth();
+  const { toast } = useToast();
+
+  const [goals, setGoals] = useState<Goal[]>([]);
+  const [isLoadingGoals, setIsLoadingGoals] = useState(true);
   const [isGoalDialogOpen, setIsGoalDialogOpen] = useState(false);
-  const [currentGoal, setCurrentGoal] = useState<Partial<Goal>>({});
+  const [currentGoalToEdit, setCurrentGoalToEdit] = useState<Goal | null>(null); // Use null to clearly indicate new vs edit
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Form state
   const [goalName, setGoalName] = useState("");
@@ -48,65 +45,126 @@ export default function GoalsPage() {
   const [goalTargetValue, setGoalTargetValue] = useState(100);
   const [goalCurrentValue, setGoalCurrentValue] = useState(0);
   const [goalUnit, setGoalUnit] = useState("%");
-  // const [goalDeadline, setGoalDeadline] = useState<Date | undefined>();
+  const [goalDeadline, setGoalDeadline] = useState<Date | undefined>();
 
+
+  const fetchGoals = useCallback(async () => {
+    if (user) {
+      setIsLoadingGoals(true);
+      try {
+        const userGoals = await getGoalsForUser(user.uid);
+        setGoals(userGoals);
+      } catch (error) {
+        console.error("Failed to fetch goals:", error);
+        toast({ variant: "destructive", title: "Error", description: "Could not fetch goals." });
+      } finally {
+        setIsLoadingGoals(false);
+      }
+    }
+  }, [user, toast]);
+
+  useEffect(() => {
+    if (!authLoading) {
+      fetchGoals();
+    }
+  }, [authLoading, fetchGoals]);
+
+  const resetForm = () => {
+    setGoalName("");
+    setGoalDescription("");
+    setGoalTargetValue(100);
+    setGoalCurrentValue(0);
+    setGoalUnit("%");
+    setGoalDeadline(undefined);
+    setCurrentGoalToEdit(null);
+  };
 
   const handleOpenDialog = (goal?: Goal) => {
     if (goal) {
-      setCurrentGoal(goal);
+      setCurrentGoalToEdit(goal);
       setGoalName(goal.name);
       setGoalDescription(goal.description);
       setGoalTargetValue(goal.targetValue);
       setGoalCurrentValue(goal.currentValue);
       setGoalUnit(goal.unit);
-      // setGoalDeadline(goal.deadline);
+      setGoalDeadline(goal.deadline);
     } else {
-      setCurrentGoal({});
-      setGoalName("");
-      setGoalDescription("");
-      setGoalTargetValue(100);
-      setGoalCurrentValue(0);
-      setGoalUnit("%");
-      // setGoalDeadline(undefined);
+      resetForm();
     }
     setIsGoalDialogOpen(true);
   };
 
-  const handleSaveGoal = () => {
-    const progressData = {
+  const handleSaveGoal = async () => {
+    if (!user) {
+      toast({ variant: "destructive", title: "Error", description: "You must be logged in." });
+      return;
+    }
+    if (!goalName.trim()) {
+        toast({ variant: "destructive", title: "Validation Error", description: "Goal name cannot be empty." });
+        return;
+    }
+
+    setIsSubmitting(true);
+    const goalData = {
       name: goalName,
       description: goalDescription,
       targetValue: goalTargetValue,
       currentValue: goalCurrentValue,
       unit: goalUnit,
-      // deadline: goalDeadline,
+      deadline: goalDeadline,
     };
 
-    if (currentGoal.id) {
-      setGoals(goals.map(g => g.id === currentGoal.id ? { ...g, ...progressData } : g));
-    } else {
-      setGoals([...goals, { ...progressData, id: Date.now().toString() }]);
+    try {
+      if (currentGoalToEdit) {
+        await updateGoalForUser(user.uid, currentGoalToEdit.id, goalData);
+        toast({ title: "Goal Updated", description: `"${goalData.name}" has been updated.` });
+      } else {
+        await addGoalForUser(user.uid, goalData);
+        toast({ title: "Goal Added", description: `"${goalData.name}" has been added.` });
+      }
+      fetchGoals(); // Re-fetch to update the list
+      setIsGoalDialogOpen(false);
+      resetForm();
+    } catch (error) {
+      console.error("Failed to save goal:", error);
+      toast({ variant: "destructive", title: "Error", description: "Could not save goal." });
+    } finally {
+      setIsSubmitting(false);
     }
-    setIsGoalDialogOpen(false);
+  };
+
+  const handleDeleteGoal = async (goalId: string) => {
+    if (!user) return;
+    // Consider adding a confirmation dialog here
+    setIsSubmitting(true); // Disable buttons while deleting
+    try {
+        await deleteGoalForUser(user.uid, goalId);
+        toast({ title: "Goal Deleted", description: "The goal has been removed." });
+        fetchGoals();
+    } catch (error) {
+        console.error("Failed to delete goal:", error);
+        toast({ variant: "destructive", title: "Error", description: "Could not delete goal." });
+    } finally {
+        setIsSubmitting(false);
+    }
   };
   
   const getProgressPercentage = (current: number, target: number, unit: string) => {
     if (unit.toLowerCase().includes("lower is better")) {
-        // For "lower is better" goals, progress is inverse or needs special handling
-        // Simple example: if target is 5 and current is 7, progress is negative or 0.
-        // If current is 4, progress is ( (target - current) / target ) * 100, if current < target
-        // This needs more complex logic based on specific "lower is better" goal types.
-        // For now, let's assume it means we want to reach 'target' from a higher value.
-        if (current <= target) return 100; // Achieved or surpassed
-        // A more nuanced calculation might be needed here.
-        // For simplicity, if current > target, we can show how far off we are.
-        // Or, if we have an initial value, e.g. reduce from X to Y.
-        // For now, just show 0 if above target.
+        if (current <= target) return 100;
+        if (target === 0 && current > 0) return 0; // e.g. target is 0 bugs, current is 5 bugs
+        // This part can be tricky. Let's assume we want to show progress towards a lower number from a higher one.
+        // If we started at X, want to go to Y (target), and are at Z (current).
+        // A simple version: if above target, show 0. More complex might be needed.
         return 0; 
     }
-    if (target === 0) return current > 0 ? 100 : 0;
+    if (target === 0) return current > 0 ? 100 : 0; // Or handle as error/undefined behavior
     return Math.min(Math.max((current / target) * 100, 0), 100);
   };
+
+  if (authLoading || (isLoadingGoals && !goals.length)) {
+    return <div className="container mx-auto p-8 text-center"><Loader2 className="h-12 w-12 animate-spin text-primary" /></div>;
+  }
 
   return (
     <div className="container mx-auto p-4 sm:p-6 lg:p-8">
@@ -117,7 +175,9 @@ export default function GoalsPage() {
         </Button>
       </div>
 
-      {goals.length === 0 ? (
+      {isLoadingGoals && goals.length > 0 && <div className="text-center my-4"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>}
+
+      {!isLoadingGoals && goals.length === 0 ? (
         <div className="text-center py-12 bg-muted/10 rounded-lg">
           <Target className="mx-auto h-16 w-16 text-muted-foreground mb-4" />
           <p className="text-lg text-muted-foreground">No goals defined yet.</p>
@@ -139,10 +199,10 @@ export default function GoalsPage() {
                     {goal.name}
                   </CardTitle>
                   <div className="flex space-x-1">
-                    <Button variant="ghost" size="icon" onClick={() => handleOpenDialog(goal)}>
+                    <Button variant="ghost" size="icon" onClick={() => handleOpenDialog(goal)} disabled={isSubmitting}>
                       <Edit3 className="h-4 w-4" />
                     </Button>
-                    <Button variant="ghost" size="icon" onClick={() => setGoals(goals.filter(g => g.id !== goal.id))}>
+                    <Button variant="ghost" size="icon" onClick={() => handleDeleteGoal(goal.id)} disabled={isSubmitting}>
                       <Trash2 className="h-4 w-4 text-destructive" />
                     </Button>
                   </div>
@@ -170,7 +230,7 @@ export default function GoalsPage() {
                     Goal Achieved!
                   </div>
                 ) : (
-                  <Button variant="outline" className="w-full" onClick={() => handleOpenDialog(goal)}>Update Progress</Button>
+                  <Button variant="outline" className="w-full" onClick={() => handleOpenDialog(goal)} disabled={isSubmitting}>Update Progress</Button>
                 )}
               </CardFooter>
             </Card>
@@ -179,57 +239,73 @@ export default function GoalsPage() {
         </div>
       )}
 
-      <Dialog open={isGoalDialogOpen} onOpenChange={setIsGoalDialogOpen}>
+      <Dialog open={isGoalDialogOpen} onOpenChange={(isOpen) => {if (!isSubmitting) setIsGoalDialogOpen(isOpen); if(!isOpen) resetForm();}}>
         <DialogContent className="sm:max-w-[500px]">
           <DialogHeader>
-            <DialogTitle className="font-headline">{currentGoal.id ? "Edit Goal" : "Add New Goal"}</DialogTitle>
+            <DialogTitle className="font-headline">{currentGoalToEdit ? "Edit Goal" : "Add New Goal"}</DialogTitle>
             <DialogDescription>
-              {currentGoal.id ? "Update the details for this goal." : "Define a new goal for your team."}
+              {currentGoalToEdit ? "Update the details for this goal." : "Define a new goal for your team."}
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 py-4 max-h-[70vh] overflow-y-auto pr-2">
             <div className="grid gap-2">
               <Label htmlFor="goalName">Goal Name</Label>
-              <Input id="goalName" value={goalName} onChange={(e) => setGoalName(e.target.value)} placeholder="e.g., Increase Sales" />
+              <Input id="goalName" value={goalName} onChange={(e) => setGoalName(e.target.value)} placeholder="e.g., Increase Sales" disabled={isSubmitting}/>
             </div>
             <div className="grid gap-2">
               <Label htmlFor="goalDescription">Description</Label>
-              <Textarea id="goalDescription" value={goalDescription} onChange={(e) => setGoalDescription(e.target.value)} placeholder="Briefly describe the goal" />
+              <Textarea id="goalDescription" value={goalDescription} onChange={(e) => setGoalDescription(e.target.value)} placeholder="Briefly describe the goal" disabled={isSubmitting}/>
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="grid gap-2">
                 <Label htmlFor="goalCurrentValue">Current Value</Label>
-                <Input id="goalCurrentValue" type="number" value={goalCurrentValue} onChange={(e) => setGoalCurrentValue(parseFloat(e.target.value))} />
+                <Input id="goalCurrentValue" type="number" value={goalCurrentValue} onChange={(e) => setGoalCurrentValue(parseFloat(e.target.value) || 0)} disabled={isSubmitting}/>
               </div>
               <div className="grid gap-2">
                 <Label htmlFor="goalTargetValue">Target Value</Label>
-                <Input id="goalTargetValue" type="number" value={goalTargetValue} onChange={(e) => setGoalTargetValue(parseFloat(e.target.value))} />
+                <Input id="goalTargetValue" type="number" value={goalTargetValue} onChange={(e) => setGoalTargetValue(parseFloat(e.target.value) || 0)} disabled={isSubmitting}/>
               </div>
             </div>
             <div className="grid gap-2">
               <Label htmlFor="goalUnit">Unit</Label>
-              <Input id="goalUnit" value={goalUnit} onChange={(e) => setGoalUnit(e.target.value)} placeholder="e.g., %, USD, Tasks" />
+              <Input id="goalUnit" value={goalUnit} onChange={(e) => setGoalUnit(e.target.value)} placeholder="e.g., %, USD, Tasks" disabled={isSubmitting}/>
             </div>
             <div className="grid gap-2">
                 <Label>Set Current Value ({goalCurrentValue} {goalUnit.replace("(Lower is better)","").trim()})</Label>
                 <Slider
                     value={[goalCurrentValue]}
-                    max={goalTargetValue > 0 ? goalTargetValue * (goalUnit.toLowerCase().includes("lower is better") ? 2 : 1.2) : 100} // Adjust max for better slider usability
+                    max={goalTargetValue > 0 ? goalTargetValue * (goalUnit.toLowerCase().includes("lower is better") ? 2 : 1.2) : 100}
                     min={0}
-                    step={goalTargetValue > 1000 ? 100 : (goalTargetValue > 100 ? 10 : 1)} // Dynamic step
+                    step={goalTargetValue > 1000 ? 100 : (goalTargetValue > 100 ? 10 : 1)}
                     onValueChange={(value) => setGoalCurrentValue(value[0])}
+                    disabled={isSubmitting}
                 />
             </div>
-            {/* TODO: Add Deadline Picker if needed 
             <div className="grid gap-2">
               <Label htmlFor="goalDeadline">Deadline (Optional)</Label>
-               <Popover> ... Calendar ... </Popover>
+               <Popover>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant={"outline"}
+                    className={cn("w-full justify-start text-left font-normal", !goalDeadline && "text-muted-foreground")}
+                    disabled={isSubmitting}
+                  >
+                    <CalendarIcon className="mr-2 h-4 w-4" />
+                    {goalDeadline ? format(goalDeadline, "PPP") : <span>Pick a date</span>}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0">
+                  <Calendar mode="single" selected={goalDeadline} onSelect={setGoalDeadline} initialFocus />
+                </PopoverContent>
+              </Popover>
             </div>
-            */}
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setIsGoalDialogOpen(false)}>Cancel</Button>
-            <Button onClick={handleSaveGoal}>{currentGoal.id ? "Save Changes" : "Add Goal"}</Button>
+            <Button variant="outline" onClick={() => setIsGoalDialogOpen(false)} disabled={isSubmitting}>Cancel</Button>
+            <Button onClick={handleSaveGoal} disabled={isSubmitting}>
+              {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              {currentGoalToEdit ? "Save Changes" : "Add Goal"}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
