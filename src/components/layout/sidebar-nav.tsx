@@ -1,3 +1,4 @@
+
 "use client";
 
 import Link from "next/link";
@@ -104,17 +105,17 @@ export function SidebarNav() {
                 <SidebarMenuSub>
                   {item.children.map((child) => (
                     <SidebarMenuSubItem key={child.title}>
-                      <Link href={child.href} legacyBehavior passHref>
+                      <Link href={child.href}>
                         <SidebarMenuSubButton
                           asChild
                           size="sm"
                           isActive={pathname === child.href}
                           className="w-full"
                         >
-                          <a>
+                          <>
                             {child.icon && <child.icon className="shrink-0"/>}
                             <span>{child.title}</span>
-                          </a>
+                          </>
                         </SidebarMenuSubButton>
                       </Link>
                     </SidebarMenuSubItem>
@@ -124,7 +125,7 @@ export function SidebarNav() {
             </SidebarMenuItem>
           ) : (
             <SidebarMenuItem key={item.title}>
-              <Link href={item.href} legacyBehavior passHref>
+              <Link href={item.href}>
                 <SidebarMenuButton
                   asChild
                   isActive={pathname === item.href}
@@ -134,10 +135,10 @@ export function SidebarNav() {
                   }}
                   className="w-full"
                 >
-                  <a>
+                  <>
                     <item.icon className="shrink-0" />
                     <span className="truncate group-data-[collapsible=icon]:hidden">{item.title}</span>
-                  </a>
+                  </>
                 </SidebarMenuButton>
               </Link>
             </SidebarMenuItem>
