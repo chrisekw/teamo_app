@@ -48,14 +48,20 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     setError(null);
     try {
       const userCredential = await createUserWithEmailAndPassword(auth, data.email, data.password);
-      if (userCredential.user && data.name) {
-        await updateProfile(userCredential.user, { displayName: data.name });
-        // Re-fetch user to get updated profile
-         if (auth.currentUser) {
-            await auth.currentUser.reload();
-            setUser(auth.currentUser);
-        }
+      const firebaseUser = userCredential.user; // Use the user object from the credential
+
+      if (firebaseUser && data.name) {
+        await updateProfile(firebaseUser, { displayName: data.name });
+        // After updating profile, reload this specific user object to get the latest data from Firebase.
+        await firebaseUser.reload(); 
+        // Set the user in context. onAuthStateChanged will also set this, but this makes it available sooner for the current flow.
+        setUser(firebaseUser); 
+      } else if (firebaseUser) {
+        // If no name to update, still set the user state with the newly created user
+        setUser(firebaseUser);
       }
+      // If user creation failed and firebaseUser is null, error would have been thrown.
+      // onAuthStateChanged will eventually ensure the global state is correct.
       router.push('/dashboard');
     } catch (e) {
       setError(e as AuthError);
@@ -107,3 +113,4 @@ export const useAuth = (): AuthContextType => {
   }
   return context;
 };
+
