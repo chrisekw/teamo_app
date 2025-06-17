@@ -110,8 +110,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         {isMobile && (
           <>
             <BottomNav />
-            <Link href="/ai-assistant" passHref legacyBehavior>
-              <a
+            <Link
+                href="/ai-assistant"
                 className={cn(
                   "fixed bottom-20 right-4 z-50 p-0", 
                   "bg-primary text-primary-foreground rounded-full shadow-lg",
@@ -121,7 +121,6 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                 aria-label="AI Assistant"
               >
                 <Sparkles className="h-7 w-7" />
-              </a>
             </Link>
           </>
         )}
