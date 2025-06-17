@@ -27,6 +27,7 @@ import { Calendar } from "@/components/ui/calendar";
 import { cn } from "@/lib/utils";
 import { format } from "date-fns";
 import { Calendar as CalendarIcon } from "lucide-react";
+import { getOfficesForUser, type Office } from "@/lib/firebase/firestore/offices";
 
 
 export default function GoalsPage() {
@@ -36,8 +37,9 @@ export default function GoalsPage() {
   const [goals, setGoals] = useState<Goal[]>([]);
   const [isLoadingGoals, setIsLoadingGoals] = useState(true);
   const [isGoalDialogOpen, setIsGoalDialogOpen] = useState(false);
-  const [currentGoalToEdit, setCurrentGoalToEdit] = useState<Goal | null>(null); // Use null to clearly indicate new vs edit
+  const [currentGoalToEdit, setCurrentGoalToEdit] = useState<Goal | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [userOffices, setUserOffices] = useState<Office[]>([]); // To get officeId for activity log
 
   // Form state
   const [goalName, setGoalName] = useState("");
@@ -46,6 +48,19 @@ export default function GoalsPage() {
   const [goalCurrentValue, setGoalCurrentValue] = useState(0);
   const [goalUnit, setGoalUnit] = useState("%");
   const [goalDeadline, setGoalDeadline] = useState<Date | undefined>();
+
+  const fetchUserOfficesForActivityLog = useCallback(async () => {
+    if (user) {
+      const offices = await getOfficesForUser(user.uid);
+      setUserOffices(offices);
+    }
+  }, [user]);
+
+  useEffect(() => {
+    if (!authLoading) {
+      fetchUserOfficesForActivityLog();
+    }
+  }, [authLoading, fetchUserOfficesForActivityLog]);
 
 
   const fetchGoals = useCallback(async () => {
@@ -64,10 +79,10 @@ export default function GoalsPage() {
   }, [user, toast]);
 
   useEffect(() => {
-    if (!authLoading) {
+    if (!authLoading && user) {
       fetchGoals();
     }
-  }, [authLoading, fetchGoals]);
+  }, [authLoading, user, fetchGoals]);
 
   const resetForm = () => {
     setGoalName("");
@@ -105,7 +120,7 @@ export default function GoalsPage() {
     }
 
     setIsSubmitting(true);
-    const goalData = {
+    const goalData: Omit<Goal, 'id' | 'createdAt' | 'updatedAt' | 'userId'> = {
       name: goalName,
       description: goalDescription,
       targetValue: goalTargetValue,
@@ -113,16 +128,19 @@ export default function GoalsPage() {
       unit: goalUnit,
       deadline: goalDeadline,
     };
+    const actorName = user.displayName || "User";
+    const officeIdForLog = userOffices.length > 0 ? userOffices[0].id : undefined;
+
 
     try {
       if (currentGoalToEdit) {
-        await updateGoalForUser(user.uid, currentGoalToEdit.id, goalData);
+        await updateGoalForUser(user.uid, currentGoalToEdit.id, goalData, actorName, officeIdForLog);
         toast({ title: "Goal Updated", description: `"${goalData.name}" has been updated.` });
       } else {
-        await addGoalForUser(user.uid, goalData);
+        await addGoalForUser(user.uid, goalData, actorName, officeIdForLog);
         toast({ title: "Goal Added", description: `"${goalData.name}" has been added.` });
       }
-      fetchGoals(); // Re-fetch to update the list
+      fetchGoals(); 
       setIsGoalDialogOpen(false);
       resetForm();
     } catch (error) {
@@ -135,8 +153,7 @@ export default function GoalsPage() {
 
   const handleDeleteGoal = async (goalId: string) => {
     if (!user) return;
-    // Consider adding a confirmation dialog here
-    setIsSubmitting(true); // Disable buttons while deleting
+    setIsSubmitting(true); 
     try {
         await deleteGoalForUser(user.uid, goalId);
         toast({ title: "Goal Deleted", description: "The goal has been removed." });
@@ -151,18 +168,21 @@ export default function GoalsPage() {
   
   const getProgressPercentage = (current: number, target: number, unit: string) => {
     if (unit.toLowerCase().includes("lower is better")) {
+        if (target === 0 && current === 0) return 100; // Special case: target 0 bugs, current 0 bugs means 100% achieved
         if (current <= target) return 100;
-        if (target === 0 && current > 0) return 0; // e.g. target is 0 bugs, current is 5 bugs
-        // This part can be tricky. Let's assume we want to show progress towards a lower number from a higher one.
-        // If we started at X, want to go to Y (target), and are at Z (current).
-        // A simple version: if above target, show 0. More complex might be needed.
-        return 0; 
+        if (target === 0 && current > 0) return 0; 
+        // For "lower is better", if current is higher than target, progress is less than 100%.
+        // This specific calculation might need refinement based on exact needs.
+        // A simple approach: progress = (initial_value - current_value) / (initial_value - target_value) * 100
+        // Assuming initial_value could be e.g., 2 * target if not explicitly set.
+        // For now, if current > target, it's not 100%.
+        return Math.max(0, ( (target * 1.5) - current) / ( (target*1.5) - target) * 100 ); // Placeholder logic
     }
-    if (target === 0) return current > 0 ? 100 : 0; // Or handle as error/undefined behavior
+    if (target === 0) return current > 0 ? 100 : 0;
     return Math.min(Math.max((current / target) * 100, 0), 100);
   };
 
-  if (authLoading || (isLoadingGoals && !goals.length)) {
+  if (authLoading || (isLoadingGoals && !goals.length && !userOffices.length)) {
     return <div className="container mx-auto p-8 text-center"><Loader2 className="h-12 w-12 animate-spin text-primary" /></div>;
   }
 
@@ -187,8 +207,9 @@ export default function GoalsPage() {
         <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
           {goals.map((goal) => {
             const progress = getProgressPercentage(goal.currentValue, goal.targetValue, goal.unit);
-            const isCompleted = progress >= 100 && !goal.unit.toLowerCase().includes("lower is better");
+            const isCompletedNonLowerIsBetter = progress >= 100 && !goal.unit.toLowerCase().includes("lower is better");
             const isLowerBetterAchieved = goal.unit.toLowerCase().includes("lower is better") && goal.currentValue <= goal.targetValue;
+            const isAchieved = isCompletedNonLowerIsBetter || isLowerBetterAchieved;
 
             return (
             <Card key={goal.id} className="flex flex-col shadow-lg hover:shadow-xl transition-shadow duration-300">
@@ -215,7 +236,7 @@ export default function GoalsPage() {
                     <span>Progress</span>
                     <span>{goal.currentValue.toLocaleString()} / {goal.targetValue.toLocaleString()} {goal.unit.replace("(Lower is better)","").trim()}</span>
                   </div>
-                  <Progress value={progress} className="h-3" indicatorClassName={isCompleted || isLowerBetterAchieved ? "bg-green-500" : "bg-primary"} />
+                  <Progress value={progress} className="h-3" indicatorClassName={isAchieved ? "bg-green-500" : "bg-primary"} />
                 </div>
                 {goal.deadline && (
                   <p className="text-xs text-muted-foreground">
@@ -224,7 +245,7 @@ export default function GoalsPage() {
                 )}
               </CardContent>
               <CardFooter>
-                {isCompleted || isLowerBetterAchieved ? (
+                {isAchieved ? (
                   <div className="flex items-center text-green-600">
                     <CheckCircle2 className="mr-2 h-5 w-5" />
                     Goal Achieved!
@@ -267,8 +288,8 @@ export default function GoalsPage() {
               </div>
             </div>
             <div className="grid gap-2">
-              <Label htmlFor="goalUnit">Unit</Label>
-              <Input id="goalUnit" value={goalUnit} onChange={(e) => setGoalUnit(e.target.value)} placeholder="e.g., %, USD, Tasks" disabled={isSubmitting}/>
+              <Label htmlFor="goalUnit">Unit (add '(Lower is better)' if applicable)</Label>
+              <Input id="goalUnit" value={goalUnit} onChange={(e) => setGoalUnit(e.target.value)} placeholder="e.g., %, USD, Tasks, Bugs (Lower is better)" disabled={isSubmitting}/>
             </div>
             <div className="grid gap-2">
                 <Label>Set Current Value ({goalCurrentValue} {goalUnit.replace("(Lower is better)","").trim()})</Label>

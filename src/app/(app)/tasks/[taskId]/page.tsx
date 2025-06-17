@@ -22,6 +22,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
+import { getOfficesForUser, type Office } from "@/lib/firebase/firestore/offices";
 
 
 export default function TaskDetailPage() {
@@ -34,6 +35,7 @@ export default function TaskDetailPage() {
   const [currentTask, setCurrentTask] = useState<Task | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [userOffices, setUserOffices] = useState<Office[]>([]);
 
   // Form states
   const [taskName, setTaskName] = useState("");
@@ -44,6 +46,19 @@ export default function TaskDetailPage() {
   const [description, setDescription] = useState("");
   const [progress, setProgress] = useState(0);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+
+  const fetchUserOfficesForActivityLog = useCallback(async () => {
+    if (user) {
+      const offices = await getOfficesForUser(user.uid);
+      setUserOffices(offices);
+    }
+  }, [user]);
+
+  useEffect(() => {
+    if (!authLoading) {
+      fetchUserOfficesForActivityLog();
+    }
+  }, [authLoading, fetchUserOfficesForActivityLog]);
 
   const fetchTask = useCallback(async () => {
     if (user && taskId) {
@@ -61,7 +76,7 @@ export default function TaskDetailPage() {
           setProgress(taskData.progress);
         } else {
            toast({ variant: "destructive", title: "Not Found", description: "Task not found or you don't have access." });
-           router.push("/tasks"); // Redirect if task not found
+           router.push("/tasks"); 
         }
       } catch (error) {
         console.error("Failed to fetch task:", error);
@@ -83,7 +98,7 @@ export default function TaskDetailPage() {
     if (!currentTask || !user) return;
 
     setIsSubmitting(true);
-    const updatedTaskData: Partial<Omit<Task, 'id' | 'createdAt' | 'updatedAt'>> = {
+    const updatedTaskData: Partial<Omit<Task, 'id' | 'createdAt' | 'updatedAt' | 'userId'>> = {
       name: taskName,
       assignedTo,
       dueDate: dueDate || currentTask.dueDate,
@@ -92,9 +107,11 @@ export default function TaskDetailPage() {
       description,
       progress,
     };
+    const actorName = user.displayName || "User";
+    const officeIdForLog = userOffices.length > 0 ? userOffices[0].id : undefined;
 
     try {
-      await updateTaskForUser(user.uid, currentTask.id, updatedTaskData);
+      await updateTaskForUser(user.uid, currentTask.id, updatedTaskData, actorName, officeIdForLog);
       toast({ title: "Task Updated", description: "Your changes have been saved." });
       router.push("/tasks");
     } catch (error) {
@@ -115,13 +132,12 @@ export default function TaskDetailPage() {
     } catch (error) {
       console.error("Failed to delete task:", error);
       toast({ variant: "destructive", title: "Error", description: "Could not delete task." });
-      setIsSubmitting(false); // Only reset if delete fails, otherwise page unmounts
+      setIsSubmitting(false);
     }
     setIsDeleteDialogOpen(false);
-    // No finally for setIsSubmitting here because if successful, component unmounts.
   };
 
-  if (authLoading || isLoading) {
+  if (authLoading || isLoading || (user && userOffices.length === 0 && !isLoading)) { // Also wait for offices if user exists
     return <div className="container mx-auto p-8 text-center"><Loader2 className="h-12 w-12 animate-spin text-primary"/></div>;
   }
 

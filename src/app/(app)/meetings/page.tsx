@@ -18,6 +18,7 @@ import type { Meeting } from "@/types";
 import { useAuth } from "@/lib/firebase/auth";
 import { addMeetingForUser, getMeetingsForUser, deleteMeetingForUser } from "@/lib/firebase/firestore/meetings";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
+import { getOfficesForUser, type Office } from "@/lib/firebase/firestore/offices";
 
 export default function MeetingsPage() {
   const { user, loading: authLoading } = useAuth();
@@ -28,6 +29,7 @@ export default function MeetingsPage() {
   const [isScheduleDialogOpen, setIsScheduleDialogOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [meetingToDelete, setMeetingToDelete] = useState<Meeting | null>(null);
+  const [userOffices, setUserOffices] = useState<Office[]>([]);
 
   // Form state for new meeting
   const [newMeetingTitle, setNewMeetingTitle] = useState("");
@@ -43,6 +45,19 @@ export default function MeetingsPage() {
   const [isJoiningMeeting, setIsJoiningMeeting] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
+
+  const fetchUserOfficesForActivityLog = useCallback(async () => {
+    if (user) {
+      const offices = await getOfficesForUser(user.uid);
+      setUserOffices(offices);
+    }
+  }, [user]);
+
+  useEffect(() => {
+    if (!authLoading) {
+      fetchUserOfficesForActivityLog();
+    }
+  }, [authLoading, fetchUserOfficesForActivityLog]);
 
   const fetchMeetings = useCallback(async () => {
     if (user) {
@@ -60,10 +75,10 @@ export default function MeetingsPage() {
   }, [user, toast]);
 
   useEffect(() => {
-    if (!authLoading) {
+    if (!authLoading && user) {
       fetchMeetings();
     }
-  }, [authLoading, fetchMeetings]);
+  }, [authLoading, user, fetchMeetings]);
 
 
   useEffect(() => {
@@ -134,16 +149,18 @@ export default function MeetingsPage() {
     const combinedDateTime = new Date(newMeetingDate);
     combinedDateTime.setHours(hours, minutes, 0, 0); 
 
-    const meetingData: Omit<Meeting, 'id' | 'createdAt' | 'updatedAt'> = {
+    const meetingData: Omit<Meeting, 'id' | 'createdAt' | 'updatedAt' | 'userId'> = {
       title: newMeetingTitle,
       dateTime: combinedDateTime,
       durationMinutes: parseInt(newMeetingDuration, 10) || 30,
       participants: newMeetingParticipants.split(',').map(p => p.trim()).filter(p => p),
       description: newMeetingDescription,
     };
+    const actorName = user.displayName || "User";
+    const officeIdForLog = userOffices.length > 0 ? userOffices[0].id : undefined;
 
     try {
-        await addMeetingForUser(user.uid, meetingData);
+        await addMeetingForUser(user.uid, meetingData, actorName, officeIdForLog);
         toast({ title: "Meeting Scheduled", description: `"${meetingData.title}" has been scheduled.` });
         fetchMeetings();
         setIsScheduleDialogOpen(false);
@@ -184,7 +201,7 @@ export default function MeetingsPage() {
     setSelectedMeetingForPreview(null);
   };
   
-  if (authLoading || (isLoadingMeetings && !meetings.length)) {
+  if (authLoading || (isLoadingMeetings && !meetings.length && !userOffices.length)) {
      return <div className="container mx-auto p-8 text-center"><Loader2 className="h-12 w-12 animate-spin text-primary" /></div>;
   }
 

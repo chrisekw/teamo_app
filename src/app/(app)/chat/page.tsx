@@ -13,49 +13,24 @@ import { Badge } from "@/components/ui/badge";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
-import { useAuth } from "@/lib/firebase/auth"; // Import useAuth
-import type { ChatMessage, ChatUser } from "@/types"; // Import updated Chat types
-
-// --- Enums and Types (Local types for chat, ChatMessage and ChatUser now from global types) ---
-// type MemberRole = "Owner" | "Admin" | "Member" | "Tech" | "Designer" | "Lead"; (Replaced by ChatUser.role)
-
-interface MockOfficeForChat { // Simplified for chat context, actual office data is more complex
-  id: string;
-  name: string;
-  members: ChatUser[];
-}
-// --- End Types ---
-
-// --- Mock Data (To be replaced with Firebase eventually) ---
-// mockCurrentUser is now derived from useAuth
-const mockOffice: MockOfficeForChat = {
-  id: 'office-1',
-  name: 'Teamo HQ',
-  members: [
-    // Current user will be added dynamically
-    { id: 'member-1', name: 'Jane Doe', role: 'Tech', avatarUrl: 'https://placehold.co/40x40.png?text=JD' },
-    { id: 'member-2', name: 'Steve Miller', role: 'Designer', avatarUrl: 'https://placehold.co/40x40.png?text=SM' },
-    { id: 'member-3', name: 'Alice Wonderland', role: 'Member', avatarUrl: 'https://placehold.co/40x40.png?text=AW' },
-    { id: 'member-4', name: 'Bob The Builder', role: 'Tech', avatarUrl: 'https://placehold.co/40x40.png?text=BB' },
-  ],
-};
-// --- End Mock Data ---
-
+import { useAuth } from "@/lib/firebase/auth";
+import type { ChatMessage, ChatUser, Office, OfficeMember } from "@/types";
+import { getOfficesForUser, getMembersForOffice } from '@/lib/firebase/firestore/offices'; // To get members for DMs
 
 export default function ChatPage() {
-  const { user, loading: authLoading } = useAuth(); // Get current user
+  const { user, loading: authLoading } = useAuth();
   const isMobile = useIsMobile();
   const { toast } = useToast();
   
   const [mobileView, setMobileView] = useState<'list' | 'chat'>('list');
-  
-  const [activeChatId, setActiveChatId] = useState<string>("general"); // Could be 'general' or a userId for DMs
-  const [allMessages, setAllMessages] = useState<Record<string, ChatMessage[]>>({});
+  const [activeChatId, setActiveChatId] = useState<string>("general"); // Default to general chat of the first office
+  const [allMessages, setAllMessages] = useState<Record<string, ChatMessage[]>>({}); // Will be fetched from Firestore eventually
   const [newMessage, setNewMessage] = useState("");
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   
   const [currentUserForChat, setCurrentUserForChat] = useState<ChatUser | null>(null);
-  const [currentOfficeMembers, setCurrentOfficeMembers] = useState<ChatUser[]>([]);
+  const [currentOfficeMembers, setCurrentOfficeMembers] = useState<ChatUser[]>([]); // For DM list
+  const [activeOfficeForChat, setActiveOfficeForChat] = useState<Office | null>(null);
 
 
   // Video call and voice note states
@@ -63,53 +38,90 @@ export default function ChatPage() {
   const [isRecordingVoiceNote, setIsRecordingVoiceNote] = useState(false);
   const voiceRecordingStartTimeRef = useRef<number | null>(null);
 
+  // Fetch user's offices and set the first one as active for chat context
+  useEffect(() => {
+    const fetchInitialChatContext = async () => {
+      if (user) {
+        const offices = await getOfficesForUser(user.uid);
+        if (offices.length > 0) {
+          const firstOffice = offices[0];
+          setActiveOfficeForChat(firstOffice);
+          setActiveChatId(`general-${firstOffice.id}`); // General chat ID for the office
+
+          const members = await getMembersForOffice(firstOffice.id);
+          const chatUsers: ChatUser[] = members.map(m => ({
+            id: m.userId,
+            name: m.name,
+            role: m.role,
+            avatarUrl: m.avatarUrl,
+          }));
+          // Filter out current user from members for DM list
+          setCurrentOfficeMembers(chatUsers.filter(m => m.id !== user.uid));
+        }
+      }
+    };
+    if (user && !authLoading) {
+      fetchInitialChatContext();
+    }
+  }, [user, authLoading]);
+
   useEffect(() => {
     if (user) {
       const chatUser: ChatUser = {
         id: user.uid,
         name: user.displayName || user.email?.split('@')[0] || 'You',
-        role: 'Lead', // This role might come from OfficeMember data in a full integration
+        role: 'Lead', // This role should ideally come from the active office member data
         avatarUrl: user.photoURL || `https://placehold.co/40x40.png?text=${(user.displayName || 'U').substring(0,1)}`,
       };
       setCurrentUserForChat(chatUser);
-      // Filter out current user from mock office members
-      const otherMembers = mockOffice.members.filter(m => m.id !== user.uid);
-      // Add current user to the start of the members list if needed by mock data structure (currently not used this way)
-      setCurrentOfficeMembers(otherMembers);
 
+      // Initialize mock messages (TODO: replace with Firebase fetching)
+      // This part needs to be dynamic based on activeOfficeForChat
+      if (activeOfficeForChat && currentOfficeMembers.length > 0) {
+          const member1 = currentOfficeMembers.find(m => m.id !== user.uid); // Just take the first other member for mock DM
 
-      // Initialize mock messages (should be fetched from Firebase)
-       const member1 = otherMembers.find(m => m.id === 'member-1');
-       const member2 = otherMembers.find(m => m.id === 'member-2');
-
-      setAllMessages({
-        "general": [
-          { id: 'g1', text: 'Hey team, how is the project going?', senderId: member1?.id || 'member-1', timestamp: new Date(Date.now() - 1000 * 60 * 5), avatarUrl: member1?.avatarUrl, senderName: member1?.name || 'Jane Doe', type: 'text', chatThreadId: 'general' },
-          { id: 'g2', text: 'Making good progress on my end!', senderId: member2?.id || 'member-2', timestamp: new Date(Date.now() - 1000 * 60 * 3), avatarUrl: member2?.avatarUrl, senderName: member2?.name || 'Steve Miller', type: 'text', chatThreadId: 'general' },
-          { id: 'g3', text: 'Great to hear, Steve!', senderId: chatUser.id, timestamp: new Date(Date.now() - 1000 * 60 * 1), avatarUrl: chatUser.avatarUrl, senderName: chatUser.name, type: 'text', chatThreadId: 'general' },
-        ],
-        "member-1": [ // Example DM thread with member-1
-          { id: 'dm1-1', text: 'Hi Jane, need your help with the API.', senderId: chatUser.id, timestamp: new Date(Date.now() - 1000 * 60 * 10), avatarUrl: chatUser.avatarUrl, senderName: chatUser.name, type: 'text', chatThreadId: 'member-1' },
-          { id: 'dm1-2', text: 'Sure, what do you need?', senderId: member1?.id || 'member-1', timestamp: new Date(Date.now() - 1000 * 60 * 8), avatarUrl: member1?.avatarUrl, senderName: member1?.name || 'Jane Doe', type: 'text', chatThreadId: 'member-1'},
-        ]
-      });
+          setAllMessages({
+            [`general-${activeOfficeForChat.id}`]: [
+              { id: 'g1', text: `Welcome to ${activeOfficeForChat.name} general chat!`, senderId: 'system', timestamp: new Date(Date.now() - 1000 * 60 * 5), senderName: 'System', type: 'text', chatThreadId: `general-${activeOfficeForChat.id}` },
+            ],
+            ...(member1 ? {
+                [member1.id]: [ 
+                { id: 'dm1-1', text: `Hi ${member1.name}, let's chat.`, senderId: chatUser.id, timestamp: new Date(Date.now() - 1000 * 60 * 10), avatarUrl: chatUser.avatarUrl, senderName: chatUser.name, type: 'text', chatThreadId: member1.id },
+                ]
+            } : {})
+          });
+      } else {
+         setAllMessages({
+            "initial-placeholder": [
+                 { id: 'g1', text: `Select an office or join one to start chatting.`, senderId: 'system', timestamp: new Date(Date.now() - 1000 * 60 * 5), senderName: 'System', type: 'text', chatThreadId: "initial-placeholder" },
+            ]
+         });
+         if (!activeChatId.startsWith("general-") && activeChatId !== "initial-placeholder") {
+            setActiveChatId("initial-placeholder");
+         } else if (!activeChatId && activeOfficeForChat) {
+            setActiveChatId(`general-${activeOfficeForChat.id}`);
+         } else if (!activeChatId && !activeOfficeForChat){
+            setActiveChatId("initial-placeholder");
+         }
+      }
     }
-  }, [user]);
+  }, [user, activeOfficeForChat, currentOfficeMembers]); // Rerun if activeOfficeForChat changes
 
 
   useEffect(() => {
     if (isMobile === undefined) return; 
-
     if (isMobile) {
       if (mobileView !== 'list' && !activeChatId) {
         setMobileView('list');
       }
     } else { 
-      if (!activeChatId) {
-        setActiveChatId("general"); 
+      if (!activeChatId && activeOfficeForChat) {
+        setActiveChatId(`general-${activeOfficeForChat.id}`); 
+      } else if (!activeChatId && !activeOfficeForChat){
+        setActiveChatId("initial-placeholder");
       }
     }
-  }, [isMobile, activeChatId, mobileView]);
+  }, [isMobile, activeChatId, mobileView, activeOfficeForChat]);
 
   useEffect(() => {
     if (scrollAreaRef.current) {
@@ -123,9 +135,13 @@ export default function ChatPage() {
 
   const handleSendMessage = () => {
     if (newMessage.trim() === "" || !activeChatId || !currentUserForChat) return;
+    if (activeChatId === "initial-placeholder") {
+        toast({title: "No Chat Selected", description: "Please select or join an office."});
+        return;
+    }
     
     const message: ChatMessage = {
-      id: Date.now().toString(), // Firestore would generate this
+      id: Date.now().toString(), 
       text: newMessage,
       senderId: currentUserForChat.id,
       timestamp: new Date(),
@@ -135,6 +151,7 @@ export default function ChatPage() {
       chatThreadId: activeChatId,
     };
 
+    // TODO: Persist to Firestore
     setAllMessages(prev => ({
       ...prev,
       [activeChatId]: [...(prev[activeChatId] || []), message]
@@ -146,13 +163,14 @@ export default function ChatPage() {
     const systemMessage: ChatMessage = {
       id: Date.now().toString(),
       text,
-      senderId: 'system', // Indicates a system message
+      senderId: 'system', 
       timestamp: new Date(),
       senderName: 'System', 
       type: 'call_event',
       callDuration,
       chatThreadId: chatId,
     };
+    // TODO: Persist to Firestore if necessary (or handle locally for simulation)
     setAllMessages(prev => ({
       ...prev,
       [chatId]: [...(prev[chatId] || []), systemMessage]
@@ -160,7 +178,7 @@ export default function ChatPage() {
   };
 
   const handleToggleVideoCall = () => {
-    if (!activeChatId || activeChatId === "general") return;
+    if (!activeChatId || activeChatId.startsWith("general-") || activeChatId === "initial-placeholder") return;
 
     const callActive = !!isCallActiveForChat[activeChatId];
     const targetMember = currentOfficeMembers.find(m => m.id === activeChatId);
@@ -179,7 +197,7 @@ export default function ChatPage() {
   };
 
   const handleToggleVoiceRecording = () => {
-    if (!currentUserForChat || !activeChatId) return;
+    if (!currentUserForChat || !activeChatId || activeChatId === "initial-placeholder") return;
 
     if (isRecordingVoiceNote) {
       setIsRecordingVoiceNote(false);
@@ -199,6 +217,7 @@ export default function ChatPage() {
         voiceNoteDuration: `${String(Math.floor(durationSec / 60)).padStart(2, '0')}:${String(durationSec % 60).padStart(2, '0')}`,
         chatThreadId: activeChatId,
       };
+      // TODO: Persist to Firestore and upload voice file
       setAllMessages(prev => ({
         ...prev,
         [activeChatId]: [...(prev[activeChatId] || []), voiceNote]
@@ -213,7 +232,8 @@ export default function ChatPage() {
 
 
   const getChatTitle = () => {
-    if (activeChatId === "general") return "General Team Chat";
+    if (activeChatId === "initial-placeholder") return "Select a Chat";
+    if (activeChatId.startsWith("general-") && activeOfficeForChat) return `${activeOfficeForChat.name} General`;
     const member = currentOfficeMembers.find(m => m.id === activeChatId);
     return member ? `${member.name}` : "Chat";
   };
@@ -225,7 +245,7 @@ export default function ChatPage() {
 
   const displayedMessages = allMessages[activeChatId] || [];
 
-  if (authLoading || !currentUserForChat) { // Wait for auth and user setup
+  if (authLoading || !currentUserForChat) { 
     return <div className="flex items-center justify-center h-full"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div>;
   }
 
@@ -235,34 +255,45 @@ export default function ChatPage() {
       isMobileLayout ? "flex-1 rounded-none border-0" : "w-64 sm:w-72 md:w-1/4 lg:w-1/5 mr-2 shadow-lg"
     )}>
       <CardHeader className="p-3 border-b">
-        <CardTitle className="font-headline text-lg">Chats</CardTitle>
+        <CardTitle className="font-headline text-lg">
+          {activeOfficeForChat ? `${activeOfficeForChat.name} Chats` : "Chats"}
+        </CardTitle>
       </CardHeader>
       <ScrollArea className="flex-1">
         <CardContent className="p-2 space-y-1">
-          <Button
-            variant={activeChatId === "general" ? "secondary" : "ghost"}
-            className="w-full justify-start"
-            onClick={() => isMobileLayout ? handleMobileChatSelect("general") : setActiveChatId("general")}
-          >
-            <Users className="mr-2 h-4 w-4" /> General
-          </Button>
-          <Separator className="my-2" />
-          <p className="text-sm font-medium text-muted-foreground px-1 py-1">Direct Messages</p>
-          {currentOfficeMembers.map(member => (
-            <Button
-              key={member.id}
-              variant={activeChatId === member.id ? "secondary" : "ghost"}
-              className="w-full justify-start"
-              onClick={() => isMobileLayout ? handleMobileChatSelect(member.id) : setActiveChatId(member.id)}
-            >
-              <Avatar className="h-6 w-6 mr-2">
-                <AvatarImage src={member.avatarUrl} alt={member.name} data-ai-hint="person avatar" />
-                <AvatarFallback>{member.name.substring(0,1)}</AvatarFallback>
-              </Avatar>
-              <span className="truncate flex-1 text-left">{member.name}</span>
-              <Badge variant="outline" className="ml-2 text-xs whitespace-nowrap">{member.role}</Badge>
-            </Button>
-          ))}
+          {activeOfficeForChat ? (
+            <>
+              <Button
+                variant={activeChatId === `general-${activeOfficeForChat.id}` ? "secondary" : "ghost"}
+                className="w-full justify-start"
+                onClick={() => isMobileLayout ? handleMobileChatSelect(`general-${activeOfficeForChat.id}`) : setActiveChatId(`general-${activeOfficeForChat.id}`)}
+              >
+                <Users className="mr-2 h-4 w-4" /> General
+              </Button>
+              <Separator className="my-2" />
+              <p className="text-sm font-medium text-muted-foreground px-1 py-1">Direct Messages</p>
+              {currentOfficeMembers.map(member => (
+                <Button
+                  key={member.id}
+                  variant={activeChatId === member.id ? "secondary" : "ghost"}
+                  className="w-full justify-start"
+                  onClick={() => isMobileLayout ? handleMobileChatSelect(member.id) : setActiveChatId(member.id)}
+                >
+                  <Avatar className="h-6 w-6 mr-2">
+                    <AvatarImage src={member.avatarUrl} alt={member.name} data-ai-hint="person avatar" />
+                    <AvatarFallback>{member.name.substring(0,1)}</AvatarFallback>
+                  </Avatar>
+                  <span className="truncate flex-1 text-left">{member.name}</span>
+                  <Badge variant="outline" className="ml-2 text-xs whitespace-nowrap">{member.role}</Badge>
+                </Button>
+              ))}
+            </>
+          ) : (
+            <p className="text-sm text-muted-foreground p-4 text-center">
+              Join or create an office to start chatting.
+              <Button variant="link" asChild className="block mx-auto mt-2"><Link href="/office-designer">Go to Offices</Link></Button>
+            </p>
+          )}
         </CardContent>
       </ScrollArea>
     </Card>
@@ -285,7 +316,7 @@ export default function ChatPage() {
                 )}
                 <CardTitle className={cn("font-headline", isMobileLayout ? "text-lg" : "text-xl")}>{getChatTitle()}</CardTitle>
             </div>
-            {activeChatId !== "general" && (
+            {activeChatId && !activeChatId.startsWith("general-") && activeChatId !== "initial-placeholder" && (
                  <Button variant="ghost" size="icon" onClick={handleToggleVideoCall} aria-label={isCallActiveForChat[activeChatId] ? "End Call" : "Start Video Call"}>
                     {isCallActiveForChat[activeChatId] ? <PhoneOff className="h-5 w-5 text-destructive" /> : <Video className="h-5 w-5 text-primary" />}
                 </Button>
@@ -314,7 +345,7 @@ export default function ChatPage() {
                         {!isUserSender && (
                             <Avatar className="h-8 w-8">
                                 <AvatarImage src={msg.avatarUrl} alt={msg.senderName} data-ai-hint="person avatar"/>
-                                <AvatarFallback>{msg.senderName.substring(0,1)}</AvatarFallback>
+                                <AvatarFallback>{msg.senderName?.substring(0,1) || 'S'}</AvatarFallback>
                             </Avatar>
                         )}
                         <div
@@ -339,7 +370,6 @@ export default function ChatPage() {
                     </div>
                  );
               }
-              // Default text message rendering
               return (
                 <div
                 key={msg.id}
@@ -350,7 +380,7 @@ export default function ChatPage() {
                 {!isUserSender && (
                     <Avatar className="h-8 w-8">
                     <AvatarImage src={msg.avatarUrl} alt={msg.senderName} data-ai-hint="person avatar"/>
-                    <AvatarFallback>{msg.senderName.substring(0,1)}</AvatarFallback>
+                    <AvatarFallback>{msg.senderName?.substring(0,1) || 'S'}</AvatarFallback>
                     </Avatar>
                 )}
                 <div
@@ -403,17 +433,16 @@ export default function ChatPage() {
                         onChange={(e) => setNewMessage(e.target.value)}
                         onKeyPress={(e) => e.key === 'Enter' && !isRecordingVoiceNote && handleSendMessage()}
                         className="flex-1"
-                        disabled={!activeChatId || isRecordingVoiceNote}
+                        disabled={!activeChatId || isRecordingVoiceNote || activeChatId === "initial-placeholder"}
                     />
                 )}
-                <Button onClick={handleSendMessage} aria-label="Send message" disabled={!activeChatId || isRecordingVoiceNote || newMessage.trim() === ""} className={cn(isMobileLayout && "h-9 px-3")}>
+                <Button onClick={handleSendMessage} aria-label="Send message" disabled={!activeChatId || isRecordingVoiceNote || newMessage.trim() === "" || activeChatId === "initial-placeholder"} className={cn(isMobileLayout && "h-9 px-3")}>
                     <Send className="h-4 w-4 sm:h-5 sm:w-5" />
                 </Button>
             </div>
         </div>
     </Card>
   );
-
 
   return (
     <div className={cn("h-full", !isMobile ? "flex p-2" : "flex flex-col")}>

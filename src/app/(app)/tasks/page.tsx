@@ -29,6 +29,8 @@ import type { Task } from "@/types";
 import { statusColors, addTaskForUser, getTasksForUser } from "@/lib/firebase/firestore/tasks";
 import { useAuth } from "@/lib/firebase/auth";
 import { useToast } from "@/hooks/use-toast";
+import { getOfficesForUser, type Office } from "@/lib/firebase/firestore/offices";
+
 
 export default function TasksPage() {
   const { user, loading: authLoading } = useAuth();
@@ -37,6 +39,7 @@ export default function TasksPage() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [isLoadingTasks, setIsLoadingTasks] = useState(true);
   const [isCreateTaskDialogOpen, setIsCreateTaskDialogOpen] = useState(false);
+  const [userOffices, setUserOffices] = useState<Office[]>([]);
 
   // Form state for new task dialog
   const [newTaskName, setNewTaskName] = useState("");
@@ -47,6 +50,20 @@ export default function TasksPage() {
   const [newDescription, setNewDescription] = useState("");
   const [newProgress, setNewProgress] = useState(0);
   const [isSubmittingTask, setIsSubmittingTask] = useState(false);
+
+  const fetchUserOfficesForActivityLog = useCallback(async () => {
+    if (user) {
+      const offices = await getOfficesForUser(user.uid);
+      setUserOffices(offices);
+    }
+  }, [user]);
+
+  useEffect(() => {
+    if (!authLoading) {
+      fetchUserOfficesForActivityLog();
+    }
+  }, [authLoading, fetchUserOfficesForActivityLog]);
+
 
   const fetchTasks = useCallback(async () => {
     if (user) {
@@ -91,7 +108,7 @@ export default function TasksPage() {
     }
 
     setIsSubmittingTask(true);
-    const taskData = {
+    const taskData: Omit<Task, 'id' | 'createdAt' | 'updatedAt' | 'userId'> = {
       name: newTaskName,
       assignedTo: newAssignedTo || "Unassigned",
       dueDate: newDueDate || new Date(),
@@ -99,14 +116,16 @@ export default function TasksPage() {
       priority: newPriority,
       description: newDescription,
       progress: newProgress,
-      // createdAt and updatedAt will be handled by Firestore serverTimestamp
     };
+    const actorName = user.displayName || "User";
+    const officeIdForLog = userOffices.length > 0 ? userOffices[0].id : undefined;
+
     try {
-      await addTaskForUser(user.uid, taskData);
+      await addTaskForUser(user.uid, taskData, actorName, officeIdForLog);
       toast({ title: "Task Created", description: `"${taskData.name}" has been added.` });
       setIsCreateTaskDialogOpen(false);
       resetCreateForm();
-      fetchTasks(); // Re-fetch tasks to show the new one
+      fetchTasks(); 
     } catch (error) {
       console.error("Failed to create task:", error);
       toast({ variant: "destructive", title: "Error", description: "Could not create task." });
@@ -128,7 +147,7 @@ export default function TasksPage() {
     return (a.dueDate?.getTime() || 0) - (b.dueDate?.getTime() || 0);
   });
 
-  if (authLoading || (isLoadingTasks && !tasks.length)) {
+  if (authLoading || (isLoadingTasks && !tasks.length && !userOffices.length)) {
     return <div className="container mx-auto p-8 text-center"><Loader2 className="h-12 w-12 animate-spin text-primary" /></div>;
   }
 

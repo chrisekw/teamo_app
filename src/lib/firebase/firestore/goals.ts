@@ -16,24 +16,19 @@ import {
   type FirestoreDataConverter,
 } from 'firebase/firestore';
 import type { Goal, GoalFirestoreData } from '@/types';
+import { addActivityLog } from './activity';
 
-// Firestore data converter for Goal
 const goalConverter: FirestoreDataConverter<Goal, GoalFirestoreData> = {
   toFirestore: (goalInput: Partial<Goal>): DocumentData => {
     const data: any = { ...goalInput };
-    delete data.id; // ID is not stored in the document data itself
+    delete data.id;
+    delete data.userId;
 
     if (goalInput.deadline && goalInput.deadline instanceof Date) {
       data.deadline = Timestamp.fromDate(goalInput.deadline);
-    } else if (goalInput.deadline === undefined && data.deadline !== undefined) {
-      // If deadline is explicitly set to undefined, prepare to remove it or handle accordingly
-      // For serverTimestamp based updates, it might be better to explicitly use deleteField()
-      // For now, if it's undefined on input, it won't be included or will be whatever it was
     }
-
-
-    // Handle createdAt for new documents, updatedAt for all writes
-    if (!goalInput.id) { // Assuming new goal if no ID
+    
+    if (!goalInput.id) { 
       data.createdAt = serverTimestamp();
     }
     data.updatedAt = serverTimestamp();
@@ -41,7 +36,7 @@ const goalConverter: FirestoreDataConverter<Goal, GoalFirestoreData> = {
     return data;
   },
   fromFirestore: (snapshot, options): Goal => {
-    const data = snapshot.data(options)!; // data() will not be undefined with a converter
+    const data = snapshot.data(options)!; 
     return {
       id: snapshot.id,
       name: data.name,
@@ -72,37 +67,78 @@ export async function getGoalsForUser(userId: string): Promise<Goal[]> {
   return snapshot.docs.map(doc => doc.data());
 }
 
-export async function addGoalForUser(userId: string, goalData: Omit<Goal, 'id' | 'createdAt' | 'updatedAt'>): Promise<Goal> {
+export async function addGoalForUser(
+  userId: string, 
+  goalData: Omit<Goal, 'id' | 'createdAt' | 'updatedAt' | 'userId'>,
+  actorName: string,
+  officeId?: string
+): Promise<Goal> {
   if (!userId) throw new Error("User ID is required to add a goal.");
   const goalsCol = getGoalsCollection(userId);
-  // The converter handles timestamp conversions and serverTimestamps
-  const docRef = await addDoc(goalsCol, goalData as Goal); // Cast to Goal for converter, ID handled by Firestore
+  const docRef = await addDoc(goalsCol, goalData as Goal); 
   
-  const newDocSnap = await getDoc(docRef); // Re-fetch to get server-generated fields
+  const newDocSnap = await getDoc(docRef);
   if (!newDocSnap.exists()) {
     throw new Error("Failed to create and retrieve goal.");
   }
-  return newDocSnap.data()!;
+  const newGoal = newDocSnap.data()!;
+
+  if (officeId) {
+    addActivityLog(officeId, {
+      type: "goal-new",
+      title: `New Goal Set: ${newGoal.name}`,
+      description: `Target: ${newGoal.targetValue} ${newGoal.unit}`,
+      iconName: "Target",
+      actorId: userId,
+      actorName,
+      entityId: newGoal.id,
+      entityType: "goal",
+    });
+  }
+  return newGoal;
 }
 
-export async function updateGoalForUser(userId: string, goalId: string, goalData: Partial<Omit<Goal, 'id' | 'createdAt' | 'updatedAt'>>): Promise<void> {
+export async function updateGoalForUser(
+  userId: string, 
+  goalId: string, 
+  goalData: Partial<Omit<Goal, 'id' | 'createdAt' | 'updatedAt' | 'userId'>>,
+  actorName: string,
+  officeId?: string
+): Promise<void> {
   if (!userId || !goalId) throw new Error("User ID and Goal ID are required for update.");
   const goalDocRef = getGoalDoc(userId, goalId);
-  const updatePayload: Partial<GoalFirestoreData> = { ...goalData } as Partial<GoalFirestoreData>;
+  const originalGoalSnap = await getDoc(goalDocRef);
+  const originalGoal = originalGoalSnap.exists() ? originalGoalSnap.data() : null;
 
+  const updatePayload: Partial<GoalFirestoreData> = { ...goalData } as Partial<GoalFirestoreData>;
   if (goalData.deadline && goalData.deadline instanceof Date) {
     updatePayload.deadline = Timestamp.fromDate(goalData.deadline);
   } else if (goalData.hasOwnProperty('deadline') && goalData.deadline === undefined) {
-     // If deadline is explicitly set to undefined, it will be removed if using {merge: true} or handled by converter
-     // Or use deleteField() if specifically removing. For now, converter path handles undefined.
+    // Handled by converter or could use deleteField()
   }
   
-  // `updatedAt` is handled by the converter
   await updateDoc(goalDocRef, updatePayload);
+
+  if (officeId && originalGoal && goalData.currentValue !== undefined && goalData.currentValue !== originalGoal.currentValue) {
+    const progress = (goalData.currentValue / originalGoal.targetValue) * 100;
+    const isAchieved = progress >= 100;
+
+    addActivityLog(officeId, {
+      type: isAchieved ? "goal-achieved" : "goal-progress-update",
+      title: isAchieved ? `Goal Achieved: ${originalGoal.name}` : `Goal Update: ${originalGoal.name}`,
+      description: `Progress: ${goalData.currentValue} / ${originalGoal.targetValue} ${originalGoal.unit} (${Math.round(progress)}%)`,
+      iconName: isAchieved ? "CheckSquare" : "TrendingUp",
+      actorId: userId,
+      actorName,
+      entityId: goalId,
+      entityType: "goal",
+    });
+  }
 }
 
 export async function deleteGoalForUser(userId: string, goalId: string): Promise<void> {
   if (!userId || !goalId) throw new Error("User ID and Goal ID are required for delete.");
   const goalDocRef = getGoalDoc(userId, goalId);
   await deleteDoc(goalDocRef);
+  // Consider logging deletion if officeId context is available
 }

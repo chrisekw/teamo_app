@@ -3,45 +3,38 @@
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Activity, Briefcase, MessageCircle, Users, Zap, ArrowUpRight, CalendarPlus, ListChecks, UserPlus, Target, TrendingUp } from "lucide-react";
+import { Activity, Briefcase, MessageCircle, Users, Zap, ArrowUpRight, CalendarPlus, ListChecks, UserPlus, Target, TrendingUp, CheckSquare, Edit3, PlusCircle, Building } from "lucide-react";
 import Image from "next/image";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import dynamic from 'next/dynamic';
 import { Skeleton } from "@/components/ui/skeleton";
 import type { ChartConfig } from "@/components/ui/chart";
+import { useAuth } from "@/lib/firebase/auth";
+import { getOfficesForUser, getMembersForOffice, type Office } from "@/lib/firebase/firestore/offices";
+import { getActivityLogForOffice, type ActivityLogItem } from "@/lib/firebase/firestore/activity";
+import { Loader2 } from "lucide-react";
+import Link from "next/link";
+
+const activityIconMap: Record<string, React.ElementType> = {
+  "task-new": ListChecks,
+  "task-status-update": Edit3,
+  "task-completed": CheckSquare,
+  "goal-new": Target,
+  "goal-progress-update": TrendingUp,
+  "goal-achieved": CheckSquare,
+  "meeting-new": CalendarPlus,
+  "office-created": Building,
+  "member-join": UserPlus,
+  "room-new": PlusCircle,
+  // Default icon if no match
+  "default": Activity,
+};
 
 
-interface ActivityItem {
-  id: string;
-  type: "meeting" | "task" | "member" | "goal";
-  title: string;
-  description: string;
-  timestamp: Date;
-  icon: React.ElementType;
-  author?: string;
-}
-
-const initialActivityFeed: ActivityItem[] = [
-  { id: "1", type: "meeting", title: "Project Alpha Kick-off Scheduled", description: "Meeting set for tomorrow at 10:00 AM.", timestamp: new Date(Date.now() - 3600000 * 2), icon: CalendarPlus, author: "Alice" },
-  { id: "2", type: "task", title: "New Task Assigned: 'Develop API'", description: "Assigned to Bob, due in 5 days.", timestamp: new Date(Date.now() - 3600000 * 3), icon: ListChecks, author: "Alice" },
-  { id: "3", type: "member", title: "Eve Joined the Team!", description: "Welcome Eve to the Design department.", timestamp: new Date(Date.now() - 3600000 * 5), icon: UserPlus, author: "System" },
-  { id: "4", type: "goal", title: "Goal Updated: 'Q3 Revenue'", description: "Progress increased to 65%.", timestamp: new Date(Date.now() - 3600000 * 8), icon: Target, author: "Charlie" },
-  { id: "5", type: "task", title: "Task Completed: 'Test Payment Gateway'", description: "Completed by David ahead of schedule.", timestamp: new Date(Date.now() - 3600000 * 12), icon: ListChecks, author: "David" },
-];
-
-const initialProgressData = [
-  { month: "Jan", progress: 20, target: 15 },
-  { month: "Feb", progress: 35, target: 30 },
-  { month: "Mar", progress: 50, target: 45 },
-  { month: "Apr", progress: 60, target: 60 },
-  { month: "May", progress: 75, target: 75 },
-  { month: "Jun", progress: 85, target: 90 },
-];
-
-const chartConfig = {
+const chartConfig = { // This is kept for the ChartContainer but the chart itself is removed for now
   progress: {
     label: "Team Progress",
     color: "hsl(var(--primary))",
@@ -62,14 +55,51 @@ const DynamicProgressChart = dynamic(
 
 
 export default function DashboardPage() {
-  const [activityFeed, setActivityFeed] = useState<ActivityItem[]>([]);
-  const [progressData, setProgressData] = useState<typeof initialProgressData>([]);
-  
+  const { user, loading: authLoading } = useAuth();
+  const [activeProjectsCount, setActiveProjectsCount] = useState(0);
+  const [teamMembersCount, setTeamMembersCount] = useState(0);
+  const [activityFeed, setActivityFeed] = useState<ActivityLogItem[]>([]);
+  const [isLoadingStats, setIsLoadingStats] = useState(true);
+  const [isLoadingActivity, setIsLoadingActivity] = useState(true);
+  const [selectedOfficeForDashboard, setSelectedOfficeForDashboard] = useState<Office | null>(null);
+
+  const fetchDashboardData = useCallback(async () => {
+    if (user) {
+      setIsLoadingStats(true);
+      setIsLoadingActivity(true);
+      try {
+        const offices = await getOfficesForUser(user.uid);
+        setActiveProjectsCount(offices.length);
+
+        if (offices.length > 0) {
+          const firstOffice = offices[0];
+          setSelectedOfficeForDashboard(firstOffice); // Use first office for member count and activity
+          
+          const members = await getMembersForOffice(firstOffice.id);
+          setTeamMembersCount(members.length);
+          
+          const activities = await getActivityLogForOffice(firstOffice.id, 7);
+          setActivityFeed(activities);
+
+        } else {
+          setTeamMembersCount(0);
+          setActivityFeed([]);
+        }
+      } catch (error) {
+        console.error("Error fetching dashboard data:", error);
+        // Optionally set error state and display toast
+      } finally {
+        setIsLoadingStats(false);
+        setIsLoadingActivity(false);
+      }
+    }
+  }, [user]);
+
   useEffect(() => {
-    // Simulate data fetching
-    setActivityFeed(initialActivityFeed);
-    setProgressData(initialProgressData);
-  }, []);
+    if (!authLoading && user) {
+      fetchDashboardData();
+    }
+  }, [authLoading, user, fetchDashboardData]);
 
 
   const formatTimeAgo = (date: Date): string => {
@@ -87,6 +117,9 @@ export default function DashboardPage() {
     return Math.floor(seconds) + "s ago";
   };
 
+  if (authLoading) {
+    return <div className="container mx-auto p-8 text-center"><Loader2 className="h-12 w-12 animate-spin text-primary" /></div>;
+  }
 
   return (
     <div className="container mx-auto p-4 sm:p-6 lg:p-8">
@@ -95,27 +128,28 @@ export default function DashboardPage() {
          <h1 className="text-3xl font-headline font-bold">Team Dashboard</h1>
       </div>
       
-      {/* Top Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
         <Card className="shadow-lg hover:shadow-xl transition-shadow duration-300">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Active Projects</CardTitle>
+            <CardTitle className="text-sm font-medium">Active Offices</CardTitle>
             <Briefcase className="h-5 w-5 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">12</div>
-            <p className="text-xs text-muted-foreground">+2 since last week</p>
+            {isLoadingStats ? <Skeleton className="h-8 w-1/4" /> : <div className="text-2xl font-bold">{activeProjectsCount}</div>}
+            <p className="text-xs text-muted-foreground">Offices you are part of</p>
           </CardContent>
         </Card>
 
         <Card className="shadow-lg hover:shadow-xl transition-shadow duration-300">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Team Members Online</CardTitle>
+            <CardTitle className="text-sm font-medium">Team Members</CardTitle>
             <Users className="h-5 w-5 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">8 / 15</div>
-            <p className="text-xs text-muted-foreground">Current / Total</p>
+            {isLoadingStats ? <Skeleton className="h-8 w-1/4" /> : <div className="text-2xl font-bold">{teamMembersCount}</div>}
+            <p className="text-xs text-muted-foreground">
+              {selectedOfficeForDashboard ? `In "${selectedOfficeForDashboard.name}"` : "No active office selected"}
+            </p>
           </CardContent>
         </Card>
 
@@ -125,59 +159,66 @@ export default function DashboardPage() {
             <MessageCircle className="h-5 w-5 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">27</div>
-            <p className="text-xs text-muted-foreground">In 3 active chats</p>
+            <div className="text-2xl font-bold">0</div> 
+            <p className="text-xs text-muted-foreground">Pending chat migration</p>
           </CardContent>
         </Card>
       </div>
 
-      {/* Activity Feed and Progress Graph */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
         <Card className="lg:col-span-2 shadow-lg hover:shadow-xl transition-shadow duration-300 flex flex-col">
           <CardHeader>
             <CardTitle className="font-headline flex items-center"><Activity className="mr-2 h-5 w-5" />Recent Team Activity</CardTitle>
-            <CardDescription>Latest updates from across your team and projects.</CardDescription>
+            <CardDescription>
+              {selectedOfficeForDashboard ? `Latest updates from "${selectedOfficeForDashboard.name}".` : "No office selected for activity."}
+            </CardDescription>
           </CardHeader>
           <CardContent className="flex-grow p-0">
             <ScrollArea className="h-96 px-6">
-              <div className="space-y-6">
-                {activityFeed.map((item, index) => (
-                  <div key={item.id} className="flex items-start space-x-3">
-                    <Badge variant="outline" className="p-2 mt-1">
-                      <item.icon className="h-4 w-4 text-muted-foreground" />
-                    </Badge>
-                    <div className="flex-1">
-                      <p className="text-sm font-medium leading-tight">{item.title}</p>
-                      <p className="text-xs text-muted-foreground">{item.description}</p>
-                       <p className="text-xs text-muted-foreground/80 mt-0.5">
-                        {item.author && `By ${item.author} • `}{formatTimeAgo(item.timestamp)}
-                      </p>
+              {isLoadingActivity ? (
+                 <div className="space-y-6 pt-2">
+                    {[...Array(5)].map((_, i) => <Skeleton key={i} className="h-12 w-full" />)}
+                 </div>
+              ) : activityFeed.length === 0 ? (
+                <p className="text-muted-foreground text-sm text-center py-10">No recent activity in this office.</p>
+              ) : (
+                <div className="space-y-6">
+                  {activityFeed.map((item) => {
+                    const IconComponent = activityIconMap[item.iconName] || activityIconMap["default"];
+                    return (
+                    <div key={item.id} className="flex items-start space-x-3">
+                      <Badge variant="outline" className="p-2 mt-1">
+                        <IconComponent className="h-4 w-4 text-muted-foreground" />
+                      </Badge>
+                      <div className="flex-1">
+                        <p className="text-sm font-medium leading-tight">{item.title}</p>
+                        <p className="text-xs text-muted-foreground">{item.description}</p>
+                        <p className="text-xs text-muted-foreground/80 mt-0.5">
+                          {item.actorName && `By ${item.actorName} • `}{formatTimeAgo(item.timestamp)}
+                        </p>
+                      </div>
                     </div>
-                  </div>
-                ))}
-                 {activityFeed.length === 0 && (
-                    <p className="text-muted-foreground text-sm text-center py-10">No recent activity.</p>
-                )}
-              </div>
+                  )})}
+                </div>
+              )}
             </ScrollArea>
           </CardContent>
            <CardFooter className="pt-6 border-t">
-                <Button variant="ghost" size="sm" className="w-full">View All Activity <ArrowUpRight className="ml-1 h-4 w-4"/></Button>
+                <Button variant="ghost" size="sm" className="w-full" disabled>View All Activity (Future) <ArrowUpRight className="ml-1 h-4 w-4"/></Button>
            </CardFooter>
         </Card>
 
         <Card className="lg:col-span-1 shadow-lg hover:shadow-xl transition-shadow duration-300 flex flex-col">
           <CardHeader>
             <CardTitle className="font-headline flex items-center"><TrendingUp className="mr-2 h-5 w-5"/>Progress Overview</CardTitle>
-            <CardDescription>Team's cumulative progress over the past months.</CardDescription>
+            <CardDescription>Team's cumulative progress (feature pending).</CardDescription>
           </CardHeader>
           <CardContent className="flex-grow flex items-center justify-center">
-             <DynamicProgressChart data={progressData} config={chartConfig} />
+             <DynamicProgressChart data={[]} config={chartConfig} />
           </CardContent>
         </Card>
       </div>
       
-      {/* Quick Actions and Virtual Office */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <Card className="lg:col-span-1 shadow-lg hover:shadow-xl transition-shadow duration-300">
           <CardHeader>
@@ -185,17 +226,17 @@ export default function DashboardPage() {
             <CardDescription>Common tasks at your fingertips.</CardDescription>
           </CardHeader>
           <CardContent className="flex flex-col space-y-3">
-            <Button variant="outline" className="w-full justify-start">
-              <Zap className="mr-2 h-4 w-4" /> Start a New Meeting
+            <Button variant="outline" className="w-full justify-start" asChild>
+              <Link href="/meetings"><Zap className="mr-2 h-4 w-4" /> Start/Schedule Meeting</Link>
             </Button>
-            <Button variant="outline" className="w-full justify-start">
-              <Briefcase className="mr-2 h-4 w-4" /> Create a New Project
+            <Button variant="outline" className="w-full justify-start" asChild>
+                <Link href="/office-designer"><Briefcase className="mr-2 h-4 w-4" /> Manage Offices</Link>
             </Button>
-             <Button variant="outline" className="w-full justify-start">
-              <ListChecks className="mr-2 h-4 w-4" /> Add a New Task
+             <Button variant="outline" className="w-full justify-start" asChild>
+              <Link href="/tasks"><ListChecks className="mr-2 h-4 w-4" /> View Tasks</Link>
             </Button>
-            <Button variant="outline" className="w-full justify-start">
-              <MessageCircle className="mr-2 h-4 w-4" /> Open Team Chat
+            <Button variant="outline" className="w-full justify-start" asChild>
+              <Link href="/chat"><MessageCircle className="mr-2 h-4 w-4" /> Open Team Chat</Link>
             </Button>
           </CardContent>
         </Card>
@@ -215,7 +256,9 @@ export default function DashboardPage() {
                 data-ai-hint="modern office team" 
               />
               <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
-                <Button size="lg" variant="secondary" className="hover:bg-primary hover:text-primary-foreground transition-colors">Enter Office View</Button>
+                 <Button size="lg" variant="secondary" className="hover:bg-primary hover:text-primary-foreground transition-colors" asChild>
+                    <Link href="/office-designer">Enter Office View</Link>
+                </Button>
               </div>
             </div>
           </CardContent>
