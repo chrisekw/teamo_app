@@ -1,6 +1,6 @@
 
-import { config } from 'dotenv';
-config();
+// Removed explicit dotenv.config() call.
+// Genkit CLI typically handles .env loading.
 
 import '@/ai/flows/summarize-team-communication.ts';
 import '@/ai/flows/suggest-team-alignment-actions.ts';
