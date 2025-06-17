@@ -5,15 +5,18 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   LayoutGrid,
-  Building2, // Changed from Building
-  MessageCircleMore, // Changed from MessageSquare
-  CalendarDays, // Changed from Calendar
-  ClipboardCheck, // Changed from ClipboardList
+  Building2,
+  MessageCircleMore,
+  CalendarDays,
+  ClipboardCheck,
   TrendingUp,
   Sparkles,
   Settings,
   ChevronDown,
   ChevronRight,
+  Palette, // Example new icon
+  Users, // Example new icon
+  FileText, // Example new icon
 } from "lucide-react";
 
 import type { NavItem } from "@/types";
@@ -36,42 +39,42 @@ const navItems: NavItem[] = [
   {
     title: "Dashboard",
     href: "/dashboard",
-    icon: LayoutGrid,
+    icon: LayoutGrid, // Keeping original icon
   },
   {
     title: "Office Designer",
     href: "/office-designer",
-    icon: Building2,
+    icon: Building2, // Keeping original icon
   },
   {
     title: "Team Chat",
     href: "/chat",
-    icon: MessageCircleMore,
+    icon: MessageCircleMore, // Keeping original icon
   },
   {
     title: "Meetings",
     href: "/meetings",
-    icon: CalendarDays,
+    icon: CalendarDays, // Keeping original icon
   },
   {
     title: "Task Management",
     href: "/tasks",
-    icon: ClipboardCheck,
+    icon: ClipboardCheck, // Keeping original icon
   },
   {
     title: "Goal Tracker",
     href: "/goals",
-    icon: TrendingUp,
+    icon: TrendingUp, // Keeping original icon
   },
   {
     title: "AI Assistant",
     href: "/ai-assistant",
-    icon: Sparkles,
+    icon: Sparkles, // Keeping original icon
   },
   {
     title: "Settings",
-    href: "#", // Placeholder link for settings
-    icon: Settings,
+    href: "/settings", // Updated href
+    icon: Settings, // Keeping original icon for settings
   },
 ];
 
@@ -117,10 +120,8 @@ export function SidebarNav() {
                           isActive={pathname === child.href}
                           className="w-full text-sidebar-item-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground data-[active=true]:bg-sidebar-item-active-background data-[active=true]:text-sidebar-item-active-foreground"
                         >
-                          <>
                             {child.icon && <child.icon className="shrink-0 h-4 w-4" />}
                             <span>{child.title}</span>
-                          </>
                         </SidebarMenuSubButton>
                       </Link>
                     </SidebarMenuSubItem>
@@ -139,10 +140,8 @@ export function SidebarNav() {
                   }}
                   className="w-full h-10 px-3 justify-start text-sidebar-item-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground data-[active=true]:bg-sidebar-item-active-background data-[active=true]:text-sidebar-item-active-foreground group-data-[collapsible=icon]:size-10 group-data-[collapsible=icon]:p-0 group-data-[collapsible=icon]:justify-center"
                 >
-                  <>
                     <item.icon className="shrink-0 h-5 w-5" />
                     <span className="truncate ml-3 group-data-[collapsible=icon]:hidden">{item.title}</span>
-                  </>
                 </SidebarMenuButton>
               </Link>
             </SidebarMenuItem>
