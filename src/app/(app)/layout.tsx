@@ -1,3 +1,4 @@
+
 "use client";
 
 import {
@@ -7,16 +8,15 @@ import {
   SidebarContent,
   SidebarFooter,
   SidebarInset,
-  SidebarTrigger,
 } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Separator } from "@/components/ui/separator";
 import { Logo, TeamoTextLogo } from "@/components/icons";
 import { SidebarNav } from "@/components/layout/sidebar-nav";
 import { Header } from "@/components/layout/header";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { Settings, UserCircle } from "lucide-react";
+import { Plus, Play, Apple } from "lucide-react";
+import Image from "next/image";
+import { Card, CardContent } from "@/components/ui/card";
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -24,34 +24,48 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       <Sidebar
         variant="sidebar"
         collapsible="icon"
-        className="border-r data-[collapsible=icon]:border-r-0"
+        className="border-r-0 bg-sidebar text-sidebar-foreground group-data-[collapsible=icon]:border-r-0"
       >
-        <SidebarHeader className="h-14 items-center border-b p-2 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:py-2">
-          <TeamoTextLogo className="h-7 fill-sidebar-foreground group-data-[collapsible=icon]:hidden" />
-          <Logo className="h-7 w-7 fill-sidebar-foreground group-data-[collapsible=icon]:block hidden"/>
+        <SidebarHeader className="h-auto items-center border-b border-sidebar-border p-4 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:py-3 space-y-4">
+          <div className="flex items-center space-x-2 w-full group-data-[collapsible=icon]:justify-center">
+            <Logo className="h-8 w-8 fill-sidebar-primary group-data-[collapsible=icon]:h-7 group-data-[collapsible=icon]:w-7" />
+            <span className="font-headline text-xl font-semibold text-sidebar-foreground group-data-[collapsible=icon]:hidden">Teamo</span>
+          </div>
+          <Button variant="default" className="w-full bg-sidebar-primary text-sidebar-primary-foreground hover:bg-sidebar-primary/90 group-data-[collapsible=icon]:hidden">
+            <Plus className="mr-2 h-5 w-5" /> Create New
+          </Button>
+           <Button variant="default" size="icon" className="w-10 h-10 bg-sidebar-primary text-sidebar-primary-foreground hover:bg-sidebar-primary/90 group-data-[collapsible=icon]:flex hidden">
+            <Plus className="h-5 w-5" />
+          </Button>
         </SidebarHeader>
+
         <SidebarContent className="p-0">
           <SidebarNav />
         </SidebarContent>
-        <SidebarFooter className="mt-auto border-t p-2">
-          <Tooltip>
-             <TooltipTrigger asChild>
-              <Button variant="ghost" className="w-full justify-start group-data-[collapsible=icon]:justify-center">
-                <Settings className="h-4 w-4 shrink-0" />
-                <span className="ml-2 group-data-[collapsible=icon]:hidden">Settings</span>
-              </Button>
-             </TooltipTrigger>
-             <TooltipContent side="right" className="group-data-[collapsible=icon]:block hidden">Settings</TooltipContent>
-          </Tooltip>
-           <Tooltip>
-             <TooltipTrigger asChild>
-              <Button variant="ghost" className="w-full justify-start group-data-[collapsible=icon]:justify-center">
-                <UserCircle className="h-4 w-4 shrink-0" />
-                <span className="ml-2 group-data-[collapsible=icon]:hidden">Profile</span>
-              </Button>
-             </TooltipTrigger>
-             <TooltipContent side="right" className="group-data-[collapsible=icon]:block hidden">Profile</TooltipContent>
-          </Tooltip>
+
+        <SidebarFooter className="mt-auto border-t-0 p-3 group-data-[collapsible=icon]:hidden">
+          <Card className="bg-gradient-to-br from-[hsl(var(--mobile-app-card-bg-start))] to-[hsl(var(--mobile-app-card-bg-end))] p-4 rounded-lg shadow-md text-center border-none">
+            <CardContent className="p-0">
+              <div className="relative h-24 w-full mb-3">
+                <Image 
+                  src="https://placehold.co/200x100.png" 
+                  alt="Mobile app promotion" 
+                  layout="fill" 
+                  objectFit="contain"
+                  data-ai-hint="abstract mobile interface"
+                />
+              </div>
+              <p className="text-sm font-medium text-sidebar-foreground mb-3">Get mobile app</p>
+              <div className="flex justify-center space-x-3">
+                <Button variant="secondary" size="icon" className="bg-white/80 hover:bg-white text-gray-700 rounded-full">
+                  <Play className="h-5 w-5" />
+                </Button>
+                <Button variant="secondary" size="icon" className="bg-white/80 hover:bg-white text-gray-700 rounded-full">
+                  <Apple className="h-5 w-5" />
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
         </SidebarFooter>
       </Sidebar>
       <div className="flex flex-col flex-1 min-h-screen">

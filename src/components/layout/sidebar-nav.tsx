@@ -4,15 +4,19 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
-  LayoutDashboard, // Changed from LayoutGrid
-  Building2,       // Changed from DraftingCompass
-  MessageCircleMore, // Changed from MessagesSquare
-  CalendarDays,    // Changed from Video
-  ClipboardCheck,  // Changed from ListChecks
-  TrendingUp,      // Changed from Target
-  BrainCircuit,    // Changed from Sparkles
+  LayoutGrid, // Was LayoutDashboard
+  Building, // Was Building2
+  MessageSquare, // Was MessageCircleMore
+  Calendar, // Was CalendarDays
+  ClipboardList, // Was ClipboardCheck
+  TrendingUp, // Was TrendingUp (same, good fit)
+  Sparkles, // Was BrainCircuit
+  Settings, // Added here
   ChevronDown,
   ChevronRight,
+  Play,
+  Apple,
+  Plus,
 } from "lucide-react";
 
 import type { NavItem } from "@/types";
@@ -33,39 +37,44 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 
 const navItems: NavItem[] = [
   {
-    title: "Dashboard",
+    title: "Dashboard", // OCR: Overview, but Dashboard is our existing page
     href: "/dashboard",
-    icon: LayoutDashboard,
+    icon: LayoutGrid, // Similar to Overview icon in image
   },
   {
-    title: "Office Designer",
+    title: "Office Designer", // OCR: Patients - mapping to our concept
     href: "/office-designer",
-    icon: Building2,
+    icon: Building, // Similar to people/group icon
   },
   {
-    title: "Team Chat",
+    title: "Team Chat", // OCR: Map - mapping to our concept
     href: "/chat",
-    icon: MessageCircleMore,
+    icon: MessageSquare, // MapPin
   },
   {
-    title: "Meetings",
+    title: "Meetings", // OCR: Departments - mapping to our concept
     href: "/meetings",
-    icon: CalendarDays,
+    icon: Calendar, // Home / Building
   },
   {
-    title: "Task Management",
+    title: "Task Management", // OCR: Doctors - mapping to our concept
     href: "/tasks",
-    icon: ClipboardCheck,
+    icon: ClipboardList, // Stethoscope / UserSquare
   },
   {
-    title: "Goal Tracker",
+    title: "Goal Tracker", // OCR: History - mapping to our concept
     href: "/goals",
-    icon: TrendingUp,
+    icon: TrendingUp, // History / List
   },
   {
     title: "AI Assistant",
     href: "/ai-assistant",
-    icon: BrainCircuit,
+    icon: Sparkles,
+  },
+  {
+    title: "Settings",
+    href: "#", // Placeholder link for settings
+    icon: Settings,
   },
 ];
 
@@ -86,19 +95,20 @@ export function SidebarNav() {
 
 
   return (
-    <ScrollArea className="flex-1">
-      <SidebarMenu>
+    <ScrollArea className="flex-1 px-2">
+      <SidebarMenu className="space-y-1">
         {navItems.map((item) =>
           item.children && item.children.length > 0 ? (
             <SidebarMenuItem key={item.title}>
               <Button
                 variant="ghost"
-                className="w-full justify-start h-10 px-2 group-data-[collapsible=icon]:size-8 group-data-[collapsible=icon]:p-2"
+                className="w-full justify-start h-10 px-3 group-data-[collapsible=icon]:size-10 group-data-[collapsible=icon]:p-0 group-data-[collapsible=icon]:justify-center text-sidebar-item-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground data-[active=true]:bg-sidebar-item-active-background data-[active=true]:text-sidebar-item-active-foreground"
                 onClick={() => toggleSubmenu(item.title)}
                 aria-expanded={openSubmenus[item.title]}
+                data-active={item.children?.some(child => pathname === child.href)}
               >
-                <item.icon className="shrink-0"/>
-                <span className="truncate ml-2 group-data-[collapsible=icon]:hidden">{item.title}</span>
+                <item.icon className="shrink-0 h-5 w-5" />
+                <span className="truncate ml-3 group-data-[collapsible=icon]:hidden">{item.title}</span>
                 {openSubmenus[item.title] ? <ChevronDown className="ml-auto h-4 w-4 group-data-[collapsible=icon]:hidden" /> : <ChevronRight className="ml-auto h-4 w-4 group-data-[collapsible=icon]:hidden" />}
               </Button>
               {sidebarState === "expanded" && openSubmenus[item.title] && (
@@ -110,10 +120,10 @@ export function SidebarNav() {
                           asChild
                           size="sm"
                           isActive={pathname === child.href}
-                          className="w-full"
+                          className="w-full text-sidebar-item-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground data-[active=true]:bg-sidebar-item-active-background data-[active=true]:text-sidebar-item-active-foreground"
                         >
                           <>
-                            {child.icon && <child.icon className="shrink-0"/>}
+                            {child.icon && <child.icon className="shrink-0 h-4 w-4" />}
                             <span>{child.title}</span>
                           </>
                         </SidebarMenuSubButton>
@@ -133,11 +143,11 @@ export function SidebarNav() {
                     children: item.title,
                     className: "group-data-[collapsible=icon]:block hidden",
                   }}
-                  className="w-full"
+                  className="w-full h-10 px-3 justify-start text-sidebar-item-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground data-[active=true]:bg-sidebar-item-active-background data-[active=true]:text-sidebar-item-active-foreground group-data-[collapsible=icon]:size-10 group-data-[collapsible=icon]:p-0 group-data-[collapsible=icon]:justify-center"
                 >
                   <>
-                    <item.icon className="shrink-0" />
-                    <span className="truncate group-data-[collapsible=icon]:hidden">{item.title}</span>
+                    <item.icon className="shrink-0 h-5 w-5" />
+                    <span className="truncate ml-3 group-data-[collapsible=icon]:hidden">{item.title}</span>
                   </>
                 </SidebarMenuButton>
               </Link>
@@ -148,3 +158,4 @@ export function SidebarNav() {
     </ScrollArea>
   );
 }
+```
