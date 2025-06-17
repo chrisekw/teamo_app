@@ -4,19 +4,16 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
-  LayoutGrid, // Was LayoutDashboard
-  Building, // Was Building2
-  MessageSquare, // Was MessageCircleMore
-  Calendar, // Was CalendarDays
-  ClipboardList, // Was ClipboardCheck
-  TrendingUp, // Was TrendingUp (same, good fit)
-  Sparkles, // Was BrainCircuit
-  Settings, // Added here
+  LayoutGrid,
+  Building2, // Changed from Building
+  MessageCircleMore, // Changed from MessageSquare
+  CalendarDays, // Changed from Calendar
+  ClipboardCheck, // Changed from ClipboardList
+  TrendingUp,
+  Sparkles,
+  Settings,
   ChevronDown,
   ChevronRight,
-  Play,
-  Apple,
-  Plus,
 } from "lucide-react";
 
 import type { NavItem } from "@/types";
@@ -37,34 +34,34 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 
 const navItems: NavItem[] = [
   {
-    title: "Dashboard", // OCR: Overview, but Dashboard is our existing page
+    title: "Dashboard",
     href: "/dashboard",
-    icon: LayoutGrid, // Similar to Overview icon in image
+    icon: LayoutGrid,
   },
   {
-    title: "Office Designer", // OCR: Patients - mapping to our concept
+    title: "Office Designer",
     href: "/office-designer",
-    icon: Building, // Similar to people/group icon
+    icon: Building2,
   },
   {
-    title: "Team Chat", // OCR: Map - mapping to our concept
+    title: "Team Chat",
     href: "/chat",
-    icon: MessageSquare, // MapPin
+    icon: MessageCircleMore,
   },
   {
-    title: "Meetings", // OCR: Departments - mapping to our concept
+    title: "Meetings",
     href: "/meetings",
-    icon: Calendar, // Home / Building
+    icon: CalendarDays,
   },
   {
-    title: "Task Management", // OCR: Doctors - mapping to our concept
+    title: "Task Management",
     href: "/tasks",
-    icon: ClipboardList, // Stethoscope / UserSquare
+    icon: ClipboardCheck,
   },
   {
-    title: "Goal Tracker", // OCR: History - mapping to our concept
+    title: "Goal Tracker",
     href: "/goals",
-    icon: TrendingUp, // History / List
+    icon: TrendingUp,
   },
   {
     title: "AI Assistant",
@@ -117,8 +114,6 @@ export function SidebarNav() {
                     <SidebarMenuSubItem key={child.title}>
                       <Link href={child.href}>
                         <SidebarMenuSubButton
-                          asChild
-                          size="sm"
                           isActive={pathname === child.href}
                           className="w-full text-sidebar-item-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground data-[active=true]:bg-sidebar-item-active-background data-[active=true]:text-sidebar-item-active-foreground"
                         >
@@ -137,7 +132,6 @@ export function SidebarNav() {
             <SidebarMenuItem key={item.title}>
               <Link href={item.href}>
                 <SidebarMenuButton
-                  asChild
                   isActive={pathname === item.href}
                   tooltip={{
                     children: item.title,
@@ -158,4 +152,3 @@ export function SidebarNav() {
     </ScrollArea>
   );
 }
-```
