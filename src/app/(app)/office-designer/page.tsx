@@ -8,13 +8,14 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { PlusCircle, Trash2, Users, Briefcase, Coffee, Zap, Building, KeyRound, UserPlus, Copy, Settings2, ShieldCheck, UserCircle as UserIconLucide, Loader2, Edit, Info, Image as ImageIcon } from "lucide-react";
+import { PlusCircle, Trash2, Users, Briefcase, Coffee, Zap, Building, KeyRound, UserPlus, Copy, Settings2, ShieldCheck, UserCircle as UserIconLucide, Loader2, Edit, Info, Image as ImageIcon, MoreHorizontal, ExternalLink } from "lucide-react";
 import Image from "next/image";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { Separator } from "@/components/ui/separator";
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/firebase/auth";
 import type { Office, Room, OfficeMember, RoomType, MemberRole } from "@/types";
@@ -80,8 +81,8 @@ export default function OfficeDesignerPage() {
   const [newRoomName, setNewRoomName] = useState("");
   const [managingMember, setManagingMember] = useState<OfficeMember | null>(null);
   const [selectedRole, setSelectedRole] = useState<MemberRole>("Member");
-  const [deletingMemberId, setDeletingMemberId] = useState<string | null>(null);
-  const [deletingRoomId, setDeletingRoomId] = useState<string | null>(null);
+  const [deletingMember, setDeletingMember] = useState<OfficeMember | null>(null);
+  const [deletingRoom, setDeletingRoom] = useState<Room | null>(null);
 
   const fetchUserOffices = useCallback(async () => {
     if (user) {
@@ -190,14 +191,15 @@ export default function OfficeDesignerPage() {
       return;
     }
     setIsSubmitting(true);
+    // For now, we're using placeholders. Actual upload would generate a URL.
     const logoUrlPlaceholder = newOfficeLogoFile ? `https://placehold.co/100x100.png?text=${newOfficeCompanyName.substring(0,3) || 'LOGO'}` : undefined;
-    const bannerUrlPlaceholder = newOfficeBannerFile ? `https://placehold.co/800x200.png?text=${newOfficeCompanyName.substring(0,3) || 'BANNER'}` : undefined;
+    const bannerUrlPlaceholder = newOfficeBannerFile ? `https://placehold.co/800x200.png?text=${newOfficeName.substring(0,3) || 'BANNER'}` : undefined;
 
     try {
       const newOffice = await createOffice(
         user.uid, 
-        user.displayName || user.email || "User", 
-        user.photoURL || undefined, 
+        user.displayName || user.email?.split('@')[0] || "User", 
+        user.photoURL, 
         newOfficeName,
         newOfficeSector || undefined,
         newOfficeCompanyName || undefined,
@@ -210,6 +212,7 @@ export default function OfficeDesignerPage() {
       setIsCreateOfficeDialogOpen(false);
       toast({ title: "Office Created!", description: `Your new office "${newOffice.name}" is ready.` });
     } catch (error: any) {
+      console.error("[Firebase Debug] Error in handleCreateOffice:", error);
       toast({ variant: "destructive", title: "Error Creating Office", description: String(error.message || error || "An unexpected error occurred.") });
     } finally {
       setIsSubmitting(false);
@@ -224,10 +227,10 @@ export default function OfficeDesignerPage() {
     }
     setIsSubmitting(true);
     try {
-      const joinedOffice = await joinOfficeByCode(user.uid, user.displayName || user.email || "User", user.photoURL || undefined, joinOfficeCode);
+      const joinedOffice = await joinOfficeByCode(user.uid, user.displayName || user.email?.split('@')[0] || "User", user.photoURL, joinOfficeCode);
       if (joinedOffice) {
         setUserOffices(prev => { 
-            if (prev.find(o => o.id === joinedOffice.id)) return prev;
+            if (prev.find(o => o.id === joinedOffice.id)) return prev; // Avoid duplicates if already in state
             return [...prev, joinedOffice];
         });
         setActiveOffice(joinedOffice);
@@ -269,23 +272,23 @@ export default function OfficeDesignerPage() {
     }
   };
 
-  const openDeleteRoomDialog = (id: string) => {
-    setDeletingRoomId(id);
+  const openDeleteRoomDialog = (room: Room) => {
+    setDeletingRoom(room);
     setIsConfirmDeleteRoomDialogOpen(true);
   };
   
   const handleDeleteRoom = async () => {
-    if (!activeOffice || !deletingRoomId || !user) return;
+    if (!activeOffice || !deletingRoom || !user) return;
     setIsSubmitting(true);
     try {
-      await deleteRoomFromOffice(activeOffice.id, deletingRoomId);
-      setActiveOfficeRooms(prev => prev.filter((room) => room.id !== deletingRoomId));
-      toast({ title: "Room Deleted", description: "The room has been removed." });
+      await deleteRoomFromOffice(activeOffice.id, deletingRoom.id, user.uid, user.displayName || "User");
+      setActiveOfficeRooms(prev => prev.filter((room) => room.id !== deletingRoom.id));
+      toast({ title: "Room Deleted", description: `The room "${deletingRoom.name}" has been removed.` });
     } catch (error: any) {
       toast({ variant: "destructive", title: "Error Deleting Room", description: error.message });
     } finally {
       setIsSubmitting(false);
-      setDeletingRoomId(null);
+      setDeletingRoom(null);
       setIsConfirmDeleteRoomDialogOpen(false);
     }
   };
@@ -308,7 +311,7 @@ export default function OfficeDesignerPage() {
     }
     setIsSubmitting(true);
     try {
-      await updateMemberRoleInOffice(activeOffice.id, managingMember.userId, selectedRole);
+      await updateMemberRoleInOffice(activeOffice.id, managingMember.userId, selectedRole, user.uid, user.displayName || "User");
       setActiveOfficeMembers(prev => 
         prev.map(m => m.userId === managingMember.userId ? { ...m, role: selectedRole } : m)
       );
@@ -322,31 +325,35 @@ export default function OfficeDesignerPage() {
     }
   };
 
-  const openDeleteMemberDialog = (id: string) => {
-    setDeletingMemberId(id);
+  const openDeleteMemberDialog = (member: OfficeMember) => {
+    if (member.userId === user?.uid && member.role === "Owner") { // Prevent owner from initiating self-removal this way
+        toast({title: "Action Denied", description: "Owners cannot remove themselves. Consider transferring ownership or deleting the office."});
+        return;
+    }
+    setDeletingMember(member);
     setIsConfirmDeleteMemberDialogOpen(true);
   };
 
   const handleDeleteMember = async () => {
-    if (!activeOffice || !deletingMemberId || !user) return;
-    if (deletingMemberId === activeOffice.ownerId) {
+    if (!activeOffice || !deletingMember || !user) return;
+    if (deletingMember.userId === activeOffice.ownerId) {
       toast({ variant: "destructive", title: "Action Denied", description: "Cannot remove the office owner."});
       setIsSubmitting(false);
       setIsConfirmDeleteMemberDialogOpen(false);
-      setDeletingMemberId(null);
+      setDeletingMember(null);
       return;
     }
     
     setIsSubmitting(true);
     try {
-      await removeMemberFromOffice(activeOffice.id, deletingMemberId);
-      setActiveOfficeMembers(prev => prev.filter(m => m.userId !== deletingMemberId));
-      toast({ title: "Member Removed", description: "The member has been removed." });
+      await removeMemberFromOffice(activeOffice.id, deletingMember.userId, user.uid, user.displayName || "User");
+      setActiveOfficeMembers(prev => prev.filter(m => m.userId !== deletingMember.userId));
+      toast({ title: "Member Removed", description: `"${deletingMember.name}" has been removed from the office.` });
     } catch (error: any) {
       toast({ variant: "destructive", title: "Error Removing Member", description: error.message });
     } finally {
       setIsSubmitting(false);
-      setDeletingMemberId(null);
+      setDeletingMember(null);
       setIsConfirmDeleteMemberDialogOpen(false);
     }
   };
@@ -430,7 +437,7 @@ export default function OfficeDesignerPage() {
                 <Input id="newOfficeBanner" type="file" accept="image/*" onChange={handleBannerFileChange} className="file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-primary file:text-primary-foreground hover:file:bg-primary/90" disabled={isSubmitting}/>
                 {bannerPreview && (
                   <div className="mt-2 aspect-[4/1] w-full relative">
-                    <Image src={bannerPreview} alt="Banner preview" layout="fill" className="rounded-md object-cover" data-ai-hint="office banner background"/>
+                    <Image src={bannerPreview} alt="Banner preview" layout="fill" className="rounded-md object-cover" data-ai-hint="office banner"/>
                   </div>
                 )}
               </div>
@@ -466,153 +473,165 @@ export default function OfficeDesignerPage() {
     );
   }
 
+  const currentUserIsOwner = activeOffice.ownerId === user?.uid;
+
   return (
-    <div className="container mx-auto p-4 sm:p-6 lg:p-8">
-      {activeOffice.bannerUrl && (
-        <div className="mb-6 rounded-lg overflow-hidden shadow-lg aspect-[16/5] sm:aspect-[16/4] md:aspect-[16/3] relative">
+    <div className="container mx-auto p-4 sm:p-6 lg:p-8 space-y-8">
+      {activeOffice.bannerUrl ? (
+        <div className="mb-2 rounded-lg overflow-hidden shadow-lg aspect-[16/5] sm:aspect-[16/4] md:aspect-[16/3] relative bg-muted">
           <Image src={activeOffice.bannerUrl} alt={`${activeOffice.name} Banner`} layout="fill" objectFit="cover" data-ai-hint="office banner background"/>
         </div>
-      )}
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-3 pb-3 border-b">
-        <div className="flex items-start space-x-4">
-            {activeOffice.logoUrl ? (
-                 <Image src={activeOffice.logoUrl} alt={`${activeOffice.name} Logo`} width={64} height={64} className="rounded-md object-contain border" data-ai-hint="company logo"/>
-            ) : (
-                 <div className="h-16 w-16 bg-muted rounded-md flex items-center justify-center border">
-                    <Building className="h-8 w-8 text-muted-foreground"/>
-                 </div>
-            )}
-            <div>
-                <h1 className="text-3xl font-headline font-bold">{activeOffice.name}</h1>
-                {activeOffice.companyName && <p className="text-lg text-muted-foreground">{activeOffice.companyName}</p>}
-                {activeOffice.sector && <p className="text-sm text-muted-foreground">Sector: {activeOffice.sector}</p>}
-            </div>
+      ) : (
+        <div className="mb-2 rounded-lg aspect-[16/5] sm:aspect-[16/4] md:aspect-[16/3] relative bg-muted/50 flex items-center justify-center">
+          <ImageIcon className="h-16 w-16 text-muted-foreground" />
         </div>
-         <Button onClick={() => handleSetActiveOffice(null)} variant="outline" className="mt-3 sm:mt-0" disabled={isLoadingDetails || isSubmitting}>Back to Office List</Button>
-      </div>
-      <div className="flex items-center text-sm text-muted-foreground mb-6">
-            <span>Invitation Code: {activeOffice.invitationCode}</span>
-            <Button variant="ghost" size="sm" onClick={copyInviteCode} className="ml-2 px-1 py-0 h-auto">
-              <Copy className="h-3 w-3 mr-1" /> Copy
-            </Button>
-      </div>
+      )}
+
+      <Card className="shadow-xl -mt-16 sm:-mt-20 md:-mt-24 relative z-10 mx-auto max-w-5xl">
+        <CardContent className="p-6">
+            <div className="flex flex-col sm:flex-row items-start sm:items-end space-y-4 sm:space-y-0 sm:space-x-6">
+                {activeOffice.logoUrl ? (
+                     <Image src={activeOffice.logoUrl} alt={`${activeOffice.name} Logo`} width={100} height={100} className="rounded-lg object-cover border-4 border-background shadow-md -mt-12 sm:-mt-16" data-ai-hint="company logo"/>
+                ) : (
+                     <div className="h-24 w-24 sm:h-28 sm:w-28 bg-muted rounded-lg flex items-center justify-center border-4 border-background shadow-md -mt-12 sm:-mt-16">
+                        <Building className="h-12 w-12 text-muted-foreground"/>
+                     </div>
+                )}
+                <div className="flex-1">
+                    <h1 className="text-3xl md:text-4xl font-headline font-bold text-foreground">{activeOffice.name}</h1>
+                    {activeOffice.companyName && <p className="text-lg text-muted-foreground">{activeOffice.companyName}</p>}
+                    {activeOffice.sector && <Badge variant="secondary" className="mt-1">{activeOffice.sector}</Badge>}
+                </div>
+                <Button onClick={() => handleSetActiveOffice(null)} variant="outline" className="w-full sm:w-auto" disabled={isLoadingDetails || isSubmitting}>Back to Office List</Button>
+            </div>
+            <div className="mt-4 pt-4 border-t border-border flex items-center text-sm text-muted-foreground">
+                <span>Invitation Code: <strong className="text-foreground">{activeOffice.invitationCode}</strong></span>
+                <Button variant="ghost" size="sm" onClick={copyInviteCode} className="ml-2 px-1 py-0 h-auto">
+                  <Copy className="h-3 w-3 mr-1" /> Copy
+                </Button>
+          </div>
+        </CardContent>
+      </Card>
 
 
       {isLoadingDetails && <div className="text-center my-8"><Loader2 className="h-10 w-10 animate-spin text-primary"/></div>}
 
       {!isLoadingDetails && (
-        <>
-          <section className="mb-12">
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-2xl font-headline font-semibold">Team Members ({activeOfficeMembers.length})</h2>
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mt-8">
+          <section className="lg:col-span-2 space-y-8">
+            <div>
+              <div className="flex justify-between items-center mb-4">
+                <h2 className="text-2xl font-headline font-semibold">Office Rooms ({activeOfficeRooms.length})</h2>
+                {currentUserIsOwner && (
+                  <Button onClick={() => setIsAddRoomDialogOpen(true)} disabled={isSubmitting} variant="outline" size="sm">
+                      <PlusCircle className="mr-2 h-4 w-4" /> Add Room
+                  </Button>
+                )}
+              </div>
+              {activeOfficeRooms.length === 0 ? (
+                <Card className="shadow-sm">
+                  <CardContent className="text-center py-12 bg-muted/20 rounded-lg">
+                    <Image src="https://placehold.co/300x200.png" alt="Empty office rooms" width={200} height={150} className="mx-auto mb-4 rounded-md" data-ai-hint="office blueprint plan" />
+                    <p className="text-lg text-muted-foreground">This office has no rooms yet.</p>
+                    {currentUserIsOwner && <p className="text-sm text-muted-foreground">Click "Add Room" to design your virtual space.</p>}
+                  </CardContent>
+                </Card>
+              ) : (
+                <div className="grid gap-6 md:grid-cols-2">
+                  {activeOfficeRooms.map((room) => {
+                     const RoomIconComponent = lucideIcons[room.iconName] || Building;
+                     return (
+                      <Card key={room.id} className="flex flex-col shadow-md hover:shadow-lg transition-shadow duration-300 bg-card/80 backdrop-blur-sm">
+                        <CardHeader>
+                          <div className="flex justify-between items-start">
+                            <div className="flex-1">
+                              <CardTitle className="font-headline flex items-center text-lg">
+                                <RoomIconComponent className="mr-2 h-5 w-5 text-primary" />
+                                {room.name}
+                              </CardTitle>
+                              <CardDescription>{room.type}</CardDescription>
+                            </div>
+                             {currentUserIsOwner && (
+                              <Button variant="ghost" size="icon" onClick={() => openDeleteRoomDialog(room)} aria-label="Delete room" disabled={isSubmitting} className="h-8 w-8">
+                                  <Trash2 className="h-4 w-4 text-destructive" />
+                              </Button>
+                             )}
+                          </div>
+                        </CardHeader>
+                        <CardContent className="flex-grow">
+                          <div className="aspect-video bg-muted rounded-md overflow-hidden relative">
+                            <Image 
+                              src={`https://placehold.co/400x225.png`} 
+                              alt={room.name} 
+                              layout="fill" 
+                              objectFit="cover"
+                              data-ai-hint={roomTypeDetails[room.type]?.imageHint || "office room interior"}
+                            />
+                          </div>
+                        </CardContent>
+                        <CardFooter>
+                          <Button variant="outline" className="w-full" disabled>
+                            <ExternalLink className="mr-2 h-4 w-4" /> Enter Room (Future)
+                          </Button>
+                        </CardFooter>
+                      </Card>
+                    )
+                  })}
+                </div>
+              )}
             </div>
-            {activeOfficeMembers.length === 0 ? (
-              <p className="text-muted-foreground">No members yet. Share the invite code!</p>
-            ) : (
-              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                {activeOfficeMembers.map((member) => {
-                  const RoleIcon = roleIcons[member.role] || UserIconLucide;
-                  const canManage = activeOffice.ownerId === user?.uid && member.userId !== user?.uid;
-                  return (
-                  <Card key={member.userId} className="shadow-sm">
-                    <CardContent className="p-4 flex items-center space-x-3">
-                      <Avatar className="h-10 w-10">
-                        <AvatarImage src={member.avatarUrl || `https://placehold.co/40x40.png?text=${member.name.substring(0,1)}`} alt={member.name} data-ai-hint="person avatar" />
-                        <AvatarFallback>{member.name.substring(0,2).toUpperCase()}</AvatarFallback>
-                      </Avatar>
-                      <div className="flex-1">
-                        <p className="font-medium">{member.name}</p>
-                        <Badge variant={member.role === "Owner" || member.role === "Admin" ? "default" : "secondary"} className="mt-1">
-                          <RoleIcon className="mr-1 h-3 w-3" />
-                          {member.role}
-                        </Badge>
-                      </div>
-                      {canManage && (
-                         <Dialog>
+          </section>
+          
+          <aside className="lg:col-span-1 space-y-6">
+             <Card className="shadow-md bg-card/80 backdrop-blur-sm">
+                <CardHeader>
+                  <CardTitle className="font-headline flex items-center text-xl"><Users className="mr-2 h-5 w-5"/>Team Members ({activeOfficeMembers.length})</CardTitle>
+                  <CardDescription>Manage roles and access for office members.</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-3 max-h-96 overflow-y-auto pr-1">
+                  {activeOfficeMembers.length === 0 ? (
+                    <p className="text-muted-foreground text-sm">No members yet. Share the invite code!</p>
+                  ) : (
+                    activeOfficeMembers.map((member) => {
+                      const RoleIcon = roleIcons[member.role] || UserIconLucide;
+                      const canManageMember = currentUserIsOwner && member.userId !== user?.uid;
+                      return (
+                      <div key={member.userId} className="flex items-center space-x-3 p-2.5 rounded-md hover:bg-muted/50 transition-colors">
+                        <Avatar className="h-10 w-10">
+                          <AvatarImage src={member.avatarUrl || `https://placehold.co/40x40.png?text=${member.name.substring(0,1)}`} alt={member.name} data-ai-hint="person avatar"/>
+                          <AvatarFallback>{member.name.substring(0,2).toUpperCase()}</AvatarFallback>
+                        </Avatar>
+                        <div className="flex-1">
+                          <p className="font-medium text-sm">{member.name}</p>
+                          <Badge variant={member.role === "Owner" ? "default" : member.role === "Admin" ? "secondary" : "outline"} className="text-xs">
+                            <RoleIcon className="mr-1 h-3 w-3" />
+                            {member.role}
+                          </Badge>
+                        </div>
+                        {canManageMember && (
                             <DropdownMenu>
                               <DropdownMenuTrigger asChild>
                                 <Button variant="ghost" size="icon" className="h-8 w-8" disabled={isSubmitting}>
-                                  <Settings2 className="h-4 w-4" />
+                                  <MoreHorizontal className="h-4 w-4" />
                                 </Button>
                               </DropdownMenuTrigger>
                               <DropdownMenuContent align="end">
                                 <DropdownMenuItem onClick={() => handleOpenManageMemberDialog(member)} disabled={isSubmitting}>
                                   Manage Role
                                 </DropdownMenuItem>
-                                <DropdownMenuItem onClick={() => openDeleteMemberDialog(member.userId)} className="text-destructive" disabled={isSubmitting}>
+                                <DropdownMenuItem onClick={() => openDeleteMemberDialog(member)} className="text-destructive focus:bg-destructive/10 focus:text-destructive" disabled={isSubmitting}>
                                   Remove Member
                                 </DropdownMenuItem>
                               </DropdownMenuContent>
                             </DropdownMenu>
-                          </Dialog>
-                      )}
-                    </CardContent>
-                  </Card>
-                )})}
-              </div>
-            )}
-          </section>
-          
-          <Separator className="my-8"/>
-
-          <section>
-            <div className="flex justify-between items-center mb-6">
-              <h2 className="text-2xl font-headline font-semibold">Office Rooms ({activeOfficeRooms.length})</h2>
-              {activeOffice.ownerId === user?.uid && (
-                <Button onClick={() => setIsAddRoomDialogOpen(true)} disabled={isSubmitting}>
-                    <PlusCircle className="mr-2 h-4 w-4" /> Add Room
-                </Button>
-              )}
-            </div>
-            {activeOfficeRooms.length === 0 ? (
-              <div className="text-center py-12 bg-muted/20 rounded-lg">
-                <Image src="https://placehold.co/300x200.png" alt="Empty office rooms" width={300} height={200} className="mx-auto mb-4 rounded-md" data-ai-hint="office blueprint" />
-                <p className="text-lg text-muted-foreground">This office has no rooms yet.</p>
-                {activeOffice.ownerId === user?.uid && <p className="text-sm text-muted-foreground">Click "Add Room" to design your virtual space.</p>}
-              </div>
-            ) : (
-              <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-                {activeOfficeRooms.map((room) => {
-                   const RoomIconComponent = lucideIcons[room.iconName] || Building;
-                   return (
-                    <Card key={room.id} className="flex flex-col shadow-lg hover:shadow-xl transition-shadow duration-300">
-                      <CardHeader>
-                        <div className="flex justify-between items-start">
-                          <div>
-                            <CardTitle className="font-headline flex items-center">
-                              <RoomIconComponent className="mr-2 h-5 w-5 text-primary" />
-                              {room.name}
-                            </CardTitle>
-                            <CardDescription>{room.type}</CardDescription>
-                          </div>
-                           {activeOffice.ownerId === user?.uid && (
-                            <Button variant="ghost" size="icon" onClick={() => openDeleteRoomDialog(room.id)} aria-label="Delete room" disabled={isSubmitting}>
-                                <Trash2 className="h-4 w-4 text-destructive" />
-                            </Button>
-                           )}
-                        </div>
-                      </CardHeader>
-                      <CardContent className="flex-grow">
-                        <div className="aspect-video bg-muted rounded-md overflow-hidden relative">
-                          <Image 
-                            src={`https://placehold.co/400x225.png`} 
-                            alt={room.name} 
-                            layout="fill" 
-                            objectFit="cover"
-                            data-ai-hint={roomTypeDetails[room.type]?.imageHint || "office room"}
-                          />
-                        </div>
-                      </CardContent>
-                      <CardFooter>
-                        <Button variant="outline" className="w-full" disabled>Enter Room (Future)</Button>
-                      </CardFooter>
-                    </Card>
-                  )
-                })}
-              </div>
-            )}
-          </section>
-        </>
+                        )}
+                      </div>
+                    )})
+                  )}
+                </CardContent>
+              </Card>
+          </aside>
+        </div>
       )}
       
       <Dialog open={isAddRoomDialogOpen} onOpenChange={(isOpen) => { if (!isSubmitting) setIsAddRoomDialogOpen(isOpen); }}>
@@ -686,39 +705,39 @@ export default function OfficeDesignerPage() {
         </Dialog>
       )}
 
-      <Dialog open={isConfirmDeleteMemberDialogOpen} onOpenChange={(isOpen) => {if(!isSubmitting) setIsConfirmDeleteMemberDialogOpen(isOpen)}}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle className="font-headline">Remove Member</DialogTitle>
-            <DialogDescription>
-              Are you sure you want to remove {activeOfficeMembers.find(m => m.userId === deletingMemberId)?.name || 'this member'} from the office? This action cannot be undone.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter className="sm:justify-end">
-            <Button variant="outline" onClick={() => {setIsConfirmDeleteMemberDialogOpen(false); setDeletingMemberId(null)}} disabled={isSubmitting}>Cancel</Button>
+      <AlertDialog open={isConfirmDeleteMemberDialogOpen} onOpenChange={(isOpen) => {if(!isSubmitting) setIsConfirmDeleteMemberDialogOpen(isOpen)}}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="font-headline">Remove {deletingMember?.name || 'Member'}</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to remove {deletingMember?.name || 'this member'} from the office? This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="sm:justify-end">
+            <AlertDialogCancel onClick={() => {setIsConfirmDeleteMemberDialogOpen(false); setDeletingMember(null)}} disabled={isSubmitting}>Cancel</AlertDialogCancel>
             <Button variant="destructive" onClick={handleDeleteMember} disabled={isSubmitting}>
                 {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin"/>} Remove Member
             </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
-       <Dialog open={isConfirmDeleteRoomDialogOpen} onOpenChange={(isOpen) => {if(!isSubmitting) setIsConfirmDeleteRoomDialogOpen(isOpen)}}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle className="font-headline">Delete Room</DialogTitle>
-            <DialogDescription>
-              Are you sure you want to delete the room "{activeOfficeRooms.find(r => r.id === deletingRoomId)?.name || 'this room'}"? This action cannot be undone.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter className="sm:justify-end">
-            <Button variant="outline" onClick={() => {setIsConfirmDeleteRoomDialogOpen(false); setDeletingRoomId(null)}} disabled={isSubmitting}>Cancel</Button>
+       <AlertDialog open={isConfirmDeleteRoomDialogOpen} onOpenChange={(isOpen) => {if(!isSubmitting) setIsConfirmDeleteRoomDialogOpen(isOpen)}}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="font-headline">Delete {deletingRoom?.name || 'Room'}</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete the room "{deletingRoom?.name || 'this room'}"? This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="sm:justify-end">
+            <AlertDialogCancel onClick={() => {setIsConfirmDeleteRoomDialogOpen(false); setDeletingRoom(null)}} disabled={isSubmitting}>Cancel</AlertDialogCancel>
             <Button variant="destructive" onClick={handleDeleteRoom} disabled={isSubmitting}>
                  {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin"/>} Delete Room
             </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

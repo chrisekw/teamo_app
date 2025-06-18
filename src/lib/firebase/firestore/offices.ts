@@ -29,8 +29,17 @@ const officeConverter: FirestoreDataConverter<Office, OfficeFirestoreData> = {
     
     if (officeInput.sector === undefined) delete data.sector;
     if (officeInput.companyName === undefined) delete data.companyName;
-    if (officeInput.logoUrl === undefined) delete data.logoUrl;
-    if (officeInput.bannerUrl === undefined) delete data.bannerUrl;
+    
+    if (officeInput.logoUrl === undefined) {
+        delete data.logoUrl;
+    } else {
+        data.logoUrl = officeInput.logoUrl;
+    }
+    if (officeInput.bannerUrl === undefined) {
+        delete data.bannerUrl;
+    } else {
+        data.bannerUrl = officeInput.bannerUrl;
+    }
     return data;
   },
   fromFirestore: (snapshot, options): Office => {
@@ -81,11 +90,10 @@ const officeMemberConverter: FirestoreDataConverter<OfficeMember, OfficeMemberFi
     if (!memberInput.joinedAt) data.joinedAt = serverTimestamp();
     else if (memberInput.joinedAt instanceof Date) data.joinedAt = Timestamp.fromDate(memberInput.joinedAt);
     
-    // Ensure undefined avatarUrl is not passed to Firestore
     if (memberInput.avatarUrl === undefined) {
-        delete data.avatarUrl; // Remove the key if value is undefined
+        delete data.avatarUrl; 
     } else {
-        data.avatarUrl = memberInput.avatarUrl; // Keep it if it's a string (or null if type allows)
+        data.avatarUrl = memberInput.avatarUrl; 
     }
     
     return data;
@@ -140,10 +148,7 @@ export async function createOffice(
     bannerUrl: bannerUrl,
   };
   
-  console.log('[Firebase Debug] Office data prepared:', newOfficeData);
-  console.log('[Firebase Debug] Attempting to write to `offices` collection. If this fails, check Firestore rules.');
   const newOfficeDocRef = await addDoc(officesCol(), newOfficeData as Office);
-  console.log('[Firebase Debug] New office document created with ID:', newOfficeDocRef.id);
   
   const ownerMemberData: Omit<OfficeMember, 'joinedAt' | 'userId'> = {
     name: currentUserName,
@@ -151,14 +156,9 @@ export async function createOffice(
     avatarUrl: currentUserAvatar,
   };
 
-  console.log('[Firebase Debug] Attempting to add owner as member to office subcollection. Data:', ownerMemberData);
-  // The converter will handle the avatarUrl if it's undefined
   await setDoc(memberDocRef(newOfficeDocRef.id, currentUserId), ownerMemberData);
-  console.log('[Firebase Debug] Owner added as member to office subcollection.');
 
-  console.log('[Firebase Debug] Attempting to add office reference to user\'s memberOfOffices.');
   await setDoc(doc(userOfficesCol(currentUserId), newOfficeDocRef.id), { officeId: newOfficeDocRef.id, officeName: officeName, role: "Owner", joinedAt: serverTimestamp() });
-  console.log('[Firebase Debug] Office reference added to user\'s memberOfOffices subcollection.');
 
   addActivityLog(newOfficeDocRef.id, {
       type: "office-created",
@@ -180,14 +180,11 @@ export async function createOffice(
       entityId: currentUserId,
       entityType: "member",
     });
-  console.log('[Firebase Debug] Activity logs added.');
 
   const newOfficeSnap = await getDoc(newOfficeDocRef);
   if (!newOfficeSnap.exists()) {
-    console.error('[Firebase Debug] Failed to re-fetch created office document.');
     throw new Error("Failed to create office.");
   }
-  console.log('[Firebase Debug] Office creation successful, returning office data.');
   return newOfficeSnap.data()!;
 }
 
@@ -238,9 +235,6 @@ export async function getOfficesForUser(userId: string): Promise<Office[]> {
   
   if (officeIds.length === 0) return [];
 
-  // Limit the number of parallel fetches if officeIds can be very large
-  // For Firestore, up to 30 `in` array-contains-any queries, or 10 `in` for equality per query.
-  // Fetching one by one or in smaller batches might be safer for large numbers of offices.
   const officePromises = officeIds.slice(0,30).map(id => getDoc(officeDocRef(id))); 
   const officeSnapshots = await Promise.all(officePromises);
   
@@ -282,8 +276,28 @@ export async function getRoomsForOffice(officeId: string): Promise<Room[]> {
   return snapshot.docs.map(d => d.data());
 }
 
-export async function deleteRoomFromOffice(officeId: string, roomId: string): Promise<void> {
+export async function deleteRoomFromOffice(
+  officeId: string, 
+  roomId: string,
+  actorId: string,
+  actorName: string
+  ): Promise<void> {
+  const roomToDeleteSnap = await getDoc(roomDocRef(officeId, roomId));
+  if (!roomToDeleteSnap.exists()) throw new Error("Room to delete not found.");
+  const roomName = roomToDeleteSnap.data()?.name || "Unknown Room";
+
   await deleteDoc(roomDocRef(officeId, roomId));
+
+  addActivityLog(officeId, {
+    type: "room-new", // Re-using type, or could make specific "room-delete"
+    title: `Room Deleted: ${roomName}`,
+    description: `Deleted by ${actorName}`,
+    iconName: "Trash2", 
+    actorId: actorId,
+    actorName: actorName,
+    entityId: roomId,
+    entityType: "room",
+  });
 }
 
 export async function getMembersForOffice(officeId: string): Promise<OfficeMember[]> {
@@ -291,7 +305,18 @@ export async function getMembersForOffice(officeId: string): Promise<OfficeMembe
   return snapshot.docs.map(d => d.data());
 }
 
-export async function updateMemberRoleInOffice(officeId: string, memberUserId: string, newRole: MemberRole): Promise<void> {
+export async function updateMemberRoleInOffice(
+  officeId: string, 
+  memberUserId: string, 
+  newRole: MemberRole,
+  actorId: string,
+  actorName: string
+  ): Promise<void> {
+  const memberToUpdateSnap = await getDoc(memberDocRef(officeId, memberUserId));
+  if (!memberToUpdateSnap.exists()) throw new Error("Member not found for role update.");
+  const memberName = memberToUpdateSnap.data()?.name || "A member";
+  const oldRole = memberToUpdateSnap.data()?.role;
+
   await updateDoc(memberDocRef(officeId, memberUserId), { role: newRole, updatedAt: serverTimestamp() });
   
   const userOfficeQuery = query(userOfficesCol(memberUserId), where("officeId", "==", officeId));
@@ -300,13 +325,33 @@ export async function updateMemberRoleInOffice(officeId: string, memberUserId: s
       const userOfficeDocToUpdateRef = userOfficeSnap.docs[0].ref;
       await updateDoc(userOfficeDocToUpdateRef, { role: newRole });
   }
+  addActivityLog(officeId, {
+      type: "member-join", // Can be re-used or create a "member-role-update" type
+      title: `Member Role Update: ${memberName}`,
+      description: `${memberName}'s role changed from ${oldRole} to ${newRole} by ${actorName}`,
+      iconName: "Settings2", 
+      actorId: actorId,
+      actorName: actorName,
+      entityId: memberUserId,
+      entityType: "member",
+  });
 }
 
-export async function removeMemberFromOffice(officeId: string, memberUserId: string): Promise<void> {
+export async function removeMemberFromOffice(
+  officeId: string, 
+  memberUserId: string,
+  actorId: string,
+  actorName: string
+  ): Promise<void> {
     const office = await getDoc(officeDocRef(officeId));
     if (office.exists() && office.data().ownerId === memberUserId) {
         throw new Error("Cannot remove the office owner.");
     }
+
+    const memberToRemoveSnap = await getDoc(memberDocRef(officeId, memberUserId));
+    if (!memberToRemoveSnap.exists()) throw new Error("Member to remove not found.");
+    const memberName = memberToRemoveSnap.data()?.name || "A member";
+
     await deleteDoc(memberDocRef(officeId, memberUserId));
 
     const userOfficeQuery = query(userOfficesCol(memberUserId), where("officeId", "==", officeId));
@@ -314,4 +359,15 @@ export async function removeMemberFromOffice(officeId: string, memberUserId: str
     if (!userOfficeSnap.empty) {
         await deleteDoc(userOfficeSnap.docs[0].ref);
     }
+
+    addActivityLog(officeId, {
+      type: "member-join", // Can be re-used or create "member-remove" type
+      title: `Member Removed: ${memberName}`,
+      description: `${memberName} was removed from the office by ${actorName}`,
+      iconName: "UserPlus", // Or UserMinus if available/appropriate
+      actorId: actorId,
+      actorName: actorName,
+      entityId: memberUserId,
+      entityType: "member",
+  });
 }
