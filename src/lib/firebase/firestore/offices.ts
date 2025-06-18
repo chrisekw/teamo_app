@@ -98,8 +98,11 @@ const memberDocRef = (officeId: string, userId: string) => doc(membersCol(office
 const userOfficesCol = (userId: string) => collection(db, 'users', userId, 'memberOfOffices');
 
 export async function createOffice(currentUserId: string, currentUserName: string, currentUserAvatar: string | undefined, officeName: string): Promise<Office> {
-  if (!currentUserId || !officeName) throw new Error("User ID and office name are required.");
-  console.log('[Firebase Debug] Starting office creation for user:', currentUserId, 'Office Name:', officeName);
+  console.log('[Firebase Debug] Attempting to start office creation for user:', currentUserId, 'Office Name:', officeName);
+  if (!currentUserId || !officeName) {
+    console.error('[Firebase Debug] User ID or office name is missing.');
+    throw new Error("User ID and office name are required.");
+  }
   
   const invitationCode = Math.random().toString(36).substring(2, 8).toUpperCase();
   const newOfficeData: Omit<Office, 'id' | 'createdAt' | 'updatedAt'> = {
@@ -107,7 +110,9 @@ export async function createOffice(currentUserId: string, currentUserName: strin
     ownerId: currentUserId,
     invitationCode,
   };
-
+  
+  console.log('[Firebase Debug] Office data prepared:', newOfficeData);
+  console.log('[Firebase Debug] Attempting to write to `offices` collection. If this fails, check Firestore rules.');
   const newOfficeDocRef = await addDoc(officesCol(), newOfficeData as Office);
   console.log('[Firebase Debug] New office document created with ID:', newOfficeDocRef.id);
   
@@ -200,7 +205,9 @@ export async function getOfficesForUser(userId: string): Promise<Office[]> {
   
   if (officeIds.length === 0) return [];
 
-  const officePromises = officeIds.slice(0,30).map(id => getDoc(officeDocRef(id))); // Limit to 30 for performance
+  // Limit to fetching first 10 offices to avoid exceeding IN query limits if user is in many.
+  // Adjust if users are expected to be in more. Firestore 'in' queries are limited to 30 items.
+  const officePromises = officeIds.slice(0,30).map(id => getDoc(officeDocRef(id))); 
   const officeSnapshots = await Promise.all(officePromises);
   
   return officeSnapshots.filter(snap => snap.exists()).map(snap => snap.data()!);
