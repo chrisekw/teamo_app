@@ -4,11 +4,11 @@
 import Link from "next/link";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { UserNav } from "./user-nav";
-import { TeamoTextLogo } from "@/components/icons";
+// import { TeamoTextLogo } from "@/components/icons"; // Logo import removed
 import { useIsMobile } from "@/hooks/use-mobile";
 import { Button } from "@/components/ui/button";
 import { Building2 } from "lucide-react";
-import { NotificationDropdown } from "./notification-dropdown"; // Added import
+import { NotificationDropdown } from "./notification-dropdown"; 
 
 export function Header() {
   const isMobile = useIsMobile();
@@ -18,7 +18,7 @@ export function Header() {
       <div className="container flex h-14 max-w-screen-2xl items-center">
         <div className="mr-4 flex">
           {isMobile && <SidebarTrigger className="mr-2" />}
-          <TeamoTextLogo className="h-6 fill-foreground" />
+          {/* <TeamoTextLogo className="h-6 fill-foreground" />  Logo component removed */}
         </div>
         <div className="flex flex-1 items-center justify-end space-x-1 sm:space-x-2">
           {isMobile && (
@@ -28,7 +28,7 @@ export function Header() {
                 </Link>
             </Button>
           )}
-          <NotificationDropdown /> {/* Added NotificationDropdown */}
+          <NotificationDropdown /> 
           <UserNav />
         </div>
       </div>
