@@ -89,18 +89,20 @@ const officeMemberConverter: FirestoreDataConverter<OfficeMember, OfficeMemberFi
 const officesCol = () => collection(db, 'offices').withConverter(officeConverter);
 const officeDocRef = (officeId: string) => doc(db, 'offices', officeId).withConverter(officeConverter);
 
-const roomsCol = (officeId: string) => collection(officeDocRef(officeId).path, 'rooms').withConverter(roomConverter);
-const roomDocRef = (officeId: string, roomId: string) => doc(roomsCol(officeId).path, roomId).withConverter(roomConverter);
+// Corrected: Pass DocumentReference to collection() for subcollections
+const roomsCol = (officeId: string) => collection(officeDocRef(officeId), 'rooms').withConverter(roomConverter);
+const roomDocRef = (officeId: string, roomId: string) => doc(roomsCol(officeId), roomId).withConverter(roomConverter);
 
-const membersCol = (officeId: string) => collection(officeDocRef(officeId).path, 'members').withConverter(officeMemberConverter);
-const memberDocRef = (officeId: string, userId: string) => doc(membersCol(officeId).path, userId).withConverter(officeMemberConverter);
+// Corrected: Pass DocumentReference to collection() for subcollections
+const membersCol = (officeId: string) => collection(officeDocRef(officeId), 'members').withConverter(officeMemberConverter);
+const memberDocRef = (officeId: string, userId: string) => doc(membersCol(officeId), userId).withConverter(officeMemberConverter);
 
 const userOfficesCol = (userId: string) => collection(db, 'users', userId, 'memberOfOffices');
 
 export async function createOffice(currentUserId: string, currentUserName: string, currentUserAvatar: string | undefined, officeName: string): Promise<Office> {
-  console.log('[Firebase Debug] Attempting to start office creation for user:', currentUserId, 'Office Name:', officeName);
+  console.log('[Firebase Debug] Starting office creation for user:', currentUserId, 'Office Name:', officeName);
   if (!currentUserId || !officeName) {
-    console.error('[Firebase Debug] User ID or office name is missing.');
+    console.error('[Firebase Debug] User ID or office name is missing for createOffice.');
     throw new Error("User ID and office name are required.");
   }
   
@@ -121,9 +123,12 @@ export async function createOffice(currentUserId: string, currentUserName: strin
     role: "Owner",
     avatarUrl: currentUserAvatar,
   };
+  // Using setDoc with the specific memberDocRef to set the owner as a member
+  console.log('[Firebase Debug] Attempting to add owner as member to office subcollection.');
   await setDoc(memberDocRef(newOfficeDocRef.id, currentUserId), officeMemberConverter.toFirestore(ownerMemberData));
   console.log('[Firebase Debug] Owner added as member to office subcollection.');
 
+  console.log('[Firebase Debug] Attempting to add office reference to user\'s memberOfOffices.');
   await setDoc(doc(userOfficesCol(currentUserId), newOfficeDocRef.id), { officeId: newOfficeDocRef.id, officeName: officeName, role: "Owner", joinedAt: serverTimestamp() });
   console.log('[Firebase Debug] Office reference added to user\'s memberOfOffices subcollection.');
 
@@ -281,3 +286,4 @@ export async function removeMemberFromOffice(officeId: string, memberUserId: str
         await deleteDoc(userOfficeSnap.docs[0].ref);
     }
 }
+
