@@ -87,13 +87,13 @@ export interface Office {
   sector?: string;
   companyName?: string;
   logoUrl?: string;
-  bannerUrl?: string; // Added banner URL
+  bannerUrl?: string;
   createdAt?: Date;
   updatedAt?: Date;
 }
 
 export type OfficeFirestoreData = Omit<Office, 'id' | 'createdAt' | 'updatedAt'> & {
-  bannerUrl?: string; // Added banner URL
+  bannerUrl?: string;
   createdAt?: Timestamp;
   updatedAt?: Timestamp;
 };

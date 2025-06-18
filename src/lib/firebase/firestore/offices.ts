@@ -17,7 +17,7 @@ import {
   setDoc,
   orderBy
 } from 'firebase/firestore';
-import type { Office, OfficeFirestoreData, Room, RoomFirestoreData, OfficeMember, OfficeMemberFirestoreData, RoomType, User } from '@/types';
+import type { Office, OfficeFirestoreData, Room, RoomFirestoreData, OfficeMember, OfficeMemberFirestoreData, RoomType, MemberRole } from '@/types';
 import { addActivityLog } from './activity';
 
 const officeConverter: FirestoreDataConverter<Office, OfficeFirestoreData> = {
@@ -26,11 +26,11 @@ const officeConverter: FirestoreDataConverter<Office, OfficeFirestoreData> = {
     delete data.id;
     if (!officeInput.id) data.createdAt = serverTimestamp();
     data.updatedAt = serverTimestamp();
-    // Ensure optional fields are handled correctly
+    
     if (officeInput.sector === undefined) delete data.sector;
     if (officeInput.companyName === undefined) delete data.companyName;
     if (officeInput.logoUrl === undefined) delete data.logoUrl;
-    if (officeInput.bannerUrl === undefined) delete data.bannerUrl; // Handle bannerUrl
+    if (officeInput.bannerUrl === undefined) delete data.bannerUrl;
     return data;
   },
   fromFirestore: (snapshot, options): Office => {
@@ -43,7 +43,7 @@ const officeConverter: FirestoreDataConverter<Office, OfficeFirestoreData> = {
       sector: data.sector,
       companyName: data.companyName,
       logoUrl: data.logoUrl,
-      bannerUrl: data.bannerUrl, // Add bannerUrl
+      bannerUrl: data.bannerUrl,
       createdAt: data.createdAt instanceof Timestamp ? data.createdAt.toDate() : new Date(),
       updatedAt: data.updatedAt instanceof Timestamp ? data.updatedAt.toDate() : new Date(),
     };
@@ -114,7 +114,7 @@ export async function createOffice(
   sector?: string,
   companyName?: string,
   logoUrl?: string,
-  bannerUrl?: string // Added bannerUrl parameter
+  bannerUrl?: string
 ): Promise<Office> {
   console.log('[Firebase Debug] Starting office creation for user:', currentUserId, 'Office Name:', officeName);
   if (!currentUserId || !officeName) {
@@ -130,7 +130,7 @@ export async function createOffice(
     sector: sector,
     companyName: companyName,
     logoUrl: logoUrl,
-    bannerUrl: bannerUrl, // Store bannerUrl
+    bannerUrl: bannerUrl,
   };
   
   console.log('[Firebase Debug] Office data prepared:', newOfficeData);
@@ -230,6 +230,9 @@ export async function getOfficesForUser(userId: string): Promise<Office[]> {
   
   if (officeIds.length === 0) return [];
 
+  // Limit the number of parallel fetches if officeIds can be very large
+  // For Firestore, up to 30 `in` array-contains-any queries, or 10 `in` for equality per query.
+  // Fetching one by one or in smaller batches might be safer for large numbers of offices.
   const officePromises = officeIds.slice(0,30).map(id => getDoc(officeDocRef(id))); 
   const officeSnapshots = await Promise.all(officePromises);
   
