@@ -81,6 +81,13 @@ const officeMemberConverter: FirestoreDataConverter<OfficeMember, OfficeMemberFi
     if (!memberInput.joinedAt) data.joinedAt = serverTimestamp();
     else if (memberInput.joinedAt instanceof Date) data.joinedAt = Timestamp.fromDate(memberInput.joinedAt);
     
+    // Ensure undefined avatarUrl is not passed to Firestore
+    if (memberInput.avatarUrl === undefined) {
+        delete data.avatarUrl; // Remove the key if value is undefined
+    } else {
+        data.avatarUrl = memberInput.avatarUrl; // Keep it if it's a string (or null if type allows)
+    }
+    
     return data;
   },
   fromFirestore: (snapshot, options): OfficeMember => {
@@ -144,8 +151,9 @@ export async function createOffice(
     avatarUrl: currentUserAvatar,
   };
 
-  console.log('[Firebase Debug] Attempting to add owner as member to office subcollection.');
-  await setDoc(memberDocRef(newOfficeDocRef.id, currentUserId), officeMemberConverter.toFirestore(ownerMemberData));
+  console.log('[Firebase Debug] Attempting to add owner as member to office subcollection. Data:', ownerMemberData);
+  // The converter will handle the avatarUrl if it's undefined
+  await setDoc(memberDocRef(newOfficeDocRef.id, currentUserId), ownerMemberData);
   console.log('[Firebase Debug] Owner added as member to office subcollection.');
 
   console.log('[Firebase Debug] Attempting to add office reference to user\'s memberOfOffices.');
@@ -203,7 +211,7 @@ export async function joinOfficeByCode(currentUserId: string, currentUserName: s
     role: "Member",
     avatarUrl: currentUserAvatar,
   };
-  await setDoc(memberDocRef(officeId, currentUserId), officeMemberConverter.toFirestore(newMemberData));
+  await setDoc(memberDocRef(officeId, currentUserId), newMemberData);
   
   await setDoc(doc(userOfficesCol(currentUserId), officeId), { officeId: officeId, officeName: officeData.name, role: "Member", joinedAt: serverTimestamp() });
   
@@ -307,4 +315,3 @@ export async function removeMemberFromOffice(officeId: string, memberUserId: str
         await deleteDoc(userOfficeSnap.docs[0].ref);
     }
 }
-
