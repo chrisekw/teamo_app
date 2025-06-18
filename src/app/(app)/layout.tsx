@@ -60,7 +60,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           <SidebarHeader className="h-auto items-center border-b border-sidebar-border p-4 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:py-3 space-y-4">
             <div className="flex items-center justify-center w-full h-8 group-data-[collapsible=icon]:h-7">
               <TeamoTextLogo className="h-full w-auto group-data-[collapsible=icon]:hidden" />
-              <Logo className="h-full w-auto hidden group-data-[collapsible=icon]:block" />
+              {/* <Logo className="h-full w-auto hidden group-data-[collapsible=icon]:block" /> // Removed extra logo */}
             </div>
             <Button variant="default" className="w-full bg-sidebar-primary text-sidebar-primary-foreground hover:bg-sidebar-primary/90 group-data-[collapsible=icon]:hidden">
               <Plus className="mr-2 h-5 w-5" /> Create New
