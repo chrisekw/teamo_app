@@ -64,7 +64,7 @@ export default function ChatPage() {
       setCurrentUserForChat({
         id: user.uid,
         name: user.displayName || user.email?.split('@')[0] || 'You',
-        role: 'User', // This might need to be dynamic based on office context later
+        role: 'User', 
         avatarUrl: user.photoURL || `https://placehold.co/40x40.png?text=${(user.displayName || 'U').substring(0,1)}`,
       });
     }
@@ -76,11 +76,10 @@ export default function ChatPage() {
         const offices = await getOfficesForUser(user.uid);
         setUserOfficesList(offices);
         if (offices.length > 0) {
-          setActiveOfficeForChat(offices[0]); // Set first office as active by default
+          setActiveOfficeForChat(offices[0]); 
         } else {
-          setActiveOfficeForChat(null); // Explicitly set to null if no offices
+          setActiveOfficeForChat(null); 
           setCurrentOfficeMembers([]);
-          // No activeChatId set here, will be handled by the subsequent useEffect
         }
       }
     };
@@ -91,7 +90,7 @@ export default function ChatPage() {
 
   useEffect(() => {
     const fetchMembers = async () => {
-      if (activeOfficeForChat && user) { // activeOfficeForChat can be Office or null
+      if (activeOfficeForChat && user) { 
         const members = await getMembersForOffice(activeOfficeForChat.id);
         const chatUsers: ChatUser[] = members.map(m => ({
           id: m.userId,
@@ -104,7 +103,7 @@ export default function ChatPage() {
         setCurrentOfficeMembers([]);
       }
     };
-    if (activeOfficeForChat !== undefined) { // Only run if office determination has happened
+    if (activeOfficeForChat !== undefined) { 
         fetchMembers();
     }
   }, [activeOfficeForChat, user]);
@@ -117,16 +116,15 @@ export default function ChatPage() {
     setActiveChatType(type);
     setActiveChatTargetUser(targetUser || null);
     setIsLoadingMessages(true);
-    setAllMessages(prev => ({ ...prev, [chatId]: [] })); // Clear previous messages for this chat
+    setAllMessages(prev => ({ ...prev, [chatId]: [] })); 
 
     try {
       let messages: ChatMessage[] = [];
       if (type === 'dm' && targetUser) {
         messages = await getMessagesForThread(chatId);
         await markNotificationsAsReadByLink(user.uid, `/chat?threadId=${chatId}`);
-      } else if (type === 'general' && activeOfficeForChat) { // Ensure activeOfficeForChat is not null
+      } else if (type === 'general' && activeOfficeForChat) { 
         messages = await getGeneralOfficeMessages(activeOfficeForChat.id);
-        // No specific notification link for general chat to mark as read in this flow
       }
       setAllMessages(prev => ({ ...prev, [chatId]: messages }));
     } catch (error) {
@@ -136,7 +134,6 @@ export default function ChatPage() {
       setIsLoadingMessages(false);
       if (isMobile) setMobileView('chat');
 
-      // Update URL without page reload
       if (type === 'dm') {
         router.replace(`/chat?threadId=${chatId}`, { scroll: false });
       } else if (type === 'general' && activeOfficeForChat) {
@@ -146,7 +143,6 @@ export default function ChatPage() {
   }, [user, currentUserForChat, activeOfficeForChat, isMobile, toast, router]);
 
   useEffect(() => {
-    // Guard against running too early or if already processing
     if (authLoading || !currentUserForChat || activeChatId || activeOfficeForChat === undefined) {
       return;
     }
@@ -160,29 +156,24 @@ export default function ChatPage() {
         if (threadIdFromUrl) {
           const threadDataSnap = await getDoc(doc(db, 'chatThreads', threadIdFromUrl));
           if (threadDataSnap.exists()) {
-            const threadData = threadDataSnap.data() as ChatThread; // Assuming correct type
+            const threadData = threadDataSnap.data() as ChatThread; 
             const targetId = threadData.participantIds.find(pid => pid !== user?.uid);
 
             let targetUserInfo: ChatUser | undefined;
-            // Try to get info from threadData first
+            
             if (targetId && threadData.participantInfo && threadData.participantInfo[targetId]) {
               targetUserInfo = {
                 id: targetId,
                 name: threadData.participantInfo[targetId].name,
-                role: 'User', // Role might not be in threadInfo, default or fetch if needed
+                role: 'User', 
                 avatarUrl: threadData.participantInfo[targetId].avatarUrl
               };
             } else if (targetId) {
-              // Fallback: try to find in current office members if available
-              // This requires members to be loaded. Might need a small delay or state check.
-              const memberDetails = currentOfficeMembers.find(m => m.id === targetId);
+              const membersOfActiveOffice = activeOfficeForChat ? await getMembersForOffice(activeOfficeForChat.id) : [];
+              const memberDetails = membersOfActiveOffice.find(m => m.userId === targetId);
               if (memberDetails) {
-                targetUserInfo = memberDetails;
+                  targetUserInfo = { id: memberDetails.userId, name: memberDetails.name, role: memberDetails.role, avatarUrl: memberDetails.avatarUrl };
               } else {
-                // If not found in current office members, try a direct fetch (less ideal for perf)
-                // For now, we'll assume if not in participantInfo or current members, it might be an old chat or cross-office DM
-                // We can try to construct minimal info if absolutely necessary
-                // For simplicity, if not easily found, it might not select a targetUser initially
                 console.warn(`Target user info for ${targetId} not readily available.`);
               }
             }
@@ -190,26 +181,22 @@ export default function ChatPage() {
             if (targetUserInfo) {
               await selectChat(threadIdFromUrl, 'dm', targetUserInfo);
             } else if (targetId && !targetUserInfo){
-                // If targetId exists but no info, implies a DM where participantInfo is missing or user not in current office.
-                // Fallback to selecting the chat with a placeholder name or fetching user details.
-                // For now, it will select the chat without target user info, title might be just ID.
                 await selectChat(threadIdFromUrl, 'dm', {id: targetId, name: `User ${targetId.substring(0,4)}`, role: 'User'});
-            } else if (activeOfficeForChat) { // If no valid threadId or user, default to general of active office
+            } else if (activeOfficeForChat) { 
               await selectChat(`general-${activeOfficeForChat.id}`, 'general');
             } else {
-              setActiveChatId(null); setAllMessages({}); // No chat to select
+              setActiveChatId(null); setAllMessages({}); 
             }
-          } else if (activeOfficeForChat) { // Thread from URL doesn't exist, fallback to general
+          } else if (activeOfficeForChat) { 
             await selectChat(`general-${activeOfficeForChat.id}`, 'general');
           } else {
             setActiveChatId(null); setAllMessages({});
           }
         } else if (officeGeneralFromUrl && activeOfficeForChat && officeGeneralFromUrl === activeOfficeForChat.id) {
           await selectChat(`general-${activeOfficeForChat.id}`, 'general');
-        } else if (activeOfficeForChat) { // Default to general chat of the active office
+        } else if (activeOfficeForChat) { 
           await selectChat(`general-${activeOfficeForChat.id}`, 'general');
         } else {
-          // No office, no URL params, do nothing or show placeholder
           setActiveChatId(null);
           setAllMessages({});
         }
@@ -217,7 +204,7 @@ export default function ChatPage() {
         console.error("Error initializing chat from URL:", error);
         toast({ variant: "destructive", title: "Error", description: "Could not initialize chat." });
         if (activeOfficeForChat) {
-          await selectChat(`general-${activeOfficeForChat.id}`, 'general'); // Fallback
+          await selectChat(`general-${activeOfficeForChat.id}`, 'general'); 
         } else {
           setActiveChatId(null); setAllMessages({});
         }
@@ -226,15 +213,11 @@ export default function ChatPage() {
       }
     };
 
-    // Only run initializeChat if office determination is complete (activeOfficeForChat is Office or null)
-    // OR if there's a specific threadId in the URL we need to act on.
     if (activeOfficeForChat !== undefined || threadIdFromUrl) {
       initializeChat();
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user, currentUserForChat, activeOfficeForChat, searchParams, toast, authLoading, router, currentOfficeMembers /* Added currentOfficeMembers */]);
-  // Note: `selectChat` is memoized and its dependencies are stable if its own dependencies are stable.
-  // `activeChatId` was removed from deps because this effect *sets* it and has an internal guard.
+  }, [user, currentUserForChat, activeOfficeForChat, searchParams, toast, authLoading, router, selectChat]);
+  
 
 
   useEffect(() => {
@@ -264,7 +247,7 @@ export default function ChatPage() {
       senderName: currentUserForChat.name,
       avatarUrl: currentUserForChat.avatarUrl,
       type: 'text',
-      chatThreadId: activeChatId, // This should be correctly set by selectChat
+      chatThreadId: activeChatId, 
     };
 
     setAllMessages(prev => ({
@@ -281,7 +264,7 @@ export default function ChatPage() {
             activeChatId, 
             currentMsgText, 
             currentUserForChat, 
-            [currentUserForChat, activeChatTargetUser], // Pass full participant list for the thread
+            [currentUserForChat, activeChatTargetUser], 
             activeOfficeForChat ? {officeId: activeOfficeForChat.id, officeName: activeOfficeForChat.name } : undefined
         );
       } else if (activeChatType === 'general' && activeOfficeForChat) {
@@ -298,12 +281,11 @@ export default function ChatPage() {
     } catch (error) {
       console.error("Error sending message:", error);
       toast({ variant: "destructive", title: "Send Error", description: "Failed to send message." });
-      // Revert optimistic update on error
       setAllMessages(prev => ({
         ...prev,
         [activeChatId]: (prev[activeChatId] || []).filter(m => m.id !== tempMessageId)
       }));
-      setNewMessage(currentMsgText); // Put message back in input
+      setNewMessage(currentMsgText); 
     } finally {
       setIsSendingMessage(false);
     }
@@ -322,13 +304,11 @@ export default function ChatPage() {
     const targetName = activeChatTargetUser.name;
 
     if (callActive) {
-      // Simulate call end
       const mockDuration = `${Math.floor(Math.random() * 5) + 1}:${String(Math.floor(Math.random() * 60)).padStart(2, '0')}`;
       addSystemMessage(activeChatId, `Video call with ${targetName} ended.`, mockDuration);
       setIsCallActiveForChat(prev => ({ ...prev, [activeChatId]: false }));
       toast({ title: "Video Call Ended", description: `Call with ${targetName} has ended.` });
     } else {
-      // Simulate call start
       addSystemMessage(activeChatId, `Video call started with ${targetName}.`);
       setIsCallActiveForChat(prev => ({ ...prev, [activeChatId]: true }));
       toast({ title: "Video Call Started", description: `Attempting to call ${targetName}...` });
@@ -342,16 +322,15 @@ export default function ChatPage() {
       setIsRecordingVoiceNote(false);
       const endTime = Date.now();
       const durationMs = endTime - (voiceRecordingStartTimeRef.current || endTime);
-      const durationSec = Math.max(1, Math.round(durationMs / 1000)); // Ensure at least 1 sec
+      const durationSec = Math.max(1, Math.round(durationMs / 1000)); 
       voiceRecordingStartTimeRef.current = null;
 
       const voiceNoteText = `Voice Note (${String(Math.floor(durationSec / 60)).padStart(2, '0')}:${String(durationSec % 60).padStart(2, '0')})`;
 
-      // Optimistically add voice note message
       const tempMessageId = Date.now().toString();
       const optimisticMessage: ChatMessage = {
         id: tempMessageId,
-        text: voiceNoteText, // Or perhaps store a URL if actual recording was implemented
+        text: voiceNoteText, 
         senderId: currentUserForChat.id,
         timestamp: new Date(),
         senderName: currentUserForChat.name,
@@ -362,20 +341,13 @@ export default function ChatPage() {
       };
       setAllMessages(prev => ({...prev, [activeChatId]: [...(prev[activeChatId] || []), optimisticMessage] }));
 
-      // Here you would normally upload the recording and then send the message with a URL
-      // For this mock, we just log it.
       if (activeChatType === 'dm' && activeChatTargetUser) {
-          // Simulate sending
           console.log("Sending voice note to DM:", voiceNoteText);
           toast({ title: "Voice Note Sent (Mock)", description: `Duration: ${optimisticMessage.voiceNoteDuration}`});
-          // Example: addChatMessageAndNotify(activeChatId, uploadedUrl, currentUserForChat, [currentUserForChat, activeChatTargetUser], { type: 'voice_note', duration: ... });
       } else if (activeChatType === 'general' && activeOfficeForChat) {
-          // Simulate sending
           console.log("Sending voice note to General:", voiceNoteText);
           toast({ title: "Voice Note Sent (Mock)", description: `Duration: ${optimisticMessage.voiceNoteDuration}`});
-          // Example: addGeneralOfficeMessage(activeOfficeForChat.id, uploadedUrl, currentUserForChat, { type: 'voice_note', duration: ... });
       }
-      // In a real app, you'd replace optimistic message with server-confirmed one upon successful upload/send.
 
     } else {
       setIsRecordingVoiceNote(true);
@@ -388,7 +360,7 @@ export default function ChatPage() {
     if (!activeChatId) return "Select a Chat";
     if (activeChatType === 'general' && activeOfficeForChat) return `${activeOfficeForChat.name} General`;
     if (activeChatType === 'dm' && activeChatTargetUser) return activeChatTargetUser.name;
-    if (activeChatType === 'dm' && !activeChatTargetUser) return "Direct Message"; // Fallback if targetUser not loaded
+    if (activeChatType === 'dm' && !activeChatTargetUser) return "Direct Message"; 
     return "Chat";
   };
 
@@ -396,17 +368,16 @@ export default function ChatPage() {
     if (!currentUserForChat || (type === 'general' && !activeOfficeForChat)) return;
 
     if (type === 'dm' && member) {
-      const thread = await getOrCreateDmThread(currentUserForChat, member); // Ensure this returns full thread with participantInfo
+      const thread = await getOrCreateDmThread(currentUserForChat, member); 
       await selectChat(thread.id, 'dm', member);
     } else if (type === 'general' && activeOfficeForChat) {
-      await selectChat(`general-${activeOfficeForChat.id}`, 'general'); // General chat uses office ID as part of its identifier
+      await selectChat(`general-${activeOfficeForChat.id}`, 'general'); 
     }
   };
 
   const displayedMessages = activeChatId ? (allMessages[activeChatId] || []) : [];
 
   if (authLoading || !currentUserForChat || activeOfficeForChat === undefined) {
-    // Show a more comprehensive loading state if office data is still being determined
     return <div className="flex items-center justify-center h-full"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div>;
   }
 

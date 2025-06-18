@@ -67,8 +67,6 @@ const roomConverter: FirestoreDataConverter<Room, RoomFirestoreData> = {
 const officeMemberConverter: FirestoreDataConverter<OfficeMember, OfficeMemberFirestoreData> = {
   toFirestore: (memberInput: Partial<OfficeMember>): DocumentData => { 
     const data: any = { ...memberInput };
-    // userId is the doc ID, so it's not part of the data being set/updated directly here
-    // It will be used as the document ID when calling setDoc.
     if (data.hasOwnProperty('userId')) delete data.userId;
 
     if (!memberInput.joinedAt) data.joinedAt = serverTimestamp();
@@ -101,6 +99,7 @@ const userOfficesCol = (userId: string) => collection(db, 'users', userId, 'memb
 
 export async function createOffice(currentUserId: string, currentUserName: string, currentUserAvatar: string | undefined, officeName: string): Promise<Office> {
   if (!currentUserId || !officeName) throw new Error("User ID and office name are required.");
+  console.log('[Firebase Debug] Starting office creation for user:', currentUserId, 'Office Name:', officeName);
   
   const invitationCode = Math.random().toString(36).substring(2, 8).toUpperCase();
   const newOfficeData: Omit<Office, 'id' | 'createdAt' | 'updatedAt'> = {
@@ -110,16 +109,18 @@ export async function createOffice(currentUserId: string, currentUserName: strin
   };
 
   const newOfficeDocRef = await addDoc(officesCol(), newOfficeData as Office);
+  console.log('[Firebase Debug] New office document created with ID:', newOfficeDocRef.id);
   
-  const ownerMemberData: Omit<OfficeMember, 'joinedAt' | 'userId'> = { // Exclude userId as it's the doc key
+  const ownerMemberData: Omit<OfficeMember, 'joinedAt' | 'userId'> = {
     name: currentUserName,
     role: "Owner",
     avatarUrl: currentUserAvatar,
   };
-  // Use officeMemberConverter here
   await setDoc(memberDocRef(newOfficeDocRef.id, currentUserId), officeMemberConverter.toFirestore(ownerMemberData));
+  console.log('[Firebase Debug] Owner added as member to office subcollection.');
 
   await setDoc(doc(userOfficesCol(currentUserId), newOfficeDocRef.id), { officeId: newOfficeDocRef.id, officeName: officeName, role: "Owner", joinedAt: serverTimestamp() });
+  console.log('[Firebase Debug] Office reference added to user\'s memberOfOffices subcollection.');
 
   addActivityLog(newOfficeDocRef.id, {
       type: "office-created",
@@ -141,10 +142,14 @@ export async function createOffice(currentUserId: string, currentUserName: strin
       entityId: currentUserId,
       entityType: "member",
     });
-
+  console.log('[Firebase Debug] Activity logs added.');
 
   const newOfficeSnap = await getDoc(newOfficeDocRef);
-  if (!newOfficeSnap.exists()) throw new Error("Failed to create office.");
+  if (!newOfficeSnap.exists()) {
+    console.error('[Firebase Debug] Failed to re-fetch created office document.');
+    throw new Error("Failed to create office.");
+  }
+  console.log('[Firebase Debug] Office creation successful, returning office data.');
   return newOfficeSnap.data()!;
 }
 
@@ -163,7 +168,7 @@ export async function joinOfficeByCode(currentUserId: string, currentUserName: s
   const memberSnap = await getDoc(memberDocRef(officeId, currentUserId));
   if (memberSnap.exists()) throw new Error("User is already a member of this office.");
 
-  const newMemberData: Omit<OfficeMember, 'joinedAt' | 'userId'> = { // Exclude userId
+  const newMemberData: Omit<OfficeMember, 'joinedAt' | 'userId'> = {
     name: currentUserName,
     role: "Member",
     avatarUrl: currentUserAvatar,
@@ -195,7 +200,7 @@ export async function getOfficesForUser(userId: string): Promise<Office[]> {
   
   if (officeIds.length === 0) return [];
 
-  const officePromises = officeIds.slice(0,30).map(id => getDoc(officeDocRef(id)));
+  const officePromises = officeIds.slice(0,30).map(id => getDoc(officeDocRef(id))); // Limit to 30 for performance
   const officeSnapshots = await Promise.all(officePromises);
   
   return officeSnapshots.filter(snap => snap.exists()).map(snap => snap.data()!);
@@ -238,7 +243,6 @@ export async function getRoomsForOffice(officeId: string): Promise<Room[]> {
 
 export async function deleteRoomFromOffice(officeId: string, roomId: string): Promise<void> {
   await deleteDoc(roomDocRef(officeId, roomId));
-  // Consider activity logging
 }
 
 export async function getMembersForOffice(officeId: string): Promise<OfficeMember[]> {
@@ -255,7 +259,6 @@ export async function updateMemberRoleInOffice(officeId: string, memberUserId: s
       const userOfficeDocToUpdateRef = userOfficeSnap.docs[0].ref;
       await updateDoc(userOfficeDocToUpdateRef, { role: newRole });
   }
-  // Consider activity logging
 }
 
 export async function removeMemberFromOffice(officeId: string, memberUserId: string): Promise<void> {
@@ -270,5 +273,4 @@ export async function removeMemberFromOffice(officeId: string, memberUserId: str
     if (!userOfficeSnap.empty) {
         await deleteDoc(userOfficeSnap.docs[0].ref);
     }
-    // Consider activity logging
 }

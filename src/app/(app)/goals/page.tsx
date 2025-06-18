@@ -182,7 +182,7 @@ export default function GoalsPage() {
     return Math.min(Math.max((current / target) * 100, 0), 100);
   };
 
-  if (authLoading || (isLoadingGoals && goals.length === 0 && userOffices.length === 0)) {
+  if (authLoading || isLoadingGoals) {
     return <div className="container mx-auto p-8 text-center"><Loader2 className="h-12 w-12 animate-spin text-primary" /></div>;
   }
 
@@ -195,9 +195,7 @@ export default function GoalsPage() {
         </Button>
       </div>
 
-      {isLoadingGoals && goals.length > 0 && <div className="text-center my-4"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>}
-
-      {!isLoadingGoals && goals.length === 0 ? (
+      {goals.length === 0 ? (
         <div className="text-center py-12 bg-muted/10 rounded-lg">
           <Target className="mx-auto h-16 w-16 text-muted-foreground mb-4" />
           <p className="text-lg text-muted-foreground">No goals defined yet.</p>

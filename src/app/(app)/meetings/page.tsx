@@ -229,7 +229,7 @@ export default function MeetingsPage() {
     setSelectedMeetingForPreview(null);
   };
   
-  if (authLoading || (isLoadingMeetings && meetings.length === 0 && userOffices.length === 0)) {
+  if (authLoading || isLoadingMeetings) {
      return <div className="container mx-auto p-8 text-center"><Loader2 className="h-12 w-12 animate-spin text-primary" /></div>;
   }
 
@@ -294,8 +294,7 @@ export default function MeetingsPage() {
           <h2 className="text-2xl font-headline font-semibold mb-4">
             All Scheduled Meetings
           </h2>
-          {isLoadingMeetings && meetings.length > 0 && <div className="text-center my-4"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>}
-          {!isLoadingMeetings && meetings.length === 0 ? (
+          {meetings.length === 0 ? (
             <div className="text-center py-10 bg-muted/50 rounded-md flex flex-col items-center justify-center">
               <Image src="https://placehold.co/200x150.png" alt="No meetings" width={200} height={150} className="mx-auto mb-4 rounded" data-ai-hint="calendar illustration" />
               <p className="text-muted-foreground">No meetings scheduled yet.</p>

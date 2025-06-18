@@ -61,7 +61,7 @@ export default function TaskDetailPage() {
   }, [user]);
 
   useEffect(() => {
-    if (!authLoading && user) { // Fetch offices once user is available
+    if (!authLoading && user) { 
       fetchUserOfficesForActivityLog();
     }
   }, [authLoading, user, fetchUserOfficesForActivityLog]);
@@ -160,7 +160,7 @@ export default function TaskDetailPage() {
     );
   }
   
-  if (!currentTask) return null;
+  if (!currentTask) return null; // Should not happen if isLoading is false and no redirect occurred
 
   return (
     <div className="container mx-auto p-4 sm:p-6 lg:p-8">
@@ -291,4 +291,3 @@ export default function TaskDetailPage() {
     </div>
   );
 }
-

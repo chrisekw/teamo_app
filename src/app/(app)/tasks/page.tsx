@@ -154,7 +154,7 @@ export default function TasksPage() {
     return (a.dueDate?.getTime() || 0) - (b.dueDate?.getTime() || 0);
   });
 
-  if (authLoading || (isLoadingTasks && tasks.length === 0 && userOffices.length === 0)) {
+  if (authLoading || isLoadingTasks) {
     return <div className="container mx-auto p-8 text-center"><Loader2 className="h-12 w-12 animate-spin text-primary" /></div>;
   }
 
@@ -172,9 +172,7 @@ export default function TasksPage() {
         </div>
       </div>
 
-      {isLoadingTasks && tasks.length > 0 && <div className="text-center my-4"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>}
-
-      {!isLoadingTasks && sortedTasks.length === 0 ? (
+      {sortedTasks.length === 0 ? (
          <Card className="shadow-lg">
          <CardContent className="text-center py-10 text-muted-foreground">
             <ListChecks className="mx-auto h-12 w-12 mb-3 text-gray-400" />
