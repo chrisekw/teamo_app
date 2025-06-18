@@ -61,7 +61,7 @@ export interface Meeting {
   title: string;
   dateTime: Date;
   durationMinutes: number;
-  participants: string[]; // Consider changing to userId[] if participants are app users
+  participants: string[];
   description?: string;
   createdAt?: Date;
   updatedAt?: Date;
@@ -102,7 +102,7 @@ export interface Room {
   id: string;
   name: string;
   type: RoomType;
-  iconName: string;
+  iconName: string; // Store the Lucide icon name as a string
   officeId: string;
   createdAt?: Date;
   updatedAt?: Date;
@@ -121,16 +121,40 @@ export interface OfficeMember {
   joinedAt?: Date;
 }
 
-export type OfficeMemberFirestoreData = Omit<OfficeMember, 'joinedAt'> & {
+export type OfficeMemberFirestoreData = Omit<OfficeMember, 'joinedAt' | 'userId'> & {
   joinedAt?: Timestamp;
 };
+
+export type OfficeJoinRequestStatus = 'pending' | 'approved' | 'rejected';
+
+export interface OfficeJoinRequest {
+  id: string; // Firestore document ID
+  officeId: string;
+  officeName: string; // For displaying in user's request list or notifications
+  requesterId: string;
+  requesterName: string;
+  requesterAvatarUrl?: string;
+  status: OfficeJoinRequestStatus;
+  requestedAt: Date;
+  processedAt?: Date; // Timestamp when approved/rejected
+  processedBy?: string; // User ID of the owner/admin who processed it
+}
+
+export type OfficeJoinRequestFirestoreData = Omit<OfficeJoinRequest, 'id' | 'requestedAt' | 'processedAt'> & {
+  requestedAt: Timestamp;
+  processedAt?: Timestamp;
+};
+
 
 // --- Activity Log Types ---
 export type ActivityType =
   | "task-new" | "task-status-update" | "task-completed"
   | "goal-new" | "goal-progress-update" | "goal-achieved"
   | "meeting-new"
-  | "office-created" | "member-join" | "room-new";
+  | "office-created" | "member-join" | "room-new"
+  | "office-join-request-sent" | "office-join-request-approved" | "office-join-request-rejected"
+  | "member-role-updated" | "member-removed";
+
 
 export interface ActivityLogItem {
   id: string;
@@ -139,57 +163,52 @@ export interface ActivityLogItem {
   title: string;
   description: string;
   timestamp: Date;
-  iconName: string;
+  iconName: string; // Lucide icon name as string
   actorName?: string;
   actorId?: string;
   entityId?: string;
-  entityType?: 'task' | 'goal' | 'meeting' | 'member' | 'room' | 'office';
+  entityType?: 'task' | 'goal' | 'meeting' | 'member' | 'room' | 'office' | 'joinRequest';
 }
 
-export type ActivityLogItemFirestoreData = Omit<ActivityLogItem, 'id' | 'timestamp'> & {
+export type ActivityLogItemFirestoreData = Omit<ActivityLogItem, 'id' | 'timestamp' | 'officeId'> & {
   timestamp: Timestamp;
 };
 
 
 // --- Chat Types ---
-export interface ChatUser { // This type is used by ChatPage, ensure consistency
+export interface ChatUser {
   id: string;
   name: string;
-  role: string; // Role within the office or general user
+  role: string;
   avatarUrl?: string;
 }
 
 export interface ChatMessage {
-  id: string; // Firestore document ID
+  id: string;
   text: string;
   senderId: string;
   senderName: string;
-  timestamp: Date; // JS Date object for client
+  timestamp: Date;
   avatarUrl?: string;
-  type?: 'text' | 'voice_note' | 'call_event'; // Keep for UI differentiation
-  callDuration?: string; // For call_event type
-  voiceNoteDuration?: string; // For voice_note type
-  chatThreadId: string; // Parent thread ID
-  // No createdAt here, timestamp serves as the creation time for messages
+  type?: 'text' | 'voice_note' | 'call_event';
+  callDuration?: string;
+  voiceNoteDuration?: string;
+  chatThreadId: string;
 }
 
-// Firestore representation of a ChatMessage
 export type ChatMessageFirestoreData = Omit<ChatMessage, 'id' | 'timestamp' > & {
-  timestamp: Timestamp; // Firestore Timestamp for server
+  timestamp: Timestamp;
 };
 
 
 export interface ChatThread {
-  id: string; // Firestore document ID
-  participantIds: string[]; // Array of user IDs in the thread
-  participantInfo: { [userId: string]: Pick<ChatUser, 'name' | 'avatarUrl'> }; // Quick access to names/avatars
+  id: string;
+  participantIds: string[];
+  participantInfo: { [userId: string]: Pick<ChatUser, 'name' | 'avatarUrl'> };
   lastMessageText?: string;
   lastMessageSenderName?: string;
   lastMessageTimestamp?: Date;
-  updatedAt: Date; // Timestamp of the last activity
-  // For unread counts per user (more complex, for future enhancement):
-  // unreadCounts?: { [userId: string]: number };
-  // lastReadTimestamps?: { [userId: string]: Timestamp };
+  updatedAt: Date;
 }
 
 export type ChatThreadFirestoreData = Omit<ChatThread, 'id' | 'lastMessageTimestamp' | 'updatedAt'> & {
@@ -203,26 +222,29 @@ export type UserNotificationType =
   | "task-new"
   | "goal-new"
   | "meeting-new"
-  | "chat-new-message" // New type for chat
-  | "office-invite" // Example for future use
+  | "chat-new-message"
+  | "office-invite" // Potentially deprecated by join requests
+  | "office-join-request" // To owner when someone requests to join
+  | "office-join-approved" // To requester when approved
+  | "office-join-rejected" // To requester when rejected
   | "generic";
 
 export interface UserNotification {
   id: string;
-  userId: string; // The ID of the user this notification is for
+  userId: string;
   type: UserNotificationType;
   title: string;
   message: string;
-  link?: string; // Optional link to navigate to (e.g., /tasks/taskId or /chat?threadId=xyz)
+  link?: string;
   timestamp: Date;
   isRead: boolean;
-  officeId?: string; // Optional: context if it's an office-related notification
-  actorName?: string; // Optional: name of the user who triggered the event
-  entityId?: string; // ID of the related task, goal, meeting, chat thread etc.
-  entityType?: 'task' | 'goal' | 'meeting' | 'office' | 'chat-thread'; // Type of the related entity
+  officeId?: string;
+  actorName?: string;
+  entityId?: string;
+  entityType?: 'task' | 'goal' | 'meeting' | 'office' | 'chat-thread' | 'joinRequest';
 }
 
 export type UserNotificationFirestoreData = Omit<UserNotification, 'id' | 'timestamp' | 'userId'> & {
   timestamp: Timestamp;
 };
-
+    

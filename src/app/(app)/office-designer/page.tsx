@@ -8,7 +8,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { PlusCircle, Trash2, Users, Briefcase, Coffee, Zap, Building, KeyRound, UserPlus, Copy, Settings2, ShieldCheck, UserCircle as UserIconLucide, Loader2, Edit, Info, Image as ImageIcon, MoreHorizontal, ExternalLink } from "lucide-react";
+import { PlusCircle, Trash2, Users, Briefcase, Coffee, Zap, Building, KeyRound, UserPlus, Copy, Settings2, ShieldCheck, UserCircle as UserIconLucide, Loader2, Edit, Info, Image as ImageIcon, MoreHorizontal, ExternalLink, UserCheck, UserX, CheckSquare, XSquare } from "lucide-react";
 import Image from "next/image";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -18,10 +18,9 @@ import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuIte
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/firebase/auth";
-import type { Office, Room, OfficeMember, RoomType, MemberRole } from "@/types";
+import type { Office, Room, OfficeMember, RoomType, MemberRole, OfficeJoinRequest, ChatUser } from "@/types";
 import { 
   createOffice, 
-  joinOfficeByCode, 
   getOfficesForUser, 
   getOfficeDetails,
   addRoomToOffice, 
@@ -29,7 +28,11 @@ import {
   deleteRoomFromOffice,
   getMembersForOffice,
   updateMemberRoleInOffice,
-  removeMemberFromOffice
+  removeMemberFromOffice,
+  requestToJoinOfficeByCode,
+  getPendingJoinRequestsForOffice,
+  approveJoinRequest,
+  rejectJoinRequest
 } from "@/lib/firebase/firestore/offices";
 import { Textarea } from "@/components/ui/textarea";
 
@@ -56,6 +59,7 @@ export default function OfficeDesignerPage() {
   const [activeOffice, setActiveOffice] = useState<Office | null>(null);
   const [activeOfficeRooms, setActiveOfficeRooms] = useState<Room[]>([]);
   const [activeOfficeMembers, setActiveOfficeMembers] = useState<OfficeMember[]>([]);
+  const [pendingJoinRequests, setPendingJoinRequests] = useState<OfficeJoinRequest[]>([]);
   
   const [isLoading, setIsLoading] = useState(true); 
   const [isLoadingDetails, setIsLoadingDetails] = useState(false); 
@@ -83,6 +87,8 @@ export default function OfficeDesignerPage() {
   const [selectedRole, setSelectedRole] = useState<MemberRole>("Member");
   const [deletingMember, setDeletingMember] = useState<OfficeMember | null>(null);
   const [deletingRoom, setDeletingRoom] = useState<Room | null>(null);
+  const [processingRequestId, setProcessingRequestId] = useState<string | null>(null);
+
 
   const fetchUserOffices = useCallback(async () => {
     if (user) {
@@ -110,35 +116,44 @@ export default function OfficeDesignerPage() {
     }
   }, [userOffices, activeOffice, isLoading]);
 
-  const fetchActiveOfficeDetails = useCallback(async (officeId: string) => {
+  const fetchActiveOfficeDetails = useCallback(async (officeId: string, currentUserId: string) => {
     setIsLoadingDetails(true);
     try {
-      const [rooms, members] = await Promise.all([
+      const officeData = await getOfficeDetails(officeId);
+      if (!officeData) {
+          throw new Error("Office not found");
+      }
+      const [rooms, members, requests] = await Promise.all([
         getRoomsForOffice(officeId),
-        getMembersForOffice(officeId)
+        getMembersForOffice(officeId),
+        officeData.ownerId === currentUserId ? getPendingJoinRequestsForOffice(officeId) : Promise.resolve([])
       ]);
       setActiveOfficeRooms(rooms);
       setActiveOfficeMembers(members);
+      setPendingJoinRequests(requests);
     } catch (error) {
       toast({ variant: "destructive", title: "Error", description: "Could not fetch office details." });
       setActiveOfficeRooms([]); 
       setActiveOfficeMembers([]);
+      setPendingJoinRequests([]);
     } finally {
       setIsLoadingDetails(false);
     }
   }, [toast]);
 
   useEffect(() => {
-    if (activeOffice) {
+    if (activeOffice && user) {
       setActiveOfficeRooms([]);
       setActiveOfficeMembers([]);
-      fetchActiveOfficeDetails(activeOffice.id);
+      setPendingJoinRequests([]);
+      fetchActiveOfficeDetails(activeOffice.id, user.uid);
     } else {
       setActiveOfficeRooms([]);
       setActiveOfficeMembers([]);
+      setPendingJoinRequests([]);
       setIsLoadingDetails(false); 
     }
-  }, [activeOffice, fetchActiveOfficeDetails]);
+  }, [activeOffice, user, fetchActiveOfficeDetails]);
 
   const handleSetActiveOffice = async (office: Office | null) => {
     setActiveOffice(office);
@@ -191,7 +206,6 @@ export default function OfficeDesignerPage() {
       return;
     }
     setIsSubmitting(true);
-    // For now, we're using placeholders. Actual upload would generate a URL.
     const logoUrlPlaceholder = newOfficeLogoFile ? `https://placehold.co/100x100.png?text=${newOfficeCompanyName.substring(0,3) || 'LOGO'}` : undefined;
     const bannerUrlPlaceholder = newOfficeBannerFile ? `https://placehold.co/800x200.png?text=${newOfficeName.substring(0,3) || 'BANNER'}` : undefined;
 
@@ -199,7 +213,7 @@ export default function OfficeDesignerPage() {
       const newOffice = await createOffice(
         user.uid, 
         user.displayName || user.email?.split('@')[0] || "User", 
-        user.photoURL, 
+        user.photoURL || undefined, 
         newOfficeName,
         newOfficeSector || undefined,
         newOfficeCompanyName || undefined,
@@ -212,36 +226,39 @@ export default function OfficeDesignerPage() {
       setIsCreateOfficeDialogOpen(false);
       toast({ title: "Office Created!", description: `Your new office "${newOffice.name}" is ready.` });
     } catch (error: any) {
-      console.error("[Firebase Debug] Error in handleCreateOffice:", error);
       toast({ variant: "destructive", title: "Error Creating Office", description: String(error.message || error || "An unexpected error occurred.") });
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  const handleJoinOffice = async () => {
-     if (!user) return;
+  const handleRequestToJoinOffice = async () => {
+    if (!user) {
+        toast({ variant: "destructive", title: "Not Authenticated", description: "You must be logged in to join an office." });
+        return;
+    }
     if (!joinOfficeCode.trim()) {
       toast({ variant: "destructive", title: "Error", description: "Invitation code cannot be empty." });
       return;
     }
     setIsSubmitting(true);
+    const requesterUser: ChatUser = {
+        id: user.uid,
+        name: user.displayName || user.email?.split('@')[0] || "Anonymous User",
+        avatarUrl: user.photoURL || undefined,
+        role: "User" // Generic role for requester context
+    };
     try {
-      const joinedOffice = await joinOfficeByCode(user.uid, user.displayName || user.email?.split('@')[0] || "User", user.photoURL, joinOfficeCode);
-      if (joinedOffice) {
-        setUserOffices(prev => { 
-            if (prev.find(o => o.id === joinedOffice.id)) return prev; // Avoid duplicates if already in state
-            return [...prev, joinedOffice];
-        });
-        setActiveOffice(joinedOffice);
+      const result = await requestToJoinOfficeByCode(joinOfficeCode, requesterUser);
+      if (result.success) {
+        toast({ title: "Request Sent!", description: result.message });
         setJoinOfficeCode("");
         setIsJoinOfficeDialogOpen(false);
-        toast({ title: "Joined Office!", description: `You've joined "${joinedOffice.name}".` });
       } else {
-        toast({ variant: "destructive", title: "Invalid Code", description: "No office found with that invitation code or you might already be a member."});
+        toast({ variant: "destructive", title: "Request Failed", description: result.message});
       }
     } catch (error: any) {
-      toast({ variant: "destructive", title: "Error Joining Office", description: String(error.message || error || "An unexpected error occurred.") });
+      toast({ variant: "destructive", title: "Error Requesting Join", description: String(error.message || error || "An unexpected error occurred.") });
     } finally {
       setIsSubmitting(false);
     }
@@ -326,7 +343,7 @@ export default function OfficeDesignerPage() {
   };
 
   const openDeleteMemberDialog = (member: OfficeMember) => {
-    if (member.userId === user?.uid && member.role === "Owner") { // Prevent owner from initiating self-removal this way
+    if (member.userId === user?.uid && member.role === "Owner") {
         toast({title: "Action Denied", description: "Owners cannot remove themselves. Consider transferring ownership or deleting the office."});
         return;
     }
@@ -355,6 +372,26 @@ export default function OfficeDesignerPage() {
       setIsSubmitting(false);
       setDeletingMember(null);
       setIsConfirmDeleteMemberDialogOpen(false);
+    }
+  };
+
+  const handleProcessJoinRequest = async (request: OfficeJoinRequest, action: 'approve' | 'reject') => {
+    if (!activeOffice || !user) return;
+    setProcessingRequestId(request.id);
+    try {
+      if (action === 'approve') {
+        await approveJoinRequest(activeOffice.id, request.id, user.uid, user.displayName || "User");
+        toast({ title: "Request Approved", description: `${request.requesterName} has been added to the office.` });
+      } else {
+        await rejectJoinRequest(activeOffice.id, request.id, user.uid, user.displayName || "User");
+        toast({ title: "Request Rejected", description: `${request.requesterName}'s request has been rejected.` });
+      }
+      // Refresh details
+      fetchActiveOfficeDetails(activeOffice.id, user.uid);
+    } catch (error: any) {
+      toast({ variant: "destructive", title: `Error ${action === 'approve' ? 'Approving' : 'Rejecting'} Request`, description: error.message });
+    } finally {
+      setProcessingRequestId(null);
     }
   };
 
@@ -455,7 +492,7 @@ export default function OfficeDesignerPage() {
           <DialogContent className="sm:max-w-[425px]">
             <DialogHeader>
               <DialogTitle className="font-headline">Join Existing Office</DialogTitle>
-              <DialogDescription>Enter the invitation code provided to you.</DialogDescription>
+              <DialogDescription>Enter the invitation code to request access.</DialogDescription>
             </DialogHeader>
             <div className="grid gap-4 py-4">
               <Label htmlFor="joinOfficeCode">Invitation Code</Label>
@@ -463,8 +500,8 @@ export default function OfficeDesignerPage() {
             </div>
             <DialogFooter>
               <Button variant="outline" onClick={() => setIsJoinOfficeDialogOpen(false)} disabled={isSubmitting}>Cancel</Button>
-              <Button onClick={handleJoinOffice} disabled={isSubmitting}>
-                 {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin"/>} Join Office
+              <Button onClick={handleRequestToJoinOffice} disabled={isSubmitting}>
+                 {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin"/>} Request to Join
               </Button>
             </DialogFooter>
           </DialogContent>
@@ -487,7 +524,7 @@ export default function OfficeDesignerPage() {
         </div>
       )}
 
-      <Card className="shadow-xl -mt-16 sm:-mt-20 md:-mt-24 relative z-10 mx-auto max-w-5xl">
+      <Card className="shadow-xl -mt-16 sm:-mt-20 md:-mt-24 relative z-10 mx-auto max-w-5xl bg-card/90 backdrop-blur-sm">
         <CardContent className="p-6">
             <div className="flex flex-col sm:flex-row items-start sm:items-end space-y-4 sm:space-y-0 sm:space-x-6">
                 {activeOffice.logoUrl ? (
@@ -504,12 +541,14 @@ export default function OfficeDesignerPage() {
                 </div>
                 <Button onClick={() => handleSetActiveOffice(null)} variant="outline" className="w-full sm:w-auto" disabled={isLoadingDetails || isSubmitting}>Back to Office List</Button>
             </div>
-            <div className="mt-4 pt-4 border-t border-border flex items-center text-sm text-muted-foreground">
-                <span>Invitation Code: <strong className="text-foreground">{activeOffice.invitationCode}</strong></span>
-                <Button variant="ghost" size="sm" onClick={copyInviteCode} className="ml-2 px-1 py-0 h-auto">
-                  <Copy className="h-3 w-3 mr-1" /> Copy
-                </Button>
-          </div>
+             {currentUserIsOwner && (
+                <div className="mt-4 pt-4 border-t border-border flex items-center text-sm text-muted-foreground">
+                    <span>Invitation Code: <strong className="text-foreground">{activeOffice.invitationCode}</strong></span>
+                    <Button variant="ghost" size="sm" onClick={copyInviteCode} className="ml-2 px-1 py-0 h-auto">
+                    <Copy className="h-3 w-3 mr-1" /> Copy
+                    </Button>
+                </div>
+             )}
         </CardContent>
       </Card>
 
@@ -519,6 +558,51 @@ export default function OfficeDesignerPage() {
       {!isLoadingDetails && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mt-8">
           <section className="lg:col-span-2 space-y-8">
+            {currentUserIsOwner && pendingJoinRequests.length > 0 && (
+              <div>
+                <h2 className="text-2xl font-headline font-semibold mb-4">Join Requests ({pendingJoinRequests.length})</h2>
+                <Card className="shadow-md bg-card/80 backdrop-blur-sm">
+                    <CardContent className="p-4 space-y-3">
+                        {pendingJoinRequests.map(request => (
+                            <div key={request.id} className="flex items-center justify-between p-3 bg-background rounded-md shadow-sm">
+                                <div className="flex items-center space-x-3">
+                                    <Avatar className="h-10 w-10">
+                                        <AvatarImage src={request.requesterAvatarUrl || `https://placehold.co/40x40.png?text=${request.requesterName.substring(0,1)}`} alt={request.requesterName} data-ai-hint="person avatar"/>
+                                        <AvatarFallback>{request.requesterName.substring(0,2).toUpperCase()}</AvatarFallback>
+                                    </Avatar>
+                                    <div>
+                                        <p className="font-medium text-sm">{request.requesterName}</p>
+                                        <p className="text-xs text-muted-foreground">Wants to join your office</p>
+                                    </div>
+                                </div>
+                                <div className="flex space-x-2">
+                                    <Button 
+                                        size="sm" 
+                                        variant="outline" 
+                                        onClick={() => handleProcessJoinRequest(request, 'reject')} 
+                                        disabled={processingRequestId === request.id || isSubmitting}
+                                        className="hover:bg-destructive/10 hover:text-destructive"
+                                    >
+                                        {processingRequestId === request.id && <Loader2 className="mr-1 h-4 w-4 animate-spin"/>}
+                                        <UserX className="mr-1 h-4 w-4"/> Reject
+                                    </Button>
+                                    <Button 
+                                        size="sm" 
+                                        onClick={() => handleProcessJoinRequest(request, 'approve')} 
+                                        disabled={processingRequestId === request.id || isSubmitting}
+                                        className="hover:bg-green-500/90"
+                                    >
+                                        {processingRequestId === request.id && <Loader2 className="mr-1 h-4 w-4 animate-spin"/>}
+                                        <UserCheck className="mr-1 h-4 w-4"/> Approve
+                                    </Button>
+                                </div>
+                            </div>
+                        ))}
+                    </CardContent>
+                </Card>
+              </div>
+            )}
+
             <div>
               <div className="flex justify-between items-center mb-4">
                 <h2 className="text-2xl font-headline font-semibold">Office Rooms ({activeOfficeRooms.length})</h2>
@@ -617,10 +701,10 @@ export default function OfficeDesignerPage() {
                               </DropdownMenuTrigger>
                               <DropdownMenuContent align="end">
                                 <DropdownMenuItem onClick={() => handleOpenManageMemberDialog(member)} disabled={isSubmitting}>
-                                  Manage Role
+                                  <Edit className="mr-2 h-4 w-4" /> Manage Role
                                 </DropdownMenuItem>
                                 <DropdownMenuItem onClick={() => openDeleteMemberDialog(member)} className="text-destructive focus:bg-destructive/10 focus:text-destructive" disabled={isSubmitting}>
-                                  Remove Member
+                                  <Trash2 className="mr-2 h-4 w-4" /> Remove Member
                                 </DropdownMenuItem>
                               </DropdownMenuContent>
                             </DropdownMenu>
@@ -741,4 +825,4 @@ export default function OfficeDesignerPage() {
     </div>
   );
 }
-
+    
