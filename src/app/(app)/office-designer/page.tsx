@@ -8,7 +8,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { PlusCircle, Trash2, Users, Briefcase, Coffee, Zap, Building, KeyRound, UserPlus, Copy, Settings2, ShieldCheck, UserCircle as UserIconLucide, Loader2, Edit, Info } from "lucide-react";
+import { PlusCircle, Trash2, Users, Briefcase, Coffee, Zap, Building, KeyRound, UserPlus, Copy, Settings2, ShieldCheck, UserCircle as UserIconLucide, Loader2, Edit, Info, Image as ImageIcon } from "lucide-react";
 import Image from "next/image";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -30,7 +30,7 @@ import {
   updateMemberRoleInOffice,
   removeMemberFromOffice
 } from "@/lib/firebase/firestore/offices";
-import { Textarea } from "@/components/ui/textarea"; // Added for multi-line inputs
+import { Textarea } from "@/components/ui/textarea";
 
 const roomTypeDetails: Record<RoomType, { icon: React.ElementType; defaultName: string, imageHint: string, iconName: string }> = {
   "Team Hub": { icon: Users, defaultName: "Team Hub", imageHint: "team collaboration", iconName: "Users" },
@@ -72,6 +72,8 @@ export default function OfficeDesignerPage() {
   const [newOfficeCompanyName, setNewOfficeCompanyName] = useState("");
   const [newOfficeLogoFile, setNewOfficeLogoFile] = useState<File | null>(null);
   const [logoPreview, setLogoPreview] = useState<string | null>(null);
+  const [newOfficeBannerFile, setNewOfficeBannerFile] = useState<File | null>(null);
+  const [bannerPreview, setBannerPreview] = useState<string | null>(null);
 
   const [joinOfficeCode, setJoinOfficeCode] = useState("");
   const [selectedRoomType, setSelectedRoomType] = useState<RoomType | undefined>();
@@ -102,7 +104,7 @@ export default function OfficeDesignerPage() {
   }, [authLoading, user, fetchUserOffices]);
   
   useEffect(() => {
-    if (!activeOffice && userOffices.length === 1 && !isLoading) { // Ensure not loading before auto-selecting
+    if (!activeOffice && userOffices.length === 1 && !isLoading) { 
         setActiveOffice(userOffices[0]);
     }
   }, [userOffices, activeOffice, isLoading]);
@@ -147,6 +149,8 @@ export default function OfficeDesignerPage() {
     setNewOfficeCompanyName("");
     setNewOfficeLogoFile(null);
     setLogoPreview(null);
+    setNewOfficeBannerFile(null);
+    setBannerPreview(null);
   };
 
   const handleLogoFileChange = (event: ChangeEvent<HTMLInputElement>) => {
@@ -164,6 +168,21 @@ export default function OfficeDesignerPage() {
     }
   };
 
+  const handleBannerFileChange = (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file) {
+      setNewOfficeBannerFile(file);
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setBannerPreview(reader.result as string);
+      };
+      reader.readAsDataURL(file);
+    } else {
+      setNewOfficeBannerFile(null);
+      setBannerPreview(null);
+    }
+  };
+
   const handleCreateOffice = async () => {
     if (!user) return;
     if (!newOfficeName.trim()) {
@@ -171,8 +190,8 @@ export default function OfficeDesignerPage() {
       return;
     }
     setIsSubmitting(true);
-    // For now, logoUrl will be a placeholder. Actual upload would involve Firebase Storage.
     const logoUrlPlaceholder = newOfficeLogoFile ? `https://placehold.co/100x100.png?text=${newOfficeCompanyName.substring(0,3) || 'LOGO'}` : undefined;
+    const bannerUrlPlaceholder = newOfficeBannerFile ? `https://placehold.co/800x200.png?text=${newOfficeCompanyName.substring(0,3) || 'BANNER'}` : undefined;
 
     try {
       const newOffice = await createOffice(
@@ -182,7 +201,8 @@ export default function OfficeDesignerPage() {
         newOfficeName,
         newOfficeSector || undefined,
         newOfficeCompanyName || undefined,
-        logoUrlPlaceholder
+        logoUrlPlaceholder,
+        bannerUrlPlaceholder
       );
       setUserOffices(prev => [...prev, newOffice]);
       setActiveOffice(newOffice); 
@@ -405,6 +425,15 @@ export default function OfficeDesignerPage() {
                   </div>
                 )}
               </div>
+              <div className="space-y-1">
+                <Label htmlFor="newOfficeBanner">Office Banner</Label>
+                <Input id="newOfficeBanner" type="file" accept="image/*" onChange={handleBannerFileChange} className="file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-primary file:text-primary-foreground hover:file:bg-primary/90" disabled={isSubmitting}/>
+                {bannerPreview && (
+                  <div className="mt-2 aspect-[4/1] w-full relative">
+                    <Image src={bannerPreview} alt="Banner preview" layout="fill" className="rounded-md object-cover" data-ai-hint="office banner background"/>
+                  </div>
+                )}
+              </div>
             </div>
             <DialogFooter>
               <Button variant="outline" onClick={() => setIsCreateOfficeDialogOpen(false)} disabled={isSubmitting}>Cancel</Button>
@@ -439,6 +468,11 @@ export default function OfficeDesignerPage() {
 
   return (
     <div className="container mx-auto p-4 sm:p-6 lg:p-8">
+      {activeOffice.bannerUrl && (
+        <div className="mb-6 rounded-lg overflow-hidden shadow-lg aspect-[16/5] sm:aspect-[16/4] md:aspect-[16/3] relative">
+          <Image src={activeOffice.bannerUrl} alt={`${activeOffice.name} Banner`} layout="fill" objectFit="cover" data-ai-hint="office banner background"/>
+        </div>
+      )}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-3 pb-3 border-b">
         <div className="flex items-start space-x-4">
             {activeOffice.logoUrl ? (

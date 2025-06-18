@@ -26,10 +26,11 @@ const officeConverter: FirestoreDataConverter<Office, OfficeFirestoreData> = {
     delete data.id;
     if (!officeInput.id) data.createdAt = serverTimestamp();
     data.updatedAt = serverTimestamp();
-    // Ensure optional fields are handled correctly (e.g., not sending undefined if not set)
+    // Ensure optional fields are handled correctly
     if (officeInput.sector === undefined) delete data.sector;
     if (officeInput.companyName === undefined) delete data.companyName;
     if (officeInput.logoUrl === undefined) delete data.logoUrl;
+    if (officeInput.bannerUrl === undefined) delete data.bannerUrl; // Handle bannerUrl
     return data;
   },
   fromFirestore: (snapshot, options): Office => {
@@ -42,6 +43,7 @@ const officeConverter: FirestoreDataConverter<Office, OfficeFirestoreData> = {
       sector: data.sector,
       companyName: data.companyName,
       logoUrl: data.logoUrl,
+      bannerUrl: data.bannerUrl, // Add bannerUrl
       createdAt: data.createdAt instanceof Timestamp ? data.createdAt.toDate() : new Date(),
       updatedAt: data.updatedAt instanceof Timestamp ? data.updatedAt.toDate() : new Date(),
     };
@@ -111,7 +113,8 @@ export async function createOffice(
   officeName: string,
   sector?: string,
   companyName?: string,
-  logoUrl?: string
+  logoUrl?: string,
+  bannerUrl?: string // Added bannerUrl parameter
 ): Promise<Office> {
   console.log('[Firebase Debug] Starting office creation for user:', currentUserId, 'Office Name:', officeName);
   if (!currentUserId || !officeName) {
@@ -127,6 +130,7 @@ export async function createOffice(
     sector: sector,
     companyName: companyName,
     logoUrl: logoUrl,
+    bannerUrl: bannerUrl, // Store bannerUrl
   };
   
   console.log('[Firebase Debug] Office data prepared:', newOfficeData);
