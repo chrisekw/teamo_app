@@ -16,14 +16,14 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/firebase/auth";
-import type { ChatMessage, ChatUser, Office, OfficeMember, ChatThread } from "@/types";
+import type { ChatMessage, ChatUser, Office, ChatThread } from "@/types";
 import { getOfficesForUser, getMembersForOffice } from '@/lib/firebase/firestore/offices';
-import { 
-  getOrCreateDmThread, 
-  addChatMessageAndNotify, 
+import {
+  getOrCreateDmThread,
+  addChatMessageAndNotify,
   getMessagesForThread,
   addGeneralOfficeMessage,
-  getGeneralOfficeMessages 
+  getGeneralOfficeMessages
 } from '@/lib/firebase/firestore/chat';
 import { markNotificationsAsReadByLink } from '@/lib/firebase/firestore/notifications';
 import { doc, getDoc } from 'firebase/firestore';
@@ -36,19 +36,19 @@ export default function ChatPage() {
   const router = useRouter();
   const isMobile = useIsMobile();
   const { toast } = useToast();
-  
+
   const [mobileView, setMobileView] = useState<'list' | 'chat'>('list');
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
   const [activeChatType, setActiveChatType] = useState<'dm' | 'general' | null>(null);
   const [activeChatTargetUser, setActiveChatTargetUser] = useState<ChatUser | null>(null);
 
-  const [allMessages, setAllMessages] = useState<Record<string, ChatMessage[]>>({}); 
+  const [allMessages, setAllMessages] = useState<Record<string, ChatMessage[]>>({});
   const [newMessage, setNewMessage] = useState("");
   const scrollAreaRef = useRef<HTMLDivElement>(null);
-  
+
   const [currentUserForChat, setCurrentUserForChat] = useState<ChatUser | null>(null);
-  const [currentOfficeMembers, setCurrentOfficeMembers] = useState<ChatUser[]>([]); 
-  const [activeOfficeForChat, setActiveOfficeForChat] = useState<Office | null>(null);
+  const [currentOfficeMembers, setCurrentOfficeMembers] = useState<ChatUser[]>([]);
+  const [activeOfficeForChat, setActiveOfficeForChat] = useState<Office | null | undefined>(undefined); // undefined initially
 
   const [isLoadingMessages, setIsLoadingMessages] = useState(false);
   const [isSendingMessage, setIsSendingMessage] = useState(false);
@@ -64,7 +64,7 @@ export default function ChatPage() {
       setCurrentUserForChat({
         id: user.uid,
         name: user.displayName || user.email?.split('@')[0] || 'You',
-        role: 'User', 
+        role: 'User', // This might need to be dynamic based on office context later
         avatarUrl: user.photoURL || `https://placehold.co/40x40.png?text=${(user.displayName || 'U').substring(0,1)}`,
       });
     }
@@ -76,13 +76,11 @@ export default function ChatPage() {
         const offices = await getOfficesForUser(user.uid);
         setUserOfficesList(offices);
         if (offices.length > 0) {
-          const firstOffice = offices[0];
-          setActiveOfficeForChat(firstOffice);
+          setActiveOfficeForChat(offices[0]); // Set first office as active by default
         } else {
-          setActiveOfficeForChat(null);
+          setActiveOfficeForChat(null); // Explicitly set to null if no offices
           setCurrentOfficeMembers([]);
-          setActiveChatId(null);
-          setAllMessages({});
+          // No activeChatId set here, will be handled by the subsequent useEffect
         }
       }
     };
@@ -93,7 +91,7 @@ export default function ChatPage() {
 
   useEffect(() => {
     const fetchMembers = async () => {
-      if (activeOfficeForChat && user) {
+      if (activeOfficeForChat && user) { // activeOfficeForChat can be Office or null
         const members = await getMembersForOffice(activeOfficeForChat.id);
         const chatUsers: ChatUser[] = members.map(m => ({
           id: m.userId,
@@ -106,26 +104,29 @@ export default function ChatPage() {
         setCurrentOfficeMembers([]);
       }
     };
-    fetchMembers();
+    if (activeOfficeForChat !== undefined) { // Only run if office determination has happened
+        fetchMembers();
+    }
   }, [activeOfficeForChat, user]);
 
 
   const selectChat = useCallback(async (chatId: string, type: 'dm' | 'general', targetUser?: ChatUser) => {
     if (!user || !currentUserForChat) return;
-    
+
     setActiveChatId(chatId);
     setActiveChatType(type);
     setActiveChatTargetUser(targetUser || null);
     setIsLoadingMessages(true);
-    setAllMessages(prev => ({ ...prev, [chatId]: [] })); 
+    setAllMessages(prev => ({ ...prev, [chatId]: [] })); // Clear previous messages for this chat
 
     try {
       let messages: ChatMessage[] = [];
       if (type === 'dm' && targetUser) {
         messages = await getMessagesForThread(chatId);
         await markNotificationsAsReadByLink(user.uid, `/chat?threadId=${chatId}`);
-      } else if (type === 'general' && activeOfficeForChat) {
+      } else if (type === 'general' && activeOfficeForChat) { // Ensure activeOfficeForChat is not null
         messages = await getGeneralOfficeMessages(activeOfficeForChat.id);
+        // No specific notification link for general chat to mark as read in this flow
       }
       setAllMessages(prev => ({ ...prev, [chatId]: messages }));
     } catch (error) {
@@ -134,7 +135,8 @@ export default function ChatPage() {
     } finally {
       setIsLoadingMessages(false);
       if (isMobile) setMobileView('chat');
-      
+
+      // Update URL without page reload
       if (type === 'dm') {
         router.replace(`/chat?threadId=${chatId}`, { scroll: false });
       } else if (type === 'general' && activeOfficeForChat) {
@@ -144,84 +146,95 @@ export default function ChatPage() {
   }, [user, currentUserForChat, activeOfficeForChat, isMobile, toast, router]);
 
   useEffect(() => {
-    if (!user || !currentUserForChat || activeChatId || authLoading ) return;
+    // Guard against running too early or if already processing
+    if (authLoading || !currentUserForChat || activeChatId || activeOfficeForChat === undefined) {
+      return;
+    }
 
     const threadIdFromUrl = searchParams.get('threadId');
     const officeGeneralFromUrl = searchParams.get('officeGeneral');
 
     const initializeChat = async () => {
-        if (!activeOfficeForChat && userOfficesList.length === 0 && !threadIdFromUrl) { 
-            setActiveChatId(null);
-            setAllMessages({});
-            setIsLoadingMessages(false);
-            return;
-        }
+      setIsLoadingMessages(true);
+      try {
+        if (threadIdFromUrl) {
+          const threadDataSnap = await getDoc(doc(db, 'chatThreads', threadIdFromUrl));
+          if (threadDataSnap.exists()) {
+            const threadData = threadDataSnap.data() as ChatThread; // Assuming correct type
+            const targetId = threadData.participantIds.find(pid => pid !== user?.uid);
 
-        setIsLoadingMessages(true);
-        try {
-            if (threadIdFromUrl) {
-                const threadDataSnap = await getDoc(doc(db, 'chatThreads', threadIdFromUrl));
-                if (threadDataSnap.exists()) {
-                    const threadData = threadDataSnap.data() as ChatThread;
-                    const targetId = threadData.participantIds.find(pid => pid !== user.uid);
-                    
-                    let targetUserInfo: ChatUser | undefined;
-                    if (targetId && threadData.participantInfo && threadData.participantInfo[targetId]) {
-                        targetUserInfo = { 
-                            id: targetId, 
-                            name: threadData.participantInfo[targetId].name, 
-                            role: 'User', // Role might not be in threadData, default or fetch if needed
-                            avatarUrl: threadData.participantInfo[targetId].avatarUrl 
-                        };
-                    } else if (targetId) { // Fallback if participantInfo is missing for target
-                        const membersToSearch = activeOfficeForChat ? await getMembersForOffice(activeOfficeForChat.id) : [];
-                        const memberDetails = membersToSearch.find(m => m.userId === targetId);
-                        if(memberDetails) {
-                             targetUserInfo = {id: memberDetails.userId, name: memberDetails.name, role: memberDetails.role, avatarUrl: memberDetails.avatarUrl};
-                        }
-                    }
+            let targetUserInfo: ChatUser | undefined;
+            // Try to get info from threadData first
+            if (targetId && threadData.participantInfo && threadData.participantInfo[targetId]) {
+              targetUserInfo = {
+                id: targetId,
+                name: threadData.participantInfo[targetId].name,
+                role: 'User', // Role might not be in threadInfo, default or fetch if needed
+                avatarUrl: threadData.participantInfo[targetId].avatarUrl
+              };
+            } else if (targetId) {
+              // Fallback: try to find in current office members if available
+              // This requires members to be loaded. Might need a small delay or state check.
+              const memberDetails = currentOfficeMembers.find(m => m.id === targetId);
+              if (memberDetails) {
+                targetUserInfo = memberDetails;
+              } else {
+                // If not found in current office members, try a direct fetch (less ideal for perf)
+                // For now, we'll assume if not in participantInfo or current members, it might be an old chat or cross-office DM
+                // We can try to construct minimal info if absolutely necessary
+                // For simplicity, if not easily found, it might not select a targetUser initially
+                console.warn(`Target user info for ${targetId} not readily available.`);
+              }
+            }
 
-                    if (targetUserInfo) {
-                        await selectChat(threadIdFromUrl, 'dm', targetUserInfo);
-                    } else if (activeOfficeForChat) {
-                        console.warn("Target user for threadId not found. Defaulting to general chat.");
-                        await selectChat(`general-${activeOfficeForChat.id}`, 'general');
-                    } else {
-                        setActiveChatId(null); setAllMessages({});
-                    }
-                } else if (activeOfficeForChat) {
-                    console.warn("ThreadId from URL does not exist. Defaulting to general chat.");
-                    await selectChat(`general-${activeOfficeForChat.id}`, 'general');
-                } else {
-                    setActiveChatId(null); setAllMessages({});
-                }
-            } else if (officeGeneralFromUrl && activeOfficeForChat && officeGeneralFromUrl === activeOfficeForChat.id) {
-                await selectChat(`general-${activeOfficeForChat.id}`, 'general');
-            } else if (activeOfficeForChat) {
-                await selectChat(`general-${activeOfficeForChat.id}`, 'general');
+            if (targetUserInfo) {
+              await selectChat(threadIdFromUrl, 'dm', targetUserInfo);
+            } else if (targetId && !targetUserInfo){
+                // If targetId exists but no info, implies a DM where participantInfo is missing or user not in current office.
+                // Fallback to selecting the chat with a placeholder name or fetching user details.
+                // For now, it will select the chat without target user info, title might be just ID.
+                await selectChat(threadIdFromUrl, 'dm', {id: targetId, name: `User ${targetId.substring(0,4)}`, role: 'User'});
+            } else if (activeOfficeForChat) { // If no valid threadId or user, default to general of active office
+              await selectChat(`general-${activeOfficeForChat.id}`, 'general');
             } else {
-                setActiveChatId(null);
-                setAllMessages({});
+              setActiveChatId(null); setAllMessages({}); // No chat to select
             }
-        } catch (error) {
-            console.error("Error initializing chat from URL:", error);
-            toast({ variant: "destructive", title: "Error", description: "Could not initialize chat." });
-            if (activeOfficeForChat) {
-                await selectChat(`general-${activeOfficeForChat.id}`, 'general');
-            } else {
-                setActiveChatId(null); setAllMessages({});
-            }
-        } finally {
-            setIsLoadingMessages(false);
+          } else if (activeOfficeForChat) { // Thread from URL doesn't exist, fallback to general
+            await selectChat(`general-${activeOfficeForChat.id}`, 'general');
+          } else {
+            setActiveChatId(null); setAllMessages({});
+          }
+        } else if (officeGeneralFromUrl && activeOfficeForChat && officeGeneralFromUrl === activeOfficeForChat.id) {
+          await selectChat(`general-${activeOfficeForChat.id}`, 'general');
+        } else if (activeOfficeForChat) { // Default to general chat of the active office
+          await selectChat(`general-${activeOfficeForChat.id}`, 'general');
+        } else {
+          // No office, no URL params, do nothing or show placeholder
+          setActiveChatId(null);
+          setAllMessages({});
         }
+      } catch (error) {
+        console.error("Error initializing chat from URL:", error);
+        toast({ variant: "destructive", title: "Error", description: "Could not initialize chat." });
+        if (activeOfficeForChat) {
+          await selectChat(`general-${activeOfficeForChat.id}`, 'general'); // Fallback
+        } else {
+          setActiveChatId(null); setAllMessages({});
+        }
+      } finally {
+        setIsLoadingMessages(false);
+      }
     };
-    
-    // Ensure activeOfficeForChat status is determined (null or an office) before initializing
-    if (activeOfficeForChat !== undefined || threadIdFromUrl) {
-        initializeChat();
-    }
 
-}, [user, currentUserForChat, activeOfficeForChat, userOfficesList, searchParams, selectChat, activeChatId, toast, authLoading, router]);
+    // Only run initializeChat if office determination is complete (activeOfficeForChat is Office or null)
+    // OR if there's a specific threadId in the URL we need to act on.
+    if (activeOfficeForChat !== undefined || threadIdFromUrl) {
+      initializeChat();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user, currentUserForChat, activeOfficeForChat, searchParams, toast, authLoading, router, currentOfficeMembers /* Added currentOfficeMembers */]);
+  // Note: `selectChat` is memoized and its dependencies are stable if its own dependencies are stable.
+  // `activeChatId` was removed from deps because this effect *sets* it and has an internal guard.
 
 
   useEffect(() => {
@@ -231,7 +244,7 @@ export default function ChatPage() {
         viewport.scrollTop = viewport.scrollHeight;
       }
     }
-  }, [allMessages, activeChatId, mobileView, isLoadingMessages]); 
+  }, [allMessages, activeChatId, mobileView, isLoadingMessages]);
 
 
   const handleSendMessage = async () => {
@@ -240,18 +253,18 @@ export default function ChatPage() {
         toast({title: "No Chat Selected", description: "Please select a chat."});
         return;
     }
-    
+
     setIsSendingMessage(true);
     const tempMessageId = Date.now().toString();
     const optimisticMessage: ChatMessage = {
-      id: tempMessageId, 
+      id: tempMessageId,
       text: newMessage,
       senderId: currentUserForChat.id,
       timestamp: new Date(),
       senderName: currentUserForChat.name,
       avatarUrl: currentUserForChat.avatarUrl,
       type: 'text',
-      chatThreadId: activeChatId,
+      chatThreadId: activeChatId, // This should be correctly set by selectChat
     };
 
     setAllMessages(prev => ({
@@ -264,11 +277,17 @@ export default function ChatPage() {
     try {
       let sentMessage: ChatMessage | null = null;
       if (activeChatType === 'dm' && activeChatTargetUser) {
-        sentMessage = await addChatMessageAndNotify(activeChatId, currentMsgText, currentUserForChat, [currentUserForChat, activeChatTargetUser], activeOfficeForChat ? {officeId: activeOfficeForChat.id, officeName: activeOfficeForChat.name } : undefined);
+        sentMessage = await addChatMessageAndNotify(
+            activeChatId, 
+            currentMsgText, 
+            currentUserForChat, 
+            [currentUserForChat, activeChatTargetUser], // Pass full participant list for the thread
+            activeOfficeForChat ? {officeId: activeOfficeForChat.id, officeName: activeOfficeForChat.name } : undefined
+        );
       } else if (activeChatType === 'general' && activeOfficeForChat) {
         sentMessage = await addGeneralOfficeMessage(activeOfficeForChat.id, currentMsgText, currentUserForChat);
       }
-      
+
       if (sentMessage) {
          setAllMessages(prev => ({
             ...prev,
@@ -279,11 +298,12 @@ export default function ChatPage() {
     } catch (error) {
       console.error("Error sending message:", error);
       toast({ variant: "destructive", title: "Send Error", description: "Failed to send message." });
+      // Revert optimistic update on error
       setAllMessages(prev => ({
         ...prev,
         [activeChatId]: (prev[activeChatId] || []).filter(m => m.id !== tempMessageId)
       }));
-      setNewMessage(currentMsgText); 
+      setNewMessage(currentMsgText); // Put message back in input
     } finally {
       setIsSendingMessage(false);
     }
@@ -291,7 +311,7 @@ export default function ChatPage() {
 
   const addSystemMessage = (chatId: string, text: string, callDuration?: string) => {
     const systemMessage: ChatMessage = {
-      id: Date.now().toString(), text, senderId: 'system', timestamp: new Date(), senderName: 'System', type: 'call_event', callDuration, chatThreadId: chatId,
+      id: Date.now().toString(), text, senderId: 'system', timestamp: new Date(), senderName: 'System', type: 'call_event', callDuration, chatThreadId: chatId, avatarUrl: undefined
     };
     setAllMessages(prev => ({ ...prev, [chatId]: [...(prev[chatId] || []), systemMessage] }));
   };
@@ -302,11 +322,13 @@ export default function ChatPage() {
     const targetName = activeChatTargetUser.name;
 
     if (callActive) {
+      // Simulate call end
       const mockDuration = `${Math.floor(Math.random() * 5) + 1}:${String(Math.floor(Math.random() * 60)).padStart(2, '0')}`;
       addSystemMessage(activeChatId, `Video call with ${targetName} ended.`, mockDuration);
       setIsCallActiveForChat(prev => ({ ...prev, [activeChatId]: false }));
       toast({ title: "Video Call Ended", description: `Call with ${targetName} has ended.` });
     } else {
+      // Simulate call start
       addSystemMessage(activeChatId, `Video call started with ${targetName}.`);
       setIsCallActiveForChat(prev => ({ ...prev, [activeChatId]: true }));
       toast({ title: "Video Call Started", description: `Attempting to call ${targetName}...` });
@@ -320,15 +342,16 @@ export default function ChatPage() {
       setIsRecordingVoiceNote(false);
       const endTime = Date.now();
       const durationMs = endTime - (voiceRecordingStartTimeRef.current || endTime);
-      const durationSec = Math.max(1, Math.round(durationMs / 1000));
+      const durationSec = Math.max(1, Math.round(durationMs / 1000)); // Ensure at least 1 sec
       voiceRecordingStartTimeRef.current = null;
 
       const voiceNoteText = `Voice Note (${String(Math.floor(durationSec / 60)).padStart(2, '0')}:${String(durationSec % 60).padStart(2, '0')})`;
-      
+
+      // Optimistically add voice note message
       const tempMessageId = Date.now().toString();
       const optimisticMessage: ChatMessage = {
         id: tempMessageId,
-        text: voiceNoteText,
+        text: voiceNoteText, // Or perhaps store a URL if actual recording was implemented
         senderId: currentUserForChat.id,
         timestamp: new Date(),
         senderName: currentUserForChat.name,
@@ -338,14 +361,21 @@ export default function ChatPage() {
         chatThreadId: activeChatId,
       };
       setAllMessages(prev => ({...prev, [activeChatId]: [...(prev[activeChatId] || []), optimisticMessage] }));
-      
+
+      // Here you would normally upload the recording and then send the message with a URL
+      // For this mock, we just log it.
       if (activeChatType === 'dm' && activeChatTargetUser) {
+          // Simulate sending
           console.log("Sending voice note to DM:", voiceNoteText);
           toast({ title: "Voice Note Sent (Mock)", description: `Duration: ${optimisticMessage.voiceNoteDuration}`});
+          // Example: addChatMessageAndNotify(activeChatId, uploadedUrl, currentUserForChat, [currentUserForChat, activeChatTargetUser], { type: 'voice_note', duration: ... });
       } else if (activeChatType === 'general' && activeOfficeForChat) {
+          // Simulate sending
           console.log("Sending voice note to General:", voiceNoteText);
           toast({ title: "Voice Note Sent (Mock)", description: `Duration: ${optimisticMessage.voiceNoteDuration}`});
+          // Example: addGeneralOfficeMessage(activeOfficeForChat.id, uploadedUrl, currentUserForChat, { type: 'voice_note', duration: ... });
       }
+      // In a real app, you'd replace optimistic message with server-confirmed one upon successful upload/send.
 
     } else {
       setIsRecordingVoiceNote(true);
@@ -358,23 +388,25 @@ export default function ChatPage() {
     if (!activeChatId) return "Select a Chat";
     if (activeChatType === 'general' && activeOfficeForChat) return `${activeOfficeForChat.name} General`;
     if (activeChatType === 'dm' && activeChatTargetUser) return activeChatTargetUser.name;
+    if (activeChatType === 'dm' && !activeChatTargetUser) return "Direct Message"; // Fallback if targetUser not loaded
     return "Chat";
   };
-  
-  const handleMobileChatSelect = async (type: 'dm' | 'general', member?: ChatUser) => { // Changed member to ChatUser from OfficeMember
+
+  const handleMobileChatSelect = async (type: 'dm' | 'general', member?: ChatUser) => {
     if (!currentUserForChat || (type === 'general' && !activeOfficeForChat)) return;
 
     if (type === 'dm' && member) {
-      const thread = await getOrCreateDmThread(currentUserForChat, member);
+      const thread = await getOrCreateDmThread(currentUserForChat, member); // Ensure this returns full thread with participantInfo
       await selectChat(thread.id, 'dm', member);
     } else if (type === 'general' && activeOfficeForChat) {
-      await selectChat(`general-${activeOfficeForChat.id}`, 'general');
+      await selectChat(`general-${activeOfficeForChat.id}`, 'general'); // General chat uses office ID as part of its identifier
     }
   };
 
   const displayedMessages = activeChatId ? (allMessages[activeChatId] || []) : [];
 
-  if (authLoading || !currentUserForChat) { 
+  if (authLoading || !currentUserForChat || activeOfficeForChat === undefined) {
+    // Show a more comprehensive loading state if office data is still being determined
     return <div className="flex items-center justify-center h-full"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div>;
   }
 
@@ -399,13 +431,13 @@ export default function ChatPage() {
                 <p className="text-sm font-medium text-muted-foreground px-1 py-1">Direct Messages</p>
                 {currentOfficeMembers.map(member => (
                   <Button
-                    key={member.id} // Changed from member.userId
+                    key={member.id}
                     variant={(activeChatType === 'dm' && activeChatTargetUser?.id === member.id) ? "secondary" : "ghost"}
                     className="w-full justify-start"
                     onClick={() => handleMobileChatSelect('dm', member)}
                   >
                     <Avatar className="h-6 w-6 mr-2">
-                      <AvatarImage src={member.avatarUrl} alt={member.name} data-ai-hint="person avatar" />
+                      <AvatarImage src={member.avatarUrl} alt={member.name} data-ai-hint="person avatar"/>
                       <AvatarFallback>{member.name.substring(0,1)}</AvatarFallback>
                     </Avatar>
                     <span className="truncate flex-1 text-left">{member.name}</span>
@@ -414,6 +446,10 @@ export default function ChatPage() {
                 ))}
                 {currentOfficeMembers.length === 0 && <p className="text-xs text-muted-foreground p-2 text-center">No other members in this office for DMs.</p>}
               </>
+            ) : userOfficesList.length > 0 ? (
+                 <div className="text-sm text-muted-foreground p-4 text-center">
+                     <p>Select an office or chat.</p>
+                 </div>
             ) : (
               <div className="text-sm text-muted-foreground p-4 text-center">
                 <p>Join or create an office to start chatting.</p>
@@ -450,10 +486,10 @@ export default function ChatPage() {
                 const isUserSender = msg.senderId === currentUserForChat?.id;
                 return (
                   <div key={msg.id} className={`flex items-end space-x-2 ${isUserSender ? 'justify-end' : ''}`}>
-                  {!isUserSender && (<Avatar className="h-8 w-8"><AvatarImage src={msg.avatarUrl} alt={msg.senderName} data-ai-hint="person avatar"/><AvatarFallback>{msg.senderName?.substring(0,1) || 'S'}</AvatarFallback></Avatar>)}
-                  <div className={`max-w-xs lg:max-w-md px-3 py-2 sm:px-4 sm:py-2 rounded-lg shadow ${isUserSender ? 'bg-primary text-primary-foreground' : 'bg-muted'}`}>
-                      {!isUserSender && <p className="text-xs font-semibold mb-1">{msg.senderName}</p>}
-                      
+                  {!isUserSender && msg.senderId !== 'system' && (<Avatar className="h-8 w-8"><AvatarImage src={msg.avatarUrl} alt={msg.senderName} data-ai-hint="person avatar"/><AvatarFallback>{msg.senderName?.substring(0,1) || 'S'}</AvatarFallback></Avatar>)}
+                  <div className={`max-w-xs lg:max-w-md px-3 py-2 sm:px-4 sm:py-2 rounded-lg shadow ${isUserSender ? 'bg-primary text-primary-foreground' : msg.senderId === 'system' ? 'bg-transparent w-full text-center' : 'bg-muted'}`}>
+                      {!isUserSender && msg.senderId !== 'system' && <p className="text-xs font-semibold mb-1">{msg.senderName}</p>}
+
                       {msg.type === 'voice_note' && msg.voiceNoteDuration ? (
                         <div className="flex items-center space-x-2">
                           <Button variant="ghost" size="icon" className="h-7 w-7"><Play className="h-4 w-4"/></Button>
@@ -465,7 +501,7 @@ export default function ChatPage() {
                         <p className="text-sm whitespace-pre-wrap">{msg.text}</p>
                       )}
 
-                      <p className={`text-xs mt-1 ${isUserSender ? 'text-primary-foreground/70' : 'text-muted-foreground/70'}`}>{new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
+                      {msg.senderId !== 'system' && <p className={`text-xs mt-1 ${isUserSender ? 'text-primary-foreground/70' : 'text-muted-foreground/70'}`}>{new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>}
                   </div>
                   {isUserSender && (<Avatar className="h-8 w-8"><AvatarImage src={msg.avatarUrl} alt={msg.senderName} data-ai-hint="person avatar"/><AvatarFallback>{currentUserForChat?.name.substring(0,1)}</AvatarFallback></Avatar>)}
                   </div>
@@ -487,7 +523,9 @@ export default function ChatPage() {
           <div className={cn("border-t bg-background", isMobileLayout ? "p-2" : "p-4")}>
               <div className="flex items-center space-x-2">
                   <Button variant="ghost" size="icon" aria-label="Attach file" className={cn(isMobileLayout && "h-8 w-8")} disabled={!activeChatId}><Paperclip className="h-4 w-4 sm:h-5 sm:w-5" /></Button>
-                  <Button variant="ghost" size="icon" onClick={handleToggleVoiceRecording} aria-label={isRecordingVoiceNote ? "Stop recording" : "Record voice note"} className={cn(isMobileLayout && "h-8 w-8", isRecordingVoiceNote && "text-destructive animate-pulse")} disabled={!activeChatId || isSendingMessage}><mrowisRecordingVoiceNote ? <Square className="h-4 w-4 sm:h-5 sm:w-5" /> : <Mic className="h-4 w-4 sm:h-5 sm:w-5" />} </Button>
+                  <Button variant="ghost" size="icon" onClick={handleToggleVoiceRecording} aria-label={isRecordingVoiceNote ? "Stop recording" : "Record voice note"} className={cn(isMobileLayout && "h-8 w-8", isRecordingVoiceNote && "text-destructive animate-pulse")} disabled={!activeChatId || isSendingMessage}>
+                    {isRecordingVoiceNote ? <Square className="h-4 w-4 sm:h-5 sm:w-5" /> : <Mic className="h-4 w-4 sm:h-5 sm:w-5" />}
+                  </Button>
                   {isRecordingVoiceNote ? (<p className="text-sm text-muted-foreground flex-1">Recording voice note...</p>) : (
                       <Input type="text" placeholder="Type a message..." value={newMessage} onChange={(e) => setNewMessage(e.target.value)} onKeyPress={(e) => e.key === 'Enter' && !isRecordingVoiceNote && !isSendingMessage && handleSendMessage()} className="flex-1" disabled={!activeChatId || isRecordingVoiceNote || isSendingMessage}/>
                   )}
@@ -506,4 +544,3 @@ export default function ChatPage() {
     </div>
   );
 }
-    
