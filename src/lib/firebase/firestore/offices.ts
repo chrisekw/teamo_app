@@ -83,19 +83,25 @@ const roomConverter: FirestoreDataConverter<Room, RoomFirestoreData> = {
 };
 
 const officeMemberConverter: FirestoreDataConverter<OfficeMember, OfficeMemberFirestoreData> = {
-  toFirestore: (memberInput: Partial<OfficeMember>): DocumentData => { 
+  toFirestore: (memberInput: Partial<OfficeMember> & { invitationCodeUsedToJoin?: string }): DocumentData => { 
     const data: any = { ...memberInput };
-    if (data.hasOwnProperty('userId')) delete data.userId;
+    if (data.hasOwnProperty('userId')) delete data.userId; // userId is the doc ID, not a field in the doc
 
     if (!memberInput.joinedAt) data.joinedAt = serverTimestamp();
     else if (memberInput.joinedAt instanceof Date) data.joinedAt = Timestamp.fromDate(memberInput.joinedAt);
     
+    // Explicitly delete avatarUrl if it's undefined to avoid Firestore error
     if (memberInput.avatarUrl === undefined) {
         delete data.avatarUrl; 
     } else {
         data.avatarUrl = memberInput.avatarUrl; 
     }
     
+    // invitationCodeUsedToJoin is passed through if present, used for rule validation
+    if (memberInput.invitationCodeUsedToJoin) {
+        data.invitationCodeUsedToJoin = memberInput.invitationCodeUsedToJoin;
+    }
+
     return data;
   },
   fromFirestore: (snapshot, options): OfficeMember => {
@@ -104,7 +110,7 @@ const officeMemberConverter: FirestoreDataConverter<OfficeMember, OfficeMemberFi
       userId: snapshot.id,
       name: data.name,
       role: data.role,
-      avatarUrl: data.avatarUrl,
+      avatarUrl: data.avatarUrl, // Will be undefined if not present in Firestore
       joinedAt: data.joinedAt instanceof Timestamp ? data.joinedAt.toDate() : new Date(),
     };
   }
@@ -148,17 +154,23 @@ export async function createOffice(
     bannerUrl: bannerUrl,
   };
   
+  console.log('[Firebase Debug] Attempting to write to `offices` collection with data:', newOfficeData);
   const newOfficeDocRef = await addDoc(officesCol(), newOfficeData as Office);
+  console.log('[Firebase Debug] New office document created with ID:', newOfficeDocRef.id);
   
   const ownerMemberData: Omit<OfficeMember, 'joinedAt' | 'userId'> = {
     name: currentUserName,
     role: "Owner",
-    avatarUrl: currentUserAvatar,
+    avatarUrl: currentUserAvatar, // This can be undefined if user has no photoURL
   };
 
+  console.log('[Firebase Debug] Attempting to write owner member data to `members` subcollection:', ownerMemberData);
   await setDoc(memberDocRef(newOfficeDocRef.id, currentUserId), ownerMemberData);
+  console.log('[Firebase Debug] Owner added as member.');
 
+  console.log('[Firebase Debug] Attempting to write office reference to user\'s `memberOfOffices` list.');
   await setDoc(doc(userOfficesCol(currentUserId), newOfficeDocRef.id), { officeId: newOfficeDocRef.id, officeName: officeName, role: "Owner", joinedAt: serverTimestamp() });
+  console.log('[Firebase Debug] Office reference added to user\'s list.');
 
   addActivityLog(newOfficeDocRef.id, {
       type: "office-created",
@@ -180,11 +192,14 @@ export async function createOffice(
       entityId: currentUserId,
       entityType: "member",
     });
+  console.log('[Firebase Debug] Activity logs added.');
 
   const newOfficeSnap = await getDoc(newOfficeDocRef);
   if (!newOfficeSnap.exists()) {
+    console.error('[Firebase Debug] CRITICAL: New office document does not exist after creation attempt.');
     throw new Error("Failed to create office.");
   }
+  console.log('[Firebase Debug] Office creation successful. Returning office data.');
   return newOfficeSnap.data()!;
 }
 
@@ -203,10 +218,11 @@ export async function joinOfficeByCode(currentUserId: string, currentUserName: s
   const memberSnap = await getDoc(memberDocRef(officeId, currentUserId));
   if (memberSnap.exists()) throw new Error("User is already a member of this office.");
 
-  const newMemberData: Omit<OfficeMember, 'joinedAt' | 'userId'> = {
+  const newMemberData: Omit<OfficeMember, 'joinedAt' | 'userId'> & { invitationCodeUsedToJoin: string } = {
     name: currentUserName,
     role: "Member",
-    avatarUrl: currentUserAvatar,
+    avatarUrl: currentUserAvatar, // This can be undefined
+    invitationCodeUsedToJoin: invitationCode, // Pass the code for rule validation
   };
   await setDoc(memberDocRef(officeId, currentUserId), newMemberData);
   
@@ -235,6 +251,8 @@ export async function getOfficesForUser(userId: string): Promise<Office[]> {
   
   if (officeIds.length === 0) return [];
 
+  // Limit concurrent fetches if officeIds is very large, Firestore has limits.
+  // For now, fetching all, but consider batching for > 10-30.
   const officePromises = officeIds.slice(0,30).map(id => getDoc(officeDocRef(id))); 
   const officeSnapshots = await Promise.all(officePromises);
   
@@ -319,6 +337,7 @@ export async function updateMemberRoleInOffice(
 
   await updateDoc(memberDocRef(officeId, memberUserId), { role: newRole, updatedAt: serverTimestamp() });
   
+  // Update the role in the user's memberOfOffices collection as well
   const userOfficeQuery = query(userOfficesCol(memberUserId), where("officeId", "==", officeId));
   const userOfficeSnap = await getDocs(userOfficeQuery);
   if (!userOfficeSnap.empty) {
@@ -354,6 +373,7 @@ export async function removeMemberFromOffice(
 
     await deleteDoc(memberDocRef(officeId, memberUserId));
 
+    // Remove the office from the user's memberOfOffices collection
     const userOfficeQuery = query(userOfficesCol(memberUserId), where("officeId", "==", officeId));
     const userOfficeSnap = await getDocs(userOfficeQuery);
     if (!userOfficeSnap.empty) {
@@ -371,3 +391,4 @@ export async function removeMemberFromOffice(
       entityType: "member",
   });
 }
+
