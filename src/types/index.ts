@@ -84,6 +84,9 @@ export interface Office {
   name: string;
   ownerId: string;
   invitationCode: string;
+  sector?: string;
+  companyName?: string;
+  logoUrl?: string;
   createdAt?: Date;
   updatedAt?: Date;
 }
@@ -220,3 +223,4 @@ export interface UserNotification {
 export type UserNotificationFirestoreData = Omit<UserNotification, 'id' | 'timestamp' | 'userId'> & {
   timestamp: Timestamp;
 };
+

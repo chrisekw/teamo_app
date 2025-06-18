@@ -26,6 +26,10 @@ const officeConverter: FirestoreDataConverter<Office, OfficeFirestoreData> = {
     delete data.id;
     if (!officeInput.id) data.createdAt = serverTimestamp();
     data.updatedAt = serverTimestamp();
+    // Ensure optional fields are handled correctly (e.g., not sending undefined if not set)
+    if (officeInput.sector === undefined) delete data.sector;
+    if (officeInput.companyName === undefined) delete data.companyName;
+    if (officeInput.logoUrl === undefined) delete data.logoUrl;
     return data;
   },
   fromFirestore: (snapshot, options): Office => {
@@ -35,6 +39,9 @@ const officeConverter: FirestoreDataConverter<Office, OfficeFirestoreData> = {
       name: data.name,
       ownerId: data.ownerId,
       invitationCode: data.invitationCode,
+      sector: data.sector,
+      companyName: data.companyName,
+      logoUrl: data.logoUrl,
       createdAt: data.createdAt instanceof Timestamp ? data.createdAt.toDate() : new Date(),
       updatedAt: data.updatedAt instanceof Timestamp ? data.updatedAt.toDate() : new Date(),
     };
@@ -89,17 +96,23 @@ const officeMemberConverter: FirestoreDataConverter<OfficeMember, OfficeMemberFi
 const officesCol = () => collection(db, 'offices').withConverter(officeConverter);
 const officeDocRef = (officeId: string) => doc(db, 'offices', officeId).withConverter(officeConverter);
 
-// Corrected: Pass DocumentReference to collection() for subcollections
 const roomsCol = (officeId: string) => collection(officeDocRef(officeId), 'rooms').withConverter(roomConverter);
 const roomDocRef = (officeId: string, roomId: string) => doc(roomsCol(officeId), roomId).withConverter(roomConverter);
 
-// Corrected: Pass DocumentReference to collection() for subcollections
 const membersCol = (officeId: string) => collection(officeDocRef(officeId), 'members').withConverter(officeMemberConverter);
 const memberDocRef = (officeId: string, userId: string) => doc(membersCol(officeId), userId).withConverter(officeMemberConverter);
 
 const userOfficesCol = (userId: string) => collection(db, 'users', userId, 'memberOfOffices');
 
-export async function createOffice(currentUserId: string, currentUserName: string, currentUserAvatar: string | undefined, officeName: string): Promise<Office> {
+export async function createOffice(
+  currentUserId: string, 
+  currentUserName: string, 
+  currentUserAvatar: string | undefined, 
+  officeName: string,
+  sector?: string,
+  companyName?: string,
+  logoUrl?: string
+): Promise<Office> {
   console.log('[Firebase Debug] Starting office creation for user:', currentUserId, 'Office Name:', officeName);
   if (!currentUserId || !officeName) {
     console.error('[Firebase Debug] User ID or office name is missing for createOffice.');
@@ -111,6 +124,9 @@ export async function createOffice(currentUserId: string, currentUserName: strin
     name: officeName,
     ownerId: currentUserId,
     invitationCode,
+    sector: sector,
+    companyName: companyName,
+    logoUrl: logoUrl,
   };
   
   console.log('[Firebase Debug] Office data prepared:', newOfficeData);
@@ -123,7 +139,7 @@ export async function createOffice(currentUserId: string, currentUserName: strin
     role: "Owner",
     avatarUrl: currentUserAvatar,
   };
-  // Using setDoc with the specific memberDocRef to set the owner as a member
+
   console.log('[Firebase Debug] Attempting to add owner as member to office subcollection.');
   await setDoc(memberDocRef(newOfficeDocRef.id, currentUserId), officeMemberConverter.toFirestore(ownerMemberData));
   console.log('[Firebase Debug] Owner added as member to office subcollection.');
@@ -135,7 +151,7 @@ export async function createOffice(currentUserId: string, currentUserName: strin
   addActivityLog(newOfficeDocRef.id, {
       type: "office-created",
       title: `Office Created: ${officeName}`,
-      description: `Created by ${currentUserName}`,
+      description: `Created by ${currentUserName}. Sector: ${sector || 'N/A'}, Company: ${companyName || 'N/A'}`,
       iconName: "Building",
       actorId: currentUserId,
       actorName: currentUserName,
@@ -210,8 +226,6 @@ export async function getOfficesForUser(userId: string): Promise<Office[]> {
   
   if (officeIds.length === 0) return [];
 
-  // Limit to fetching first 10 offices to avoid exceeding IN query limits if user is in many.
-  // Adjust if users are expected to be in more. Firestore 'in' queries are limited to 30 items.
   const officePromises = officeIds.slice(0,30).map(id => getDoc(officeDocRef(id))); 
   const officeSnapshots = await Promise.all(officePromises);
   

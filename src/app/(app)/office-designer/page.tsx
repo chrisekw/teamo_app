@@ -1,14 +1,14 @@
 
 "use client";
 
-import { useState, useEffect, type ReactNode, useCallback } from "react";
+import { useState, useEffect, type ReactNode, useCallback, ChangeEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { PlusCircle, Trash2, Users, Briefcase, Coffee, Zap, Building, KeyRound, UserPlus, Copy, Settings2, ShieldCheck, UserCircle as UserIconLucide, Loader2, Edit } from "lucide-react";
+import { PlusCircle, Trash2, Users, Briefcase, Coffee, Zap, Building, KeyRound, UserPlus, Copy, Settings2, ShieldCheck, UserCircle as UserIconLucide, Loader2, Edit, Info } from "lucide-react";
 import Image from "next/image";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -30,6 +30,7 @@ import {
   updateMemberRoleInOffice,
   removeMemberFromOffice
 } from "@/lib/firebase/firestore/offices";
+import { Textarea } from "@/components/ui/textarea"; // Added for multi-line inputs
 
 const roomTypeDetails: Record<RoomType, { icon: React.ElementType; defaultName: string, imageHint: string, iconName: string }> = {
   "Team Hub": { icon: Users, defaultName: "Team Hub", imageHint: "team collaboration", iconName: "Users" },
@@ -55,9 +56,9 @@ export default function OfficeDesignerPage() {
   const [activeOfficeRooms, setActiveOfficeRooms] = useState<Room[]>([]);
   const [activeOfficeMembers, setActiveOfficeMembers] = useState<OfficeMember[]>([]);
   
-  const [isLoading, setIsLoading] = useState(true); // For initial user offices load
-  const [isLoadingDetails, setIsLoadingDetails] = useState(false); // For active office rooms/members load
-  const [isSubmitting, setIsSubmitting] = useState(false); // For form submissions
+  const [isLoading, setIsLoading] = useState(true); 
+  const [isLoadingDetails, setIsLoadingDetails] = useState(false); 
+  const [isSubmitting, setIsSubmitting] = useState(false); 
 
   const [isCreateOfficeDialogOpen, setIsCreateOfficeDialogOpen] = useState(false);
   const [isJoinOfficeDialogOpen, setIsJoinOfficeDialogOpen] = useState(false);
@@ -67,6 +68,11 @@ export default function OfficeDesignerPage() {
   const [isConfirmDeleteRoomDialogOpen, setIsConfirmDeleteRoomDialogOpen] = useState(false);
   
   const [newOfficeName, setNewOfficeName] = useState("");
+  const [newOfficeSector, setNewOfficeSector] = useState("");
+  const [newOfficeCompanyName, setNewOfficeCompanyName] = useState("");
+  const [newOfficeLogoFile, setNewOfficeLogoFile] = useState<File | null>(null);
+  const [logoPreview, setLogoPreview] = useState<string | null>(null);
+
   const [joinOfficeCode, setJoinOfficeCode] = useState("");
   const [selectedRoomType, setSelectedRoomType] = useState<RoomType | undefined>();
   const [newRoomName, setNewRoomName] = useState("");
@@ -96,10 +102,10 @@ export default function OfficeDesignerPage() {
   }, [authLoading, user, fetchUserOffices]);
   
   useEffect(() => {
-    if (!activeOffice && userOffices.length === 1) {
+    if (!activeOffice && userOffices.length === 1 && !isLoading) { // Ensure not loading before auto-selecting
         setActiveOffice(userOffices[0]);
     }
-  }, [userOffices, activeOffice]);
+  }, [userOffices, activeOffice, isLoading]);
 
   const fetchActiveOfficeDetails = useCallback(async (officeId: string) => {
     setIsLoadingDetails(true);
@@ -112,7 +118,7 @@ export default function OfficeDesignerPage() {
       setActiveOfficeMembers(members);
     } catch (error) {
       toast({ variant: "destructive", title: "Error", description: "Could not fetch office details." });
-      setActiveOfficeRooms([]); // Ensure clean state on error
+      setActiveOfficeRooms([]); 
       setActiveOfficeMembers([]);
     } finally {
       setIsLoadingDetails(false);
@@ -121,22 +127,41 @@ export default function OfficeDesignerPage() {
 
   useEffect(() => {
     if (activeOffice) {
-      // Clear old details first to ensure no stale data is displayed
-      // and to correctly show loading state for the new office.
       setActiveOfficeRooms([]);
       setActiveOfficeMembers([]);
-      // fetchActiveOfficeDetails will set isLoadingDetails = true internally
       fetchActiveOfficeDetails(activeOffice.id);
     } else {
-      // If no office is active, ensure details are cleared
       setActiveOfficeRooms([]);
       setActiveOfficeMembers([]);
-      setIsLoadingDetails(false); // No details to load
+      setIsLoadingDetails(false); 
     }
   }, [activeOffice, fetchActiveOfficeDetails]);
 
   const handleSetActiveOffice = async (office: Office | null) => {
     setActiveOffice(office);
+  };
+  
+  const resetCreateOfficeForm = () => {
+    setNewOfficeName("");
+    setNewOfficeSector("");
+    setNewOfficeCompanyName("");
+    setNewOfficeLogoFile(null);
+    setLogoPreview(null);
+  };
+
+  const handleLogoFileChange = (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file) {
+      setNewOfficeLogoFile(file);
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setLogoPreview(reader.result as string);
+      };
+      reader.readAsDataURL(file);
+    } else {
+      setNewOfficeLogoFile(null);
+      setLogoPreview(null);
+    }
   };
 
   const handleCreateOffice = async () => {
@@ -146,11 +171,22 @@ export default function OfficeDesignerPage() {
       return;
     }
     setIsSubmitting(true);
+    // For now, logoUrl will be a placeholder. Actual upload would involve Firebase Storage.
+    const logoUrlPlaceholder = newOfficeLogoFile ? `https://placehold.co/100x100.png?text=${newOfficeCompanyName.substring(0,3) || 'LOGO'}` : undefined;
+
     try {
-      const newOffice = await createOffice(user.uid, user.displayName || user.email || "User", user.photoURL || undefined, newOfficeName);
+      const newOffice = await createOffice(
+        user.uid, 
+        user.displayName || user.email || "User", 
+        user.photoURL || undefined, 
+        newOfficeName,
+        newOfficeSector || undefined,
+        newOfficeCompanyName || undefined,
+        logoUrlPlaceholder
+      );
       setUserOffices(prev => [...prev, newOffice]);
       setActiveOffice(newOffice); 
-      setNewOfficeName("");
+      resetCreateOfficeForm();
       setIsCreateOfficeDialogOpen(false);
       toast({ title: "Office Created!", description: `Your new office "${newOffice.name}" is ready.` });
     } catch (error: any) {
@@ -171,7 +207,7 @@ export default function OfficeDesignerPage() {
       const joinedOffice = await joinOfficeByCode(user.uid, user.displayName || user.email || "User", user.photoURL || undefined, joinOfficeCode);
       if (joinedOffice) {
         setUserOffices(prev => { 
-            if (prev.find(o => o.id === joinedOffice.id)) return prev; // Avoid duplicates if already fetched
+            if (prev.find(o => o.id === joinedOffice.id)) return prev;
             return [...prev, joinedOffice];
         });
         setActiveOffice(joinedOffice);
@@ -333,7 +369,7 @@ export default function OfficeDesignerPage() {
           {userOffices.length > 0 ? "Or, you can create a new office or join another one." : "Create your own virtual office space or join an existing one."}
         </p>
         <div className="flex flex-col sm:flex-row space-y-3 sm:space-y-0 sm:space-x-4">
-          <Button size="lg" onClick={() => setIsCreateOfficeDialogOpen(true)} disabled={isSubmitting}>
+          <Button size="lg" onClick={() => { resetCreateOfficeForm(); setIsCreateOfficeDialogOpen(true);}} disabled={isSubmitting}>
             <Building className="mr-2 h-5 w-5" /> Create New Office
           </Button>
           <Button size="lg" variant="outline" onClick={() => setIsJoinOfficeDialogOpen(true)} disabled={isSubmitting}>
@@ -342,14 +378,33 @@ export default function OfficeDesignerPage() {
         </div>
 
         <Dialog open={isCreateOfficeDialogOpen} onOpenChange={(isOpen) => { if (!isSubmitting) setIsCreateOfficeDialogOpen(isOpen); }}>
-          <DialogContent className="sm:max-w-[425px]">
+          <DialogContent className="sm:max-w-md">
             <DialogHeader>
               <DialogTitle className="font-headline">Create New Virtual Office</DialogTitle>
-              <DialogDescription>Give your new office a name to get started.</DialogDescription>
+              <DialogDescription>Set up your office details below.</DialogDescription>
             </DialogHeader>
-            <div className="grid gap-4 py-4">
-              <Label htmlFor="newOfficeName">Office Name</Label>
-              <Input id="newOfficeName" value={newOfficeName} onChange={(e) => setNewOfficeName(e.target.value)} placeholder="e.g., Team Alpha HQ" disabled={isSubmitting}/>
+            <div className="grid gap-4 py-4 max-h-[70vh] overflow-y-auto pr-2">
+              <div className="space-y-1">
+                <Label htmlFor="newOfficeName">Office Name*</Label>
+                <Input id="newOfficeName" value={newOfficeName} onChange={(e) => setNewOfficeName(e.target.value)} placeholder="e.g., Team Alpha HQ" disabled={isSubmitting}/>
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="newOfficeCompanyName">Company/Brand Name</Label>
+                <Input id="newOfficeCompanyName" value={newOfficeCompanyName} onChange={(e) => setNewOfficeCompanyName(e.target.value)} placeholder="e.g., Alpha Corp" disabled={isSubmitting}/>
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="newOfficeSector">Sector</Label>
+                <Input id="newOfficeSector" value={newOfficeSector} onChange={(e) => setNewOfficeSector(e.target.value)} placeholder="e.g., Technology, Healthcare" disabled={isSubmitting}/>
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="newOfficeLogo">Office Logo</Label>
+                <Input id="newOfficeLogo" type="file" accept="image/*" onChange={handleLogoFileChange} className="file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-primary file:text-primary-foreground hover:file:bg-primary/90" disabled={isSubmitting}/>
+                {logoPreview && (
+                  <div className="mt-2">
+                    <Image src={logoPreview} alt="Logo preview" width={80} height={80} className="rounded-md object-cover" data-ai-hint="company logo"/>
+                  </div>
+                )}
+              </div>
             </div>
             <DialogFooter>
               <Button variant="outline" onClick={() => setIsCreateOfficeDialogOpen(false)} disabled={isSubmitting}>Cancel</Button>
@@ -384,18 +439,30 @@ export default function OfficeDesignerPage() {
 
   return (
     <div className="container mx-auto p-4 sm:p-6 lg:p-8">
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 pb-4 border-b">
-        <div>
-          <h1 className="text-3xl font-headline font-bold">{activeOffice.name}</h1>
-          <div className="flex items-center text-sm text-muted-foreground mt-1">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-3 pb-3 border-b">
+        <div className="flex items-start space-x-4">
+            {activeOffice.logoUrl ? (
+                 <Image src={activeOffice.logoUrl} alt={`${activeOffice.name} Logo`} width={64} height={64} className="rounded-md object-contain border" data-ai-hint="company logo"/>
+            ) : (
+                 <div className="h-16 w-16 bg-muted rounded-md flex items-center justify-center border">
+                    <Building className="h-8 w-8 text-muted-foreground"/>
+                 </div>
+            )}
+            <div>
+                <h1 className="text-3xl font-headline font-bold">{activeOffice.name}</h1>
+                {activeOffice.companyName && <p className="text-lg text-muted-foreground">{activeOffice.companyName}</p>}
+                {activeOffice.sector && <p className="text-sm text-muted-foreground">Sector: {activeOffice.sector}</p>}
+            </div>
+        </div>
+         <Button onClick={() => handleSetActiveOffice(null)} variant="outline" className="mt-3 sm:mt-0" disabled={isLoadingDetails || isSubmitting}>Back to Office List</Button>
+      </div>
+      <div className="flex items-center text-sm text-muted-foreground mb-6">
             <span>Invitation Code: {activeOffice.invitationCode}</span>
             <Button variant="ghost" size="sm" onClick={copyInviteCode} className="ml-2 px-1 py-0 h-auto">
               <Copy className="h-3 w-3 mr-1" /> Copy
             </Button>
-          </div>
-        </div>
-         <Button onClick={() => handleSetActiveOffice(null)} variant="outline" disabled={isLoadingDetails || isSubmitting}>Back to Office List</Button>
       </div>
+
 
       {isLoadingDetails && <div className="text-center my-8"><Loader2 className="h-10 w-10 animate-spin text-primary"/></div>}
 
@@ -622,5 +689,3 @@ export default function OfficeDesignerPage() {
   );
 }
 
-
-    
