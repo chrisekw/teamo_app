@@ -55,9 +55,9 @@ export default function OfficeDesignerPage() {
   const [activeOfficeRooms, setActiveOfficeRooms] = useState<Room[]>([]);
   const [activeOfficeMembers, setActiveOfficeMembers] = useState<OfficeMember[]>([]);
   
-  const [isLoading, setIsLoading] = useState(true);
-  const [isLoadingDetails, setIsLoadingDetails] = useState(false);
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isLoading, setIsLoading] = useState(true); // For initial user offices load
+  const [isLoadingDetails, setIsLoadingDetails] = useState(false); // For active office rooms/members load
+  const [isSubmitting, setIsSubmitting] = useState(false); // For form submissions
 
   const [isCreateOfficeDialogOpen, setIsCreateOfficeDialogOpen] = useState(false);
   const [isJoinOfficeDialogOpen, setIsJoinOfficeDialogOpen] = useState(false);
@@ -96,12 +96,10 @@ export default function OfficeDesignerPage() {
   }, [authLoading, user, fetchUserOffices]);
   
   useEffect(() => {
-    // If userOffices are loaded, and there's only one office,
-    // and no activeOffice is set, automatically set it.
-    if (!activeOffice && userOffices.length === 1 && !isLoading) {
+    if (!activeOffice && userOffices.length === 1) {
         setActiveOffice(userOffices[0]);
     }
-  }, [userOffices, activeOffice, isLoading]);
+  }, [userOffices, activeOffice]);
 
   const fetchActiveOfficeDetails = useCallback(async (officeId: string) => {
     setIsLoadingDetails(true);
@@ -114,6 +112,8 @@ export default function OfficeDesignerPage() {
       setActiveOfficeMembers(members);
     } catch (error) {
       toast({ variant: "destructive", title: "Error", description: "Could not fetch office details." });
+      setActiveOfficeRooms([]); // Ensure clean state on error
+      setActiveOfficeMembers([]);
     } finally {
       setIsLoadingDetails(false);
     }
@@ -121,10 +121,17 @@ export default function OfficeDesignerPage() {
 
   useEffect(() => {
     if (activeOffice) {
-      fetchActiveOfficeDetails(activeOffice.id);
-    } else {
+      // Clear old details first to ensure no stale data is displayed
+      // and to correctly show loading state for the new office.
       setActiveOfficeRooms([]);
       setActiveOfficeMembers([]);
+      // fetchActiveOfficeDetails will set isLoadingDetails = true internally
+      fetchActiveOfficeDetails(activeOffice.id);
+    } else {
+      // If no office is active, ensure details are cleared
+      setActiveOfficeRooms([]);
+      setActiveOfficeMembers([]);
+      setIsLoadingDetails(false); // No details to load
     }
   }, [activeOffice, fetchActiveOfficeDetails]);
 
@@ -164,7 +171,7 @@ export default function OfficeDesignerPage() {
       const joinedOffice = await joinOfficeByCode(user.uid, user.displayName || user.email || "User", user.photoURL || undefined, joinOfficeCode);
       if (joinedOffice) {
         setUserOffices(prev => { 
-            if (prev.find(o => o.id === joinedOffice.id)) return prev;
+            if (prev.find(o => o.id === joinedOffice.id)) return prev; // Avoid duplicates if already fetched
             return [...prev, joinedOffice];
         });
         setActiveOffice(joinedOffice);
@@ -615,3 +622,5 @@ export default function OfficeDesignerPage() {
   );
 }
 
+
+    
