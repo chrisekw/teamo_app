@@ -70,8 +70,6 @@ export async function addTaskForUser(
   officeName?: string
 ): Promise<Task> {
   if (!actorUserId) throw new Error("Actor User ID is required to add a task.");
-  // Task is added to the actor's own tasks collection for now
-  // If tasks were global to an office, this would change.
   const tasksCol = getTasksCollection(actorUserId);
   const docRef = await addDoc(tasksCol, taskData as Task); 
   
@@ -93,16 +91,15 @@ export async function addTaskForUser(
       entityType: "task",
     });
 
-    // Send notifications to other office members
     try {
       const members = await getMembersForOffice(officeId);
       for (const member of members) {
-        if (member.userId !== actorUserId) { // Don't notify the actor
+        if (member.userId !== actorUserId) { 
           await addUserNotification(member.userId, {
             type: "task-new",
             title: `New Task in ${officeName || 'Office'}: ${newTask.name}`,
             message: `${actorName} created task: "${newTask.name}". Assigned to: ${newTask.assignedTo || 'Unassigned'}.`,
-            link: `/tasks/${newTask.id}`, // Link to task detail page (assuming tasks are user-specific for viewing)
+            link: `/tasks/${newTask.id}`, 
             officeId: officeId,
             actorName: actorName,
             entityId: newTask.id,
@@ -114,8 +111,6 @@ export async function addTaskForUser(
       console.error("Failed to send task creation notifications for office members:", error);
     }
   }
-  // If not an office task, perhaps notify the assignee if different from actor and if assignee is a known userId.
-  // For now, this example focuses on office context notifications.
 
   return newTask;
 }
@@ -168,3 +163,4 @@ export const statusColors: Record<Task["status"], string> = {
   "Done": "bg-green-500",
   "Blocked": "bg-red-500",
 };
+

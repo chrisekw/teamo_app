@@ -2,6 +2,7 @@
 "use client";
 
 import { useState, useEffect, type ReactNode, useCallback, ChangeEvent } from "react";
+import { useSearchParams, useRouter } from 'next/navigation';
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -54,6 +55,8 @@ const roleIcons: Record<MemberRole, React.ElementType> = {
 export default function OfficeDesignerPage() {
   const { user, loading: authLoading } = useAuth();
   const { toast } = useToast();
+  const searchParams = useSearchParams();
+  const router = useRouter();
 
   const [userOffices, setUserOffices] = useState<Office[]>([]);
   const [activeOffice, setActiveOffice] = useState<Office | null>(null);
@@ -111,17 +114,35 @@ export default function OfficeDesignerPage() {
   }, [authLoading, user, fetchUserOffices]);
   
   useEffect(() => {
-    if (!activeOffice && userOffices.length === 1 && !isLoading) { 
-        setActiveOffice(userOffices[0]);
+    if (authLoading || isLoading) return; 
+
+    const officeIdFromParams = searchParams.get('officeId');
+
+    if (officeIdFromParams) {
+      const foundOffice = userOffices.find(o => o.id === officeIdFromParams);
+      if (foundOffice) {
+        if (!activeOffice || activeOffice.id !== foundOffice.id) {
+          setActiveOffice(foundOffice);
+        }
+        return; 
+      }
     }
-  }, [userOffices, activeOffice, isLoading]);
+    
+    if (!activeOffice && userOffices.length > 0) {
+       setActiveOffice(userOffices[0]); 
+    }
+  }, [userOffices, activeOffice, searchParams, authLoading, isLoading]);
+
 
   const fetchActiveOfficeDetails = useCallback(async (officeId: string, currentUserId: string) => {
     setIsLoadingDetails(true);
     try {
       const officeData = await getOfficeDetails(officeId);
       if (!officeData) {
-          throw new Error("Office not found");
+          toast({ variant: "destructive", title: "Error", description: "Office not found." });
+          setActiveOffice(null); // Reset if office not found
+          setUserOffices(prev => prev.filter(o => o.id !== officeId)); // Remove from list
+          return;
       }
       const [rooms, members, requests] = await Promise.all([
         getRoomsForOffice(officeId),
@@ -147,16 +168,30 @@ export default function OfficeDesignerPage() {
       setActiveOfficeMembers([]);
       setPendingJoinRequests([]);
       fetchActiveOfficeDetails(activeOffice.id, user.uid);
+       // Update URL if activeOffice is set and doesn't match param, or param is absent
+      const officeIdFromParams = searchParams.get('officeId');
+      if (officeIdFromParams !== activeOffice.id) {
+        router.replace(`/office-designer?officeId=${activeOffice.id}`, { scroll: false });
+      }
+
     } else {
       setActiveOfficeRooms([]);
       setActiveOfficeMembers([]);
       setPendingJoinRequests([]);
       setIsLoadingDetails(false); 
+       if (!searchParams.get('officeId') && userOffices.length === 0) {
+         router.replace('/office-designer', { scroll: false });
+       }
     }
-  }, [activeOffice, user, fetchActiveOfficeDetails]);
+  }, [activeOffice, user, fetchActiveOfficeDetails, router, searchParams, userOffices.length]);
 
   const handleSetActiveOffice = async (office: Office | null) => {
     setActiveOffice(office);
+    if (office) {
+        router.push(`/office-designer?officeId=${office.id}`, { scroll: false });
+    } else {
+        router.push('/office-designer', { scroll: false });
+    }
   };
   
   const resetCreateOfficeForm = () => {
@@ -221,7 +256,7 @@ export default function OfficeDesignerPage() {
         bannerUrlPlaceholder
       );
       setUserOffices(prev => [...prev, newOffice]);
-      setActiveOffice(newOffice); 
+      handleSetActiveOffice(newOffice); 
       resetCreateOfficeForm();
       setIsCreateOfficeDialogOpen(false);
       toast({ title: "Office Created!", description: `Your new office "${newOffice.name}" is ready.` });
@@ -246,7 +281,7 @@ export default function OfficeDesignerPage() {
         id: user.uid,
         name: user.displayName || user.email?.split('@')[0] || "Anonymous User",
         avatarUrl: user.photoURL || undefined,
-        role: "User" // Generic role for requester context
+        role: "User" 
     };
     try {
       const result = await requestToJoinOfficeByCode(joinOfficeCode, requesterUser);
@@ -386,7 +421,6 @@ export default function OfficeDesignerPage() {
         await rejectJoinRequest(activeOffice.id, request.id, user.uid, user.displayName || "User");
         toast({ title: "Request Rejected", description: `${request.requesterName}'s request has been rejected.` });
       }
-      // Refresh details
       fetchActiveOfficeDetails(activeOffice.id, user.uid);
     } catch (error: any) {
       toast({ variant: "destructive", title: `Error ${action === 'approve' ? 'Approving' : 'Rejecting'} Request`, description: error.message });
@@ -407,7 +441,7 @@ export default function OfficeDesignerPage() {
     return <div className="container mx-auto p-8 text-center"><Loader2 className="h-12 w-12 animate-spin text-primary"/></div>;
   }
 
-  if (!activeOffice) {
+  if (!activeOffice && !isCreateOfficeDialogOpen) {
     return (
       <div className="container mx-auto p-4 sm:p-6 lg:p-8 flex flex-col items-center">
         <Building className="h-16 w-16 text-primary mb-6" />
@@ -508,6 +542,10 @@ export default function OfficeDesignerPage() {
         </Dialog>
       </div>
     );
+  }
+  
+  if(!activeOffice) {
+    return <div className="container mx-auto p-8 text-center"><Loader2 className="h-12 w-12 animate-spin text-primary"/></div>;
   }
 
   const currentUserIsOwner = activeOffice.ownerId === user?.uid;

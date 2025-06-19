@@ -89,6 +89,10 @@ const officeMemberConverter: FirestoreDataConverter<OfficeMember, OfficeMemberFi
     } else {
         data.avatarUrl = memberInput.avatarUrl; 
     }
+    // If invitationCodeUsedToJoin is present, pass it through for rule validation, but it's not part of the stored OfficeMember model
+    if (memberInput.hasOwnProperty('invitationCodeUsedToJoin')) {
+      data.invitationCodeUsedToJoin = (memberInput as any).invitationCodeUsedToJoin;
+    }
     return data;
   },
   fromFirestore: (snapshot, options): OfficeMember => {
@@ -123,14 +127,14 @@ const officeJoinRequestConverter: FirestoreDataConverter<OfficeJoinRequest, Offi
     return {
       id: snapshot.id,
       officeId: data.officeId,
-      officeName: data.officeName, // For displaying in user's request list or notifications
+      officeName: data.officeName,
       requesterId: data.requesterId,
       requesterName: data.requesterName,
       requesterAvatarUrl: data.requesterAvatarUrl,
       status: data.status as OfficeJoinRequestStatus,
       requestedAt: data.requestedAt instanceof Timestamp ? data.requestedAt.toDate() : new Date(),
-      processedAt: data.processedAt instanceof Timestamp ? data.processedAt.toDate() : undefined, // Timestamp when approved/rejected
-      processedBy: data.processedBy, // User ID of the owner/admin who processed it
+      processedAt: data.processedAt instanceof Timestamp ? data.processedAt.toDate() : undefined,
+      processedBy: data.processedBy,
     };
   }
 };
@@ -145,7 +149,7 @@ const roomDocRef = (officeId: string, roomId: string) => doc(roomsCol(officeId),
 const membersCol = (officeId: string) => collection(officeDocRef(officeId), 'members').withConverter(officeMemberConverter);
 const memberDocRef = (officeId: string, userId: string) => doc(membersCol(officeId), userId).withConverter(officeMemberConverter);
 
-const userOfficesCol = (userId: string) => collection(db, 'users', userId, 'memberOfOffices'); // No converter needed for simple refs
+const userOfficesCol = (userId: string) => collection(db, 'users', userId, 'memberOfOffices'); 
 
 const joinRequestsCol = (officeId: string) => collection(officeDocRef(officeId), 'joinRequests').withConverter(officeJoinRequestConverter);
 const joinRequestDocRef = (officeId: string, requestId: string) => doc(joinRequestsCol(officeId), requestId).withConverter(officeJoinRequestConverter);
@@ -233,13 +237,11 @@ export async function requestToJoinOfficeByCode(
   const officeId = officeDoc.id;
   const officeData = officeDoc.data();
 
-  // Check if user is already a member
   const memberSnap = await getDoc(memberDocRef(officeId, requester.id));
   if (memberSnap.exists()) {
     return { success: false, message: "You are already a member of this office." };
   }
 
-  // Check for existing pending request
   const existingRequestQuery = query(
     joinRequestsCol(officeId),
     where("requesterId", "==", requester.id),
@@ -255,21 +257,18 @@ export async function requestToJoinOfficeByCode(
     officeName: officeData.name,
     requesterId: requester.id,
     requesterName: requester.name,
-    requesterAvatarUrl: requester.avatarUrl, // This can be undefined if user has no avatar
+    requesterAvatarUrl: requester.avatarUrl,
     status: 'pending',
   };
 
-  // The officeJoinRequestConverter will handle omitting requesterAvatarUrl if it's undefined.
   const requestRef = await addDoc(joinRequestsCol(officeId), joinRequestData as OfficeJoinRequest);
 
-
-  // Notify office owner
   if (officeData.ownerId) {
     await addUserNotification(officeData.ownerId, {
       type: 'office-join-request',
       title: `Join Request for ${officeData.name}`,
       message: `${requester.name} has requested to join your office.`,
-      link: `/office-designer?officeId=${officeId}`, // Link to office designer page for this office
+      link: `/office-designer?officeId=${officeId}`, 
       actorName: requester.name,
       entityId: requestRef.id,
       entityType: 'joinRequest',
@@ -384,6 +383,7 @@ export async function rejectJoinRequest(
     type: 'office-join-rejected',
     title: `Request Rejected for ${requestData.officeName}`,
     message: `Your request to join "${requestData.officeName}" has been rejected by ${rejectorName}.`,
+    link: `/office-designer`, // Generic link as their request is done
     actorName: rejectorName,
     entityId: officeId,
     entityType: 'office',
@@ -466,7 +466,7 @@ export async function deleteRoomFromOffice(
   await deleteDoc(roomDocRef(officeId, roomId));
 
   addActivityLog(officeId, {
-    type: "room-new", // Could be "room-deleted"
+    type: "room-new", 
     title: `Room Deleted: ${roomName}`,
     description: `Deleted by ${actorName}`,
     iconName: "Trash2", 
@@ -494,7 +494,7 @@ export async function updateMemberRoleInOffice(
   const memberName = memberToUpdateSnap.data()?.name || "A member";
   const oldRole = memberToUpdateSnap.data()?.role;
 
-  if (oldRole === newRole) return; // No change needed
+  if (oldRole === newRole) return; 
 
   await updateDoc(memberDocRef(officeId, memberUserId), { role: newRole });
   

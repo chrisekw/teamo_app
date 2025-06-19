@@ -97,7 +97,6 @@ export async function addMeetingForUser(
       entityType: "meeting",
     });
 
-    // Send notifications to other office members
     try {
       const members = await getMembersForOffice(officeId);
       for (const member of members) {
@@ -106,7 +105,7 @@ export async function addMeetingForUser(
             type: "meeting-new",
             title: `New Meeting in ${officeName || 'Office'}: ${newMeeting.title}`,
             message: `${actorName} scheduled a meeting: "${newMeeting.title}" for ${newMeeting.dateTime.toLocaleDateString()} at ${newMeeting.dateTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}.`,
-            link: `/meetings`, // No specific meeting detail page yet
+            link: `/meetings`, // Meeting ID could be added: /meetings?meetingId=${newMeeting.id}
             officeId: officeId,
             actorName: actorName,
             entityId: newMeeting.id,
@@ -114,8 +113,6 @@ export async function addMeetingForUser(
           });
         }
       }
-      // Also notify explicit participants if they are different from office members and actor
-      // This requires participant IDs to be stored. For now, relying on office membership.
     } catch (error) {
       console.error("Failed to send meeting scheduling notifications for office members:", error);
     }
@@ -142,3 +139,4 @@ export async function deleteMeetingForUser(userId: string, meetingId: string): P
   const meetingDocRef = getMeetingDoc(userId, meetingId);
   await deleteDoc(meetingDocRef);
 }
+

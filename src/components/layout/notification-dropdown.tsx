@@ -27,10 +27,13 @@ import {
 import { useToast } from '@/hooks/use-toast';
 import { formatDistanceToNow } from 'date-fns';
 import { cn } from '@/lib/utils';
+import { useRouter } from 'next/navigation';
+
 
 export function NotificationDropdown() {
   const { user, loading: authLoading } = useAuth();
   const { toast } = useToast();
+  const router = useRouter();
   const [notifications, setNotifications] = useState<UserNotification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
@@ -58,30 +61,34 @@ export function NotificationDropdown() {
   useEffect(() => {
     if (user && !authLoading) {
       fetchNotificationsData();
-      // Simple polling for updates when menu is open or for unread count
       const intervalId = setInterval(() => {
-        if (isMenuOpen || document.visibilityState === 'visible') { // Only poll if menu open or tab visible
+        if (isMenuOpen || document.visibilityState === 'visible') { 
              getUnreadNotificationCount(user.uid).then(setUnreadCount).catch(console.error);
              if(isMenuOpen) {
                 getUserNotifications(user.uid, { count: 10 }).then(setNotifications).catch(console.error);
              }
         }
-      }, 30000); // Poll every 30 seconds
+      }, 30000); 
       return () => clearInterval(intervalId);
     }
   }, [user, authLoading, fetchNotificationsData, isMenuOpen]);
 
 
-  const handleMarkAsRead = async (notificationId: string) => {
+  const handleNotificationClick = async (notification: UserNotification) => {
     if (!user) return;
-    try {
-      await markNotificationAsRead(user.uid, notificationId);
-      // Optimistically update UI or refetch
-      setNotifications(prev => prev.map(n => n.id === notificationId ? { ...n, isRead: true } : n));
-      setUnreadCount(prev => Math.max(0, prev - 1));
-    } catch (error) {
-      toast({ variant: "destructive", title: "Error", description: "Failed to mark as read." });
+    if (!notification.isRead) {
+      try {
+        await markNotificationAsRead(user.uid, notification.id);
+        setNotifications(prev => prev.map(n => n.id === notification.id ? { ...n, isRead: true } : n));
+        setUnreadCount(prev => Math.max(0, prev - 1));
+      } catch (error) {
+        toast({ variant: "destructive", title: "Error", description: "Failed to mark as read." });
+      }
     }
+    if (notification.link) {
+      router.push(notification.link);
+    }
+    setIsMenuOpen(false); // Close dropdown after click
   };
 
   const handleMarkAllAsRead = async () => {
@@ -100,11 +107,11 @@ export function NotificationDropdown() {
     return <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />;
   }
   if (!user) {
-    return null; // Don't show if not logged in
+    return null;
   }
 
   return (
-    <DropdownMenu onOpenChange={setIsMenuOpen}>
+    <DropdownMenu open={isMenuOpen} onOpenChange={setIsMenuOpen}>
       <DropdownMenuTrigger asChild>
         <Button variant="ghost" size="icon" className="relative">
           <Bell className="h-5 w-5" />
@@ -145,18 +152,9 @@ export function NotificationDropdown() {
                     "flex flex-col items-start gap-1 p-2.5 cursor-pointer data-[disabled]:opacity-100",
                     !notif.isRead && "bg-primary/5 hover:bg-primary/10"
                   )}
-                  asChild={!!notif.link}
-                  onClick={() => !notif.isRead && handleMarkAsRead(notif.id)}
+                  onClick={() => handleNotificationClick(notif)}
                 >
-                  {notif.link ? (
-                    <Link href={notif.link} className="w-full">
-                      <NotificationItemContent notification={notif} />
-                    </Link>
-                  ) : (
-                    <div className="w-full" onClickCapture={(e) => e.stopPropagation()}> {/* Prevent dropdown closing if no link */}
-                       <NotificationItemContent notification={notif} />
-                    </div>
-                  )}
+                  <NotificationItemContent notification={notif} />
                 </DropdownMenuItem>
               ))}
             </DropdownMenuGroup>
@@ -184,3 +182,4 @@ const NotificationItemContent = ({ notification }: { notification: UserNotificat
     </p>
   </>
 );
+

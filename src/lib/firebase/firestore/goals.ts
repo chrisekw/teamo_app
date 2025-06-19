@@ -98,7 +98,6 @@ export async function addGoalForUser(
       entityType: "goal",
     });
 
-    // Send notifications to other office members
     try {
       const members = await getMembersForOffice(officeId);
       for (const member of members) {
@@ -107,7 +106,7 @@ export async function addGoalForUser(
             type: "goal-new",
             title: `New Goal in ${officeName || 'Office'}: ${newGoal.name}`,
             message: `${actorName} set a new goal: "${newGoal.name}". Target: ${newGoal.targetValue} ${newGoal.unit}.`,
-            link: `/goals`, // No specific goal detail page yet
+            link: `/goals`, 
             officeId: officeId,
             actorName: actorName,
             entityId: newGoal.id,
@@ -166,3 +165,4 @@ export async function deleteGoalForUser(userId: string, goalId: string): Promise
   const goalDocRef = getGoalDoc(userId, goalId);
   await deleteDoc(goalDocRef);
 }
+
