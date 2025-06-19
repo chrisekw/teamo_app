@@ -8,6 +8,7 @@ import { AuthProvider } from '@/lib/firebase/auth';
 export const metadata: Metadata = {
   title: 'Teamo - Virtual Office Platform',
   description: 'Collaborate and manage your team in a virtual office environment.',
+  manifest: '/manifest.json',
 };
 
 export default function RootLayout({

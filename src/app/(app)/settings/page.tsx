@@ -13,8 +13,9 @@ import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { Separator } from "@/components/ui/separator";
-import { Palette, UserCircle, Bell, ShieldCheck, Database, Accessibility, Save } from "lucide-react";
+import { Palette, UserCircle, Bell, ShieldCheck, Database, Accessibility, Save, MonitorSmartphone, Loader2 } from "lucide-react";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
+import { requestNotificationPermissionAndGetToken, messaging as firebaseMessagingInstance } from "@/lib/firebase/client";
 
 export default function SettingsPage() {
   const { toast } = useToast();
@@ -22,18 +23,13 @@ export default function SettingsPage() {
 
   const [mounted, setMounted] = useState(false);
 
-  // Form states
   const [currentTheme, setCurrentTheme] = useState("system");
   const [language, setLanguage] = useState("en");
   const [fontSize, setFontSize] = useState("medium");
 
-  // Removed user-specific details like fullName, userEmail, userAvatar as they are on /profile
-  // const [fullName, setFullName] = useState("Teamo User");
-  // const [userEmail, setUserEmail] = useState("user@teamo.app");
-  // const [userAvatar, setUserAvatar] = useState("https://placehold.co/100x100.png");
-
   const [emailNotifications, setEmailNotifications] = useState("important");
-  const [pushNotifications, setPushNotifications] = useState(true);
+  const [pushNotificationsEnabled, setPushNotificationsEnabled] = useState(false);
+  const [isRequestingPushPermission, setIsRequestingPushPermission] = useState(false);
   const [notificationSounds, setNotificationSounds] = useState(true);
 
   const [highContrast, setHighContrast] = useState(false);
@@ -46,14 +42,87 @@ export default function SettingsPage() {
     } else {
         setCurrentTheme(theme || "system");
     }
+    if (typeof window !== 'undefined' && 'Notification' in window) {
+        setPushNotificationsEnabled(Notification.permission === 'granted');
+    }
   }, [theme, systemTheme]);
 
 
   const handleSaveChanges = () => {
     toast({
-      title: "Settings Saved",
-      description: "Your preferences have been updated.",
+      title: "Settings Saved (Mock)",
+      description: "Your preferences have been notionally updated. Push notification token handling not implemented server-side.",
     });
+  };
+
+  const handleTogglePushNotifications = async () => {
+    if (!firebaseMessagingInstance) {
+      toast({
+        variant: "destructive",
+        title: "Push Not Supported",
+        description: "Push notifications are not supported in this browser or device.",
+      });
+      setPushNotificationsEnabled(false);
+      return;
+    }
+
+    setIsRequestingPushPermission(true);
+    try {
+      if (!pushNotificationsEnabled && Notification.permission !== 'granted') {
+        const token = await requestNotificationPermissionAndGetToken();
+        if (token) {
+          setPushNotificationsEnabled(true);
+          toast({
+            title: "Push Notifications Enabled",
+            description: "You can now receive push notifications on this device. Token (first 20 chars): " + token.substring(0, 20) + "...",
+          });
+          // In a real app, you would send this token to your server.
+        } else {
+          setPushNotificationsEnabled(false);
+          if (Notification.permission === 'denied') {
+            toast({
+              variant: "destructive",
+              title: "Permission Denied",
+              description: "You have blocked push notifications. Please enable them in your browser settings to receive them.",
+              duration: 7000,
+            });
+          } else {
+            toast({
+              variant: "destructive",
+              title: "Failed to Enable",
+              description: "Could not enable push notifications at this time.",
+            });
+          }
+        }
+      } else if (pushNotificationsEnabled) {
+        // Simulating "disabling" by just updating UI.
+        // True disabling would involve removing the token from the server and/or revoking permission via browser settings.
+        setPushNotificationsEnabled(false);
+        toast({
+          title: "Push Notifications Disabled (UI)",
+          description: "Push notifications UI toggle is off. Manage browser permissions to fully disable.",
+        });
+        // TODO: You might want to inform your server to invalidate/remove the token for this device.
+      } else if (!pushNotificationsEnabled && Notification.permission === 'granted') {
+          // User is re-enabling after previously granting permission
+          const token = await requestNotificationPermissionAndGetToken(); // Re-fetch token
+          if (token) {
+               setPushNotificationsEnabled(true);
+               toast({
+                  title: "Push Notifications Re-enabled",
+                  description: "Token (first 20 chars): " + token.substring(0, 20) + "...",
+               });
+          } else {
+              toast({ variant: "destructive", title: "Error", description: "Could not re-enable push notifications. Ensure VAPID key is set." });
+          }
+      }
+    } catch (error) {
+        console.error("Error toggling push notifications:", error);
+        toast({ variant: "destructive", title: "Error", description: "An unexpected error occurred." });
+        setPushNotificationsEnabled(Notification.permission === 'granted'); // Reset to actual permission state
+    } finally {
+        setIsRequestingPushPermission(false);
+    }
   };
   
   if (!mounted) {
@@ -69,7 +138,6 @@ export default function SettingsPage() {
         </Button>
       </div>
 
-      {/* Appearance Section */}
       <Card className="shadow-lg">
         <CardHeader>
           <CardTitle className="flex items-center"><Palette className="mr-2 h-5 w-5 text-primary" />Appearance</CardTitle>
@@ -129,35 +197,6 @@ export default function SettingsPage() {
         </CardContent>
       </Card>
 
-      {/* Account Section - REMOVED, now on /profile page */}
-      {/* <Card className="shadow-lg">
-        <CardHeader>
-          <CardTitle className="flex items-center"><UserCircle className="mr-2 h-5 w-5 text-primary" />Account</CardTitle>
-          <CardDescription>Manage your personal account details.</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-6">
-           <div className="flex items-center space-x-4">
-            <Avatar className="h-20 w-20">
-              <AvatarImage src={userAvatar} alt={fullName} data-ai-hint="person avatar" />
-              <AvatarFallback>{fullName.substring(0,1)}</AvatarFallback>
-            </Avatar>
-            <Button variant="outline">Change Picture</Button>
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div className="space-y-2">
-              <Label htmlFor="fullName">Full Name</Label>
-              <Input id="fullName" value={fullName} onChange={(e) => setFullName(e.target.value)} />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="email">Email Address</Label>
-              <Input id="email" value={userEmail} readOnly disabled />
-            </div>
-          </div>
-          <Button variant="outline">Change Password</Button>
-        </CardContent>
-      </Card> */}
-
-      {/* Notifications Section */}
       <Card className="shadow-lg">
         <CardHeader>
           <CardTitle className="flex items-center"><Bell className="mr-2 h-5 w-5 text-primary" />Notifications</CardTitle>
@@ -178,13 +217,18 @@ export default function SettingsPage() {
             </Select>
           </div>
           <div className="flex items-center justify-between">
-            <Label htmlFor="pushNotifications" className="flex flex-col space-y-1">
-              <span>Push Notifications</span>
+            <Label htmlFor="pushNotificationsSwitch" className="flex flex-col space-y-1">
+              <span className="flex items-center"><MonitorSmartphone className="mr-2 h-4 w-4 text-muted-foreground"/>Push Notifications</span>
               <span className="font-normal leading-snug text-muted-foreground">
-                Receive push notifications on your devices.
+                Receive push notifications on this device.
               </span>
             </Label>
-            <Switch id="pushNotifications" checked={pushNotifications} onCheckedChange={setPushNotifications} />
+             <Switch 
+                id="pushNotificationsSwitch"
+                checked={pushNotificationsEnabled} 
+                onCheckedChange={handleTogglePushNotifications} 
+                disabled={isRequestingPushPermission || !firebaseMessagingInstance}
+             />
           </div>
           <div className="flex items-center justify-between">
             <Label htmlFor="notificationSounds" className="flex flex-col space-y-1">
@@ -198,7 +242,6 @@ export default function SettingsPage() {
         </CardContent>
       </Card>
       
-      {/* Accessibility Section */}
       <Card className="shadow-lg">
         <CardHeader>
           <CardTitle className="flex items-center"><Accessibility className="mr-2 h-5 w-5 text-primary" />Accessibility</CardTitle>
@@ -226,7 +269,6 @@ export default function SettingsPage() {
         </CardContent>
       </Card>
 
-      {/* Other Sections Placeholder */}
       <Card className="shadow-lg">
          <CardHeader>
           <CardTitle className="flex items-center"><ShieldCheck className="mr-2 h-5 w-5 text-primary" />Privacy & Security</CardTitle>
@@ -248,7 +290,6 @@ export default function SettingsPage() {
             <Button variant="outline" className="w-full sm:w-auto" onClick={() => toast({title: "Data Export Started (Mock)", description: "Your data export will be available shortly."})}>Export Your Data</Button>
         </CardContent>
       </Card>
-
 
       <div className="flex justify-end pt-4">
         <Button onClick={handleSaveChanges} size="lg">
