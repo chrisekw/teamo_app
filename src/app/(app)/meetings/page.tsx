@@ -7,7 +7,7 @@ import { Dialog, DialogTrigger, DialogContent, DialogHeader, DialogTitle, Dialog
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { PlusCircle, Video, Users, Clock, Loader2, Trash2 } from "lucide-react";
+import { PlusCircle, Video, Users, Clock, Loader2, Trash2, CalendarDays, Briefcase, Repeat } from "lucide-react";
 import { useState, useEffect, useRef, useCallback } from "react";
 import Image from "next/image";
 import dynamic from 'next/dynamic';
@@ -20,6 +20,10 @@ import { getOfficesForUser, type Office } from "@/lib/firebase/firestore/offices
 import { Skeleton } from "@/components/ui/skeleton";
 import { useSearchParams, useRouter, usePathname } from 'next/navigation';
 import { addUserNotification } from "@/lib/firebase/firestore/notifications";
+import { Switch } from "@/components/ui/switch";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { cn } from "@/lib/utils";
+import { format, parse } from "date-fns";
 
 const ShadCNCalendar = dynamic(() => import('@/components/ui/calendar').then(mod => mod.Calendar), {
   ssr: false,
@@ -59,7 +63,6 @@ export default function MeetingsPage() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
 
-
   const [meetings, setMeetings] = useState<Meeting[]>([]);
   const [isLoadingMeetings, setIsLoadingMeetings] = useState(true);
   const [isScheduleDialogOpen, setIsScheduleDialogOpen] = useState(false);
@@ -67,12 +70,16 @@ export default function MeetingsPage() {
   const [meetingToDelete, setMeetingToDelete] = useState<Meeting | null>(null);
   const [userOffices, setUserOffices] = useState<Office[]>([]);
 
+  // Form state for new meeting
   const [newMeetingTitle, setNewMeetingTitle] = useState("");
-  const [newMeetingDate, setNewMeetingDate] = useState<Date | undefined>(new Date());
-  const [newMeetingTime, setNewMeetingTime] = useState("10:00");
-  const [newMeetingDuration, setNewMeetingDuration] = useState("30");
-  const [newMeetingParticipants, setNewMeetingParticipants] = useState("");
   const [newMeetingDescription, setNewMeetingDescription] = useState("");
+  const [newMeetingStartDate, setNewMeetingStartDate] = useState<Date | undefined>(new Date());
+  const [newMeetingStartTime, setNewMeetingStartTime] = useState(format(new Date(), "HH:mm"));
+  const [newMeetingEndDate, setNewMeetingEndDate] = useState<Date | undefined>(new Date());
+  const [newMeetingEndTime, setNewMeetingEndTime] = useState(format(new Date(Date.now() + 60 * 60 * 1000), "HH:mm")); // Default 1 hour later
+  const [newMeetingIsRecurring, setNewMeetingIsRecurring] = useState(false);
+  const [newMeetingDepartment, setNewMeetingDepartment] = useState("");
+  const [newMeetingParticipants, setNewMeetingParticipants] = useState("");
 
   const [selectedMeetingForPreview, setSelectedMeetingForPreview] = useState<Meeting | null>(null);
   const [hasCameraPermission, setHasCameraPermission] = useState<boolean | undefined>(undefined);
@@ -116,30 +123,24 @@ export default function MeetingsPage() {
 
   const handleJoinMeetingClick = useCallback((meeting: Meeting) => {
     if (selectedMeetingForPreview?.id === meeting.id) { 
-      // If already selected, perhaps this is a re-click or programmatically triggered.
-      // If we want to "toggle off" preview, we'd do: setSelectedMeetingForPreview(null);
-      // For now, just ensure it's set.
       if(!selectedMeetingForPreview) setSelectedMeetingForPreview(meeting);
     } else {
       setSelectedMeetingForPreview(meeting);
     }
-  }, [selectedMeetingForPreview]);
+    router.replace(`${pathname}?meetingId=${meeting.id}`, { scroll: false });
+  }, [selectedMeetingForPreview, router, pathname]);
 
   useEffect(() => {
     const meetingIdFromUrl = searchParams.get('meetingId');
-    if (meetingIdFromUrl && meetings.length > 0 && !selectedMeetingForPreview) { // Process only if not already previewing
+    if (meetingIdFromUrl && meetings.length > 0 && !selectedMeetingForPreview) {
       const meetingToSelect = meetings.find(m => m.id === meetingIdFromUrl);
       if (meetingToSelect) {
-         if (selectedMeetingForPreview?.id !== meetingToSelect.id) { // Avoid re-selecting same meeting
+         if (selectedMeetingForPreview?.id !== meetingToSelect.id) {
             handleJoinMeetingClick(meetingToSelect);
-             // Optionally, clear the query param to prevent re-triggering on refresh if desired
-             // router.replace(pathname, { scroll: false }); 
          }
-      } else {
-        // toast({ variant: "destructive", title: "Meeting not found", description: "The meeting specified in the URL could not be found." });
       }
     }
-  }, [searchParams, meetings, selectedMeetingForPreview, handleJoinMeetingClick, router, pathname]);
+  }, [searchParams, meetings, selectedMeetingForPreview, handleJoinMeetingClick]);
 
 
   useEffect(() => {
@@ -148,65 +149,40 @@ export default function MeetingsPage() {
     const now = new Date();
     const reminderSentKeyPrefix = `meetingReminderSent_`;
 
-    meetings.forEach(async (meeting) => {
-      const meetingTime = meeting.dateTime;
-      // Time difference in minutes
-      const timeDiffMinutes = (meetingTime.getTime() - now.getTime()) / (1000 * 60);
-      const reminderKey = `${reminderSentKeyPrefix}${meeting.id}`;
+    const checkAndSendReminders = async () => {
+      for (const meeting of meetings) {
+        const meetingTime = meeting.dateTime;
+        const timeDiffMinutes = (meetingTime.getTime() - now.getTime()) / (1000 * 60);
+        const reminderKey = `${reminderSentKeyPrefix}${meeting.id}`;
 
-      // Reminder window: 5 minutes before start to 1 minute after start time
-      if (timeDiffMinutes <= 5 && timeDiffMinutes >= -1) {
-        if (!sessionStorage.getItem(reminderKey)) {
-          console.log(`Meeting "${meeting.title}" is due. Sending reminder.`);
-          try {
-            // In a real app, iterate over actual participant UIDs
-            // For this prototype, notify the current user (meeting creator)
-            await addUserNotification(user.uid, {
-              type: "meeting-new", // Can be a more specific "meeting-reminder" type if desired
-              title: `Meeting Starting: ${meeting.title}`,
-              message: `Your meeting "${meeting.title}" is starting now or in the next few minutes. Click to join.`,
-              link: `/meetings?meetingId=${meeting.id}`,
-              actorName: "System Reminder",
-              entityId: meeting.id,
-              entityType: "meeting",
-              // officeId: meeting.officeId // Include if the meeting has office context
-            });
-            sessionStorage.setItem(reminderKey, 'true');
-            toast({ title: "Meeting Reminder", description: `Reminder for "${meeting.title}" triggered.` });
-          } catch (error) {
-            console.error("Failed to send meeting reminder notification:", error);
+        if (timeDiffMinutes <= 5 && timeDiffMinutes >= -1) {
+          if (!sessionStorage.getItem(reminderKey)) {
+            console.log(`Meeting "${meeting.title}" is due. Sending reminder.`);
+            try {
+              await addUserNotification(user.uid, {
+                type: "meeting-new",
+                title: `Meeting Starting: ${meeting.title}`,
+                message: `Your meeting "${meeting.title}" is starting now or in the next few minutes. Click to join.`,
+                link: `/meetings?meetingId=${meeting.id}`,
+                actorName: "System Reminder",
+                entityId: meeting.id,
+                entityType: "meeting",
+              });
+              sessionStorage.setItem(reminderKey, 'true');
+              toast({ title: "Meeting Reminder", description: `Reminder for "${meeting.title}" triggered.` });
+            } catch (error) {
+              console.error("Failed to send meeting reminder notification:", error);
+            }
           }
         }
       }
-    });
-  // Check every 30 seconds for meeting reminders
-  const intervalId = setInterval(() => {
-      meetings.forEach(async (meeting) => {
-          const meetingTime = meeting.dateTime;
-          const timeDiffMinutes = (meetingTime.getTime() - new Date().getTime()) / (1000 * 60);
-          const reminderKey = `${reminderSentKeyPrefix}${meeting.id}`;
-           if (timeDiffMinutes <= 5 && timeDiffMinutes >= -1 && !sessionStorage.getItem(reminderKey)) {
-              // Logic from above to send notification
-                try {
-                    await addUserNotification(user.uid, { /* ... notification data ... */ 
-                        type: "meeting-new",
-                        title: `Meeting Starting: ${meeting.title}`,
-                        message: `Your meeting "${meeting.title}" is starting now or in the next few minutes. Click to join.`,
-                        link: `/meetings?meetingId=${meeting.id}`,
-                        actorName: "System Reminder",
-                        entityId: meeting.id,
-                        entityType: "meeting",
-                    });
-                    sessionStorage.setItem(reminderKey, 'true');
-                    toast({ title: "Meeting Reminder", description: `Reminder for "${meeting.title}" triggered.` });
-                } catch (error) { console.error("Failed to send meeting reminder notification:", error); }
-            }
-        });
-    }, 30 * 1000);
-
+    };
+    
+    checkAndSendReminders();
+    const intervalId = setInterval(checkAndSendReminders, 30 * 1000);
     return () => clearInterval(intervalId);
 
-}, [meetings, user, toast, isLoadingMeetings]);
+  }, [meetings, user, toast, isLoadingMeetings]);
 
 
   useEffect(() => {
@@ -255,34 +231,51 @@ export default function MeetingsPage() {
 
   const resetScheduleForm = () => {
     setNewMeetingTitle("");
-    setNewMeetingDate(new Date());
-    setNewMeetingTime("10:00");
-    setNewMeetingDuration("30");
-    setNewMeetingParticipants("");
     setNewMeetingDescription("");
+    setNewMeetingStartDate(new Date());
+    setNewMeetingStartTime(format(new Date(), "HH:mm"));
+    setNewMeetingEndDate(new Date());
+    setNewMeetingEndTime(format(new Date(Date.now() + 60 * 60 * 1000), "HH:mm"));
+    setNewMeetingIsRecurring(false);
+    setNewMeetingDepartment("");
+    setNewMeetingParticipants("");
+  };
+
+  const combineDateTime = (date: Date, time: string): Date => {
+    const [hours, minutes] = time.split(':').map(Number);
+    const combined = new Date(date);
+    combined.setHours(hours, minutes, 0, 0);
+    return combined;
   };
 
   const handleScheduleMeeting = async () => {
-    if (!user) {
-      toast({ variant: "destructive", title: "Error", description: "You must be logged in." });
+    if (!user || !newMeetingStartDate || !newMeetingEndDate) {
+      toast({ variant: "destructive", title: "Error", description: "You must be logged in and select start/end dates." });
       return;
     }
-    if (!newMeetingTitle.trim() || !newMeetingDate || !newMeetingTime) {
-        toast({ variant: "destructive", title: "Validation Error", description: "Title, date, and time are required." });
+    if (!newMeetingTitle.trim() || !newMeetingStartTime || !newMeetingEndTime) {
+        toast({ variant: "destructive", title: "Validation Error", description: "Title, start time, and end time are required." });
         return;
     }
     
     setIsSubmitting(true);
-    const [hours, minutes] = newMeetingTime.split(':').map(Number);
-    const combinedDateTime = new Date(newMeetingDate);
-    combinedDateTime.setHours(hours, minutes, 0, 0); 
+    const startDateTime = combineDateTime(newMeetingStartDate, newMeetingStartTime);
+    const endDateTime = combineDateTime(newMeetingEndDate, newMeetingEndTime);
+
+    if (endDateTime <= startDateTime) {
+        toast({ variant: "destructive", title: "Validation Error", description: "End date/time must be after start date/time."});
+        setIsSubmitting(false);
+        return;
+    }
 
     const meetingData: Omit<Meeting, 'id' | 'createdAt' | 'updatedAt' | 'userId'> = {
       title: newMeetingTitle,
-      dateTime: combinedDateTime,
-      durationMinutes: parseInt(newMeetingDuration, 10) || 30,
+      dateTime: startDateTime,
+      endDateTime: endDateTime,
+      isRecurring: newMeetingIsRecurring,
+      department: newMeetingDepartment || undefined,
       participants: newMeetingParticipants.split(',').map(p => p.trim()).filter(p => p),
-      description: newMeetingDescription,
+      description: newMeetingDescription || undefined,
     };
     const actorName = user.displayName || user.email || "User";
     const officeForMeeting = userOffices.length > 0 ? userOffices[0] : undefined;
@@ -308,6 +301,10 @@ export default function MeetingsPage() {
         await deleteMeetingForUser(user.uid, meetingToDelete.id);
         toast({ title: "Meeting Deleted", description: `"${meetingToDelete.title}" has been removed.`});
         fetchMeetings();
+        if (selectedMeetingForPreview?.id === meetingToDelete.id) {
+            setSelectedMeetingForPreview(null);
+            router.replace(pathname, { scroll: false }); 
+        }
     } catch (error) {
         console.error("Failed to delete meeting:", error);
         toast({variant: "destructive", title: "Error", description: "Could not delete meeting."});
@@ -320,9 +317,19 @@ export default function MeetingsPage() {
 
   const handleLeaveMeeting = () => {
     setSelectedMeetingForPreview(null);
+    router.replace(pathname, { scroll: false }); 
   };
   
-  if (authLoading || isLoadingMeetings && meetings.length === 0) { // Show loader if auth loading OR meetings loading AND no meetings yet
+  const calculateDuration = (start: Date, end: Date): string => {
+    const diffMs = end.getTime() - start.getTime();
+    const diffMins = Math.round(diffMs / 60000);
+    if (diffMins < 60) return `${diffMins} min`;
+    const hours = Math.floor(diffMins / 60);
+    const mins = diffMins % 60;
+    return `${hours}h ${mins}m`;
+  };
+
+  if (authLoading || isLoadingMeetings && meetings.length === 0) {
      return <div className="container mx-auto p-8 text-center"><Loader2 className="h-12 w-12 animate-spin text-primary" /></div>;
   }
 
@@ -337,40 +344,82 @@ export default function MeetingsPage() {
                 <PlusCircle className="mr-2 h-4 w-4" /> Schedule New Meeting
               </Button>
             </DialogTrigger>
-            <DialogContent className="sm:max-w-[500px]">
+            <DialogContent className="sm:max-w-md">
               <DialogHeader>
-                <DialogTitle className="font-headline">Schedule New Meeting</DialogTitle>
-                <DialogDescription>Fill in the details for your new meeting.</DialogDescription>
+                <DialogTitle className="font-headline text-xl">Schedule New Meeting</DialogTitle>
               </DialogHeader>
-              <div className="grid gap-4 py-4 max-h-[70vh] overflow-y-auto pr-2">
-                <div className="grid gap-2">
-                  <Label htmlFor="title">Title</Label>
-                  <Input id="title" value={newMeetingTitle} onChange={(e) => setNewMeetingTitle(e.target.value)} placeholder="Meeting Title" disabled={isSubmitting}/>
+              <div className="grid gap-5 py-4 max-h-[75vh] overflow-y-auto pr-2">
+                <div className="space-y-1.5">
+                  <Label htmlFor="title">Meeting Title</Label>
+                  <Input id="title" value={newMeetingTitle} onChange={(e) => setNewMeetingTitle(e.target.value)} placeholder="Enter meeting title" disabled={isSubmitting}/>
                 </div>
-                <div className="grid gap-2">
-                  <Label htmlFor="date">Date</Label>
-                  <ShadCNCalendar mode="single" selected={newMeetingDate} onSelect={setNewMeetingDate} className="rounded-md border p-0 w-full" disabled={(date) => date < new Date(new Date().setHours(0,0,0,0)) || isSubmitting}/>
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="grid gap-2">
-                    <Label htmlFor="time">Time</Label>
-                    <Input id="time" type="time" value={newMeetingTime} onChange={(e) => setNewMeetingTime(e.target.value)} disabled={isSubmitting}/>
-                  </div>
-                  <div className="grid gap-2">
-                    <Label htmlFor="duration">Duration (minutes)</Label>
-                    <Input id="duration" type="number" value={newMeetingDuration} onChange={(e) => setNewMeetingDuration(e.target.value)} placeholder="e.g., 30" disabled={isSubmitting}/>
-                  </div>
-                </div>
-                <div className="grid gap-2">
-                  <Label htmlFor="participants">Participants (comma-separated names)</Label>
-                  <Input id="participants" value={newMeetingParticipants} onChange={(e) => setNewMeetingParticipants(e.target.value)} placeholder="Alice, Bob, ..." disabled={isSubmitting}/>
-                </div>
-                <div className="grid gap-2">
+                <div className="space-y-1.5">
                   <Label htmlFor="description">Description (Optional)</Label>
-                  <Textarea id="description" value={newMeetingDescription} onChange={(e) => setNewMeetingDescription(e.target.value)} placeholder="Meeting agenda or notes" disabled={isSubmitting}/>
+                  <Textarea id="description" value={newMeetingDescription} onChange={(e) => setNewMeetingDescription(e.target.value)} placeholder="Enter meeting description" rows={3} disabled={isSubmitting}/>
+                </div>
+                
+                <div className="grid grid-cols-1 gap-3">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="startDate">Start Date & Time</Label>
+                    <div className="flex gap-2">
+                      <Popover>
+                        <PopoverTrigger asChild>
+                          <Button variant="outline" className={cn("w-full justify-start text-left font-normal", !newMeetingStartDate && "text-muted-foreground")} disabled={isSubmitting}>
+                            <CalendarDays className="mr-2 h-4 w-4" />
+                            {newMeetingStartDate ? format(newMeetingStartDate, "MMM d, yyyy") : <span>Pick a date</span>}
+                          </Button>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-auto p-0"><ShadCNCalendar mode="single" selected={newMeetingStartDate} onSelect={setNewMeetingStartDate} disabled={(date) => date < new Date(new Date().setHours(0,0,0,0)) || isSubmitting}/></PopoverContent>
+                      </Popover>
+                      <Input id="startTime" type="time" value={newMeetingStartTime} onChange={(e) => setNewMeetingStartTime(e.target.value)} className="w-auto" disabled={isSubmitting}/>
+                    </div>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="endDate">End Date & Time</Label>
+                     <div className="flex gap-2">
+                        <Popover>
+                            <PopoverTrigger asChild>
+                            <Button variant="outline" className={cn("w-full justify-start text-left font-normal", !newMeetingEndDate && "text-muted-foreground")} disabled={isSubmitting}>
+                                <CalendarDays className="mr-2 h-4 w-4" />
+                                {newMeetingEndDate ? format(newMeetingEndDate, "MMM d, yyyy") : <span>Pick a date</span>}
+                            </Button>
+                            </PopoverTrigger>
+                            <PopoverContent className="w-auto p-0"><ShadCNCalendar mode="single" selected={newMeetingEndDate} onSelect={setNewMeetingEndDate} disabled={(date) => (newMeetingStartDate && date < newMeetingStartDate) || isSubmitting}/></PopoverContent>
+                        </Popover>
+                        <Input id="endTime" type="time" value={newMeetingEndTime} onChange={(e) => setNewMeetingEndTime(e.target.value)} className="w-auto" disabled={isSubmitting}/>
+                    </div>
+                  </div>
+                </div>
+                
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="isRecurring" className="flex items-center">
+                    <Repeat className="mr-2 h-4 w-4 text-muted-foreground"/> Recurring Meeting
+                  </Label>
+                  <Switch id="isRecurring" checked={newMeetingIsRecurring} onCheckedChange={setNewMeetingIsRecurring} disabled={isSubmitting}/>
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label htmlFor="department">Department (Optional)</Label>
+                  <div className="relative">
+                    <Briefcase className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                    <Input id="department" value={newMeetingDepartment} onChange={(e) => setNewMeetingDepartment(e.target.value)} placeholder="Select Department" className="pl-9" disabled={isSubmitting}/>
+                  </div>
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="participants">Participants</Label>
+                   <div className="relative">
+                    <Users className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                    <Input id="participants" value={newMeetingParticipants} onChange={(e) => setNewMeetingParticipants(e.target.value)} placeholder="Select participants (e.g. Alice, Bob)" className="pl-9" disabled={isSubmitting}/>
+                  </div>
+                </div>
+                <div className="space-y-1.5">
+                    <Label>Meeting Type</Label>
+                    <Button variant="outline" className="w-full justify-start bg-primary/10 border-primary text-primary" disabled>
+                        <Video className="mr-2 h-4 w-4"/> Video Conference
+                    </Button>
                 </div>
               </div>
-              <DialogFooter>
+              <DialogFooter className="sm:justify-between">
                 <Button variant="outline" onClick={() => setIsScheduleDialogOpen(false)} disabled={isSubmitting}>Cancel</Button>
                 <Button onClick={handleScheduleMeeting} disabled={isSubmitting}>
                     {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
@@ -440,7 +489,7 @@ export default function MeetingsPage() {
                         </AlertDialog>
                     </div>
                     <CardDescription className="flex flex-col sm:flex-row sm:items-center sm:space-x-4 text-sm pt-1">
-                      <span className="flex items-center mb-1 sm:mb-0"><Clock className="mr-1 h-4 w-4" /> {meeting.dateTime.toLocaleDateString()} at {meeting.dateTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} ({meeting.durationMinutes} min)</span>
+                      <span className="flex items-center mb-1 sm:mb-0"><Clock className="mr-1 h-4 w-4" /> {meeting.dateTime.toLocaleDateString()} at {meeting.dateTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} ({calculateDuration(meeting.dateTime, meeting.endDateTime)})</span>
                       <span className="flex items-center"><Users className="mr-1 h-4 w-4" /> {meeting.participants.length > 0 ? meeting.participants.join(', ') : "No participants listed"}</span>
                     </CardDescription>
                   </CardHeader>
@@ -481,4 +530,3 @@ export default function MeetingsPage() {
     </div>
   );
 }
-

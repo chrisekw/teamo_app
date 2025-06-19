@@ -29,12 +29,20 @@ const meetingConverter: FirestoreDataConverter<Meeting, MeetingFirestoreData> = 
     if (meetingInput.dateTime && meetingInput.dateTime instanceof Date) {
       data.dateTime = Timestamp.fromDate(meetingInput.dateTime);
     }
+    if (meetingInput.endDateTime && meetingInput.endDateTime instanceof Date) {
+      data.endDateTime = Timestamp.fromDate(meetingInput.endDateTime);
+    }
     
     if (!meetingInput.id) { 
       data.createdAt = serverTimestamp();
     }
     data.updatedAt = serverTimestamp();
     
+    // Ensure optional fields that are undefined are not sent to Firestore
+    if (meetingInput.isRecurring === undefined) delete data.isRecurring;
+    if (meetingInput.department === undefined) delete data.department;
+    if (meetingInput.description === undefined) delete data.description;
+
     return data;
   },
   fromFirestore: (snapshot, options): Meeting => {
@@ -43,7 +51,9 @@ const meetingConverter: FirestoreDataConverter<Meeting, MeetingFirestoreData> = 
       id: snapshot.id,
       title: data.title,
       dateTime: data.dateTime instanceof Timestamp ? data.dateTime.toDate() : new Date(),
-      durationMinutes: data.durationMinutes,
+      endDateTime: data.endDateTime instanceof Timestamp ? data.endDateTime.toDate() : new Date(),
+      isRecurring: data.isRecurring || false,
+      department: data.department,
       participants: data.participants || [],
       description: data.description || "",
       createdAt: data.createdAt instanceof Timestamp ? data.createdAt.toDate() : new Date(),
@@ -105,7 +115,7 @@ export async function addMeetingForUser(
             type: "meeting-new",
             title: `New Meeting in ${officeName || 'Office'}: ${newMeeting.title}`,
             message: `${actorName} scheduled a meeting: "${newMeeting.title}" for ${newMeeting.dateTime.toLocaleDateString()} at ${newMeeting.dateTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}.`,
-            link: `/meetings`, // Meeting ID could be added: /meetings?meetingId=${newMeeting.id}
+            link: `/meetings?meetingId=${newMeeting.id}`,
             officeId: officeId,
             actorName: actorName,
             entityId: newMeeting.id,
@@ -131,6 +141,9 @@ export async function updateMeetingForUser(
    if (meetingData.dateTime && meetingData.dateTime instanceof Date) {
     updatePayload.dateTime = Timestamp.fromDate(meetingData.dateTime);
   }
+  if (meetingData.endDateTime && meetingData.endDateTime instanceof Date) {
+    updatePayload.endDateTime = Timestamp.fromDate(meetingData.endDateTime);
+  }
   await updateDoc(meetingDocRef, updatePayload);
 }
 
@@ -139,4 +152,3 @@ export async function deleteMeetingForUser(userId: string, meetingId: string): P
   const meetingDocRef = getMeetingDoc(userId, meetingId);
   await deleteDoc(meetingDocRef);
 }
-

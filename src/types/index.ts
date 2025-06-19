@@ -81,8 +81,10 @@ export type GoalFirestoreData = Omit<Goal, 'id' | 'deadline' | 'createdAt' | 'up
 export interface Meeting {
   id: string;
   title: string;
-  dateTime: Date;
-  durationMinutes: number;
+  dateTime: Date; // Start date and time
+  endDateTime: Date; // End date and time
+  isRecurring?: boolean;
+  department?: string;
   participants: string[];
   description?: string;
   createdAt?: Date;
@@ -90,8 +92,9 @@ export interface Meeting {
   userId?: string;
 }
 
-export type MeetingFirestoreData = Omit<Meeting, 'id' | 'dateTime' | 'createdAt' | 'updatedAt' | 'userId'> & {
+export type MeetingFirestoreData = Omit<Meeting, 'id' | 'dateTime' | 'endDateTime' | 'createdAt' | 'updatedAt' | 'userId'> & {
   dateTime: Timestamp;
+  endDateTime: Timestamp;
   createdAt?: Timestamp;
   updatedAt?: Timestamp;
 };
@@ -219,9 +222,9 @@ export interface ChatMessage {
   chatThreadId: string;
 }
 
-export type ChatMessageFirestoreData = Omit<ChatMessage, 'id' | 'timestamp' > & {
+export type ChatMessageFirestoreData = Omit<ChatMessage, 'id' | 'timestamp' | 'audioDataUrl' > & {
   timestamp: Timestamp;
-  audioDataUrl?: string; // Ensure this is part of Firestore data too
+  audioDataUrl?: string; 
 };
 
 
