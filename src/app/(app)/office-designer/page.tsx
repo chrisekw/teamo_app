@@ -115,7 +115,6 @@ export default function OfficeDesignerPage() {
     }
   }, [authLoading, user, fetchUserOffices]);
   
-  // Effect 1: Determine currentDisplayOfficeId based on URL and userOffices, and sync URL if needed.
   useEffect(() => {
     if (authLoading || isLoadingUserOffices || !user) return;
 
@@ -127,38 +126,36 @@ export default function OfficeDesignerPage() {
         if (currentDisplayOfficeId !== officeIdFromParams) {
           setCurrentDisplayOfficeId(officeIdFromParams);
         }
-      } else { // Invalid officeId in URL
+      } else { 
         if (userOffices.length > 0) {
           const defaultOfficeId = userOffices[0].id;
-          if (currentDisplayOfficeId !== defaultOfficeId || officeIdFromParams !== defaultOfficeId) { // Check if URL needs correction
+          if (currentDisplayOfficeId !== defaultOfficeId || officeIdFromParams !== defaultOfficeId) { 
             setCurrentDisplayOfficeId(defaultOfficeId);
             router.replace(`/office-designer?officeId=${defaultOfficeId}`, { scroll: false });
           }
-        } else { // No offices available
-          if (currentDisplayOfficeId !== null || officeIdFromParams) { // Check if URL needs correction
+        } else { 
+          if (currentDisplayOfficeId !== null || officeIdFromParams) { 
             setCurrentDisplayOfficeId(null);
             router.replace('/office-designer', { scroll: false });
           }
         }
       }
-    } else { // No officeId in URL
+    } else { 
       if (userOffices.length > 0) {
         const defaultOfficeId = userOffices[0].id;
-        if (currentDisplayOfficeId !== defaultOfficeId) { // Only update if truly different
+        if (currentDisplayOfficeId !== defaultOfficeId) { 
           setCurrentDisplayOfficeId(defaultOfficeId);
           router.replace(`/office-designer?officeId=${defaultOfficeId}`, { scroll: false });
         }
-      } else { // No offices, no URL param
+      } else { 
         if (currentDisplayOfficeId !== null) {
           setCurrentDisplayOfficeId(null);
-          // No router.replace needed if URL is already clean
         }
       }
     }
   }, [userOffices, searchParams, authLoading, isLoadingUserOffices, router, user, currentDisplayOfficeId]);
 
 
-  // Effect 2: Set activeOffice based on currentDisplayOfficeId
   useEffect(() => {
     if (currentDisplayOfficeId) {
       const officeToSetActive = userOffices.find(o => o.id === currentDisplayOfficeId);
@@ -167,7 +164,6 @@ export default function OfficeDesignerPage() {
           setActiveOffice(officeToSetActive);
         }
       } else if (activeOffice !== null) { 
-        // currentDisplayOfficeId is set, but office not found in userOffices (e.g., list changed)
         setActiveOffice(null);
       }
     } else {
@@ -185,13 +181,12 @@ export default function OfficeDesignerPage() {
     setPendingJoinRequests([]);
     try {
       const officeData = await getOfficeDetails(officeId);
-      if (!officeData) { // Office might have been deleted or access revoked
+      if (!officeData) { 
           toast({ variant: "destructive", title: "Error", description: "Selected office not found or inaccessible." });
-          setCurrentDisplayOfficeId(null); // This will trigger effect to clear activeOffice and URL
+          setCurrentDisplayOfficeId(null); 
           setUserOffices(prev => prev.filter(o => o.id !== officeId));
           return;
       }
-      // Note: setActiveOffice is handled by the effect listening to currentDisplayOfficeId
 
       const [rooms, members, requests] = await Promise.all([
         getRoomsForOffice(officeId),
@@ -204,18 +199,15 @@ export default function OfficeDesignerPage() {
     } catch (error: any) {
       console.error("Detailed error fetching office details:", error);
       toast({ variant: "destructive", title: "Fetch Error", description: `Could not fetch office details. ${error?.message || 'Unknown error'}` });
-      // Don't clear activeOffice here, let the displayId logic handle it if office becomes invalid
     } finally {
       setIsLoadingDetails(false);
     }
-  }, [toast]); // Removed setUserOffices from deps as it's handled upstream
+  }, [toast]);
 
-  // Effect 3: Fetch details when activeOffice is set (and valid)
   useEffect(() => {
     if (activeOffice && user) {
       fetchActiveOfficeDetails(activeOffice.id, user.uid);
     } else {
-      // Clear details if no active office or user
       setActiveOfficeRooms([]);
       setActiveOfficeMembers([]);
       setPendingJoinRequests([]);
@@ -447,21 +439,20 @@ export default function OfficeDesignerPage() {
     }
   };
 
-  const handleProcessJoinRequest = async (request: OfficeJoinRequest, action: 'approve' | 'reject') => {
+  const handleProcessJoinRequest = async (request: OfficeJoinRequest, actionToTake: 'approve' | 'reject') => {
     if (!activeOffice || !user) return;
     setProcessingRequestId(request.id);
     try {
-      if (action === 'approve') {
+      if (actionToTake === 'approve') {
         await approveJoinRequest(activeOffice.id, request.id, user.uid, user.displayName || "User");
         toast({ title: "Request Approved", description: `${request.requesterName} has been added to the office.` });
       } else {
         await rejectJoinRequest(activeOffice.id, request.id, user.uid, user.displayName || "User");
         toast({ title: "Request Rejected", description: `${request.requesterName}'s request has been rejected.` });
       }
-      // Re-fetch details to update member list and pending requests
       fetchActiveOfficeDetails(activeOffice.id, user.uid); 
     } catch (error: any) {
-      toast({ variant: "destructive", title: `Error ${action === 'approve' ? 'Approving' : 'Rejecting'} Request`, description: error.message });
+      toast({ variant: "destructive", title: `Error ${actionToTake === 'approve' ? 'Approving' : 'Rejecting'} Request`, description: error.message });
     } finally {
       setProcessingRequestId(null);
     }
@@ -479,13 +470,13 @@ export default function OfficeDesignerPage() {
     return <div className="container mx-auto p-8 text-center"><Loader2 className="h-12 w-12 animate-spin text-primary"/></div>;
   }
 
-  if (!activeOffice && !isCreateOfficeDialogOpen && userOffices.length === 0) { // Adjusted condition
+  if (!activeOffice && !isCreateOfficeDialogOpen && userOffices.length === 0) { 
     return (
       <div className="container mx-auto p-4 sm:p-6 lg:p-8 flex flex-col items-center">
         <Building className="h-16 w-16 text-primary mb-6" />
         <h1 className="text-3xl font-headline font-bold mb-4 text-center">Virtual Office Hub</h1>
         
-        {userOffices.length > 0 && ( // This block will not render if userOffices.length === 0
+        {userOffices.length > 0 && ( 
           <Card className="w-full max-w-lg mb-8 shadow-lg">
             <CardHeader>
               <CardTitle className="font-headline">Your Offices</CardTitle>
@@ -512,20 +503,15 @@ export default function OfficeDesignerPage() {
             <KeyRound className="mr-2 h-5 w-5" /> Join with Code
           </Button>
         </div>
-
-        {/* Dialogs for create/join moved outside the conditional return */}
       </div>
     );
   }
   
   if(!activeOffice && userOffices.length > 0 && !currentDisplayOfficeId && !isLoadingDetails) {
-     // This state might occur briefly while the first effect determines the default
      return <div className="container mx-auto p-8 text-center"><Loader2 className="h-12 w-12 animate-spin text-primary"/></div>;
   }
 
   if (!activeOffice && !isCreateOfficeDialogOpen) {
-     // Fallback if no active office and not creating one (e.g., after clearing URL and no defaults)
-     // Or simply display list of offices if any exist
      return (
         <div className="container mx-auto p-4 sm:p-6 lg:p-8 flex flex-col items-center">
             <Building className="h-16 w-16 text-primary mb-6" />
@@ -557,11 +543,23 @@ export default function OfficeDesignerPage() {
      );
   }
 
-
   const currentUserIsOwner = activeOffice?.ownerId === user?.uid;
 
   return (
     <div className="container mx-auto p-4 sm:p-6 lg:p-8 space-y-8">
+      {activeOffice && (
+        <div className="mb-2 rounded-lg overflow-hidden shadow-lg aspect-[16/5] sm:aspect-[16/4] md:aspect-[16/3] relative bg-muted">
+          <Image 
+            src={activeOffice.bannerUrl || `https://placehold.co/800x300.png?text=${encodeURIComponent(activeOffice.name.substring(0,15) || 'Office Banner')}`} 
+            alt={`${activeOffice.name} Banner`} 
+            layout="fill" 
+            objectFit="cover" 
+            data-ai-hint={activeOffice.bannerUrl ? "office banner background" : "default office banner"}
+            priority
+          />
+        </div>
+      )}
+
       {/* Create Office Dialog */}
       <Dialog open={isCreateOfficeDialogOpen} onOpenChange={(isOpen) => { if (!isSubmitting) setIsCreateOfficeDialogOpen(isOpen); if(!isOpen) resetCreateOfficeForm(); }}>
           <DialogContent className="sm:max-w-md">
@@ -632,17 +630,6 @@ export default function OfficeDesignerPage() {
 
       {activeOffice && (
         <>
-            <div className="mb-2 rounded-lg overflow-hidden shadow-lg aspect-[16/5] sm:aspect-[16/4] md:aspect-[16/3] relative bg-muted">
-            <Image 
-                src={activeOffice.bannerUrl || `https://placehold.co/800x300.png?text=${encodeURIComponent(activeOffice.name.substring(0,15) || 'Office Banner')}`} 
-                alt={`${activeOffice.name} Banner`} 
-                layout="fill" 
-                objectFit="cover" 
-                data-ai-hint={activeOffice.bannerUrl ? "office banner background" : "default office banner"}
-                priority
-            />
-            </div>
-
             <Card className="shadow-xl -mt-16 sm:-mt-20 md:-mt-24 relative z-10 mx-auto max-w-5xl bg-card/90 backdrop-blur-sm">
                 <CardContent className="p-6">
                     <div className="flex flex-col sm:flex-row items-start sm:items-end space-y-4 sm:space-y-0 sm:space-x-6">
@@ -702,7 +689,7 @@ export default function OfficeDesignerPage() {
                                                 disabled={processingRequestId === request.id || isSubmitting}
                                                 className="hover:bg-destructive/10 hover:text-destructive"
                                             >
-                                                {processingRequestId === request.id && action === 'reject' && <Loader2 className="mr-1 h-4 w-4 animate-spin"/>}
+                                                {processingRequestId === request.id && <Loader2 className="mr-1 h-4 w-4 animate-spin"/>}
                                                 <UserX className="mr-1 h-4 w-4"/> Reject
                                             </Button>
                                             <Button 
@@ -711,7 +698,7 @@ export default function OfficeDesignerPage() {
                                                 disabled={processingRequestId === request.id || isSubmitting}
                                                 className="hover:bg-green-500/90 bg-green-600 text-white"
                                             >
-                                               {processingRequestId === request.id && action === 'approve' && <Loader2 className="mr-1 h-4 w-4 animate-spin"/>}
+                                               {processingRequestId === request.id && <Loader2 className="mr-1 h-4 w-4 animate-spin"/>}
                                                 <UserCheck className="mr-1 h-4 w-4"/> Approve
                                             </Button>
                                         </div>
