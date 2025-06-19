@@ -113,7 +113,7 @@ export default function OfficeDesignerPage() {
     }
   }, [authLoading, user, fetchUserOffices]);
   
-  useEffect(() => {
+   useEffect(() => {
     if (authLoading || isLoading) return; 
 
     const officeIdFromParams = searchParams.get('officeId');
@@ -126,15 +126,16 @@ export default function OfficeDesignerPage() {
         }
         return; 
       } else if (userOffices.length > 0 && !activeOffice) {
-         // If officeIdFromParams not found in userOffices, default to first if available
          setActiveOffice(userOffices[0]);
+         router.replace(`/office-designer?officeId=${userOffices[0].id}`, { scroll: false });
       } else if (userOffices.length === 0) {
-        setActiveOffice(null); // No offices, ensure activeOffice is null
+        setActiveOffice(null); 
       }
     } else if (!activeOffice && userOffices.length > 0) {
-       setActiveOffice(userOffices[0]); 
+       setActiveOffice(userOffices[0]);
+       router.replace(`/office-designer?officeId=${userOffices[0].id}`, { scroll: false });
     } else if (userOffices.length === 0) {
-        setActiveOffice(null); // Explicitly set to null if no offices and no param
+        setActiveOffice(null);
     }
   }, [userOffices, activeOffice, searchParams, authLoading, isLoading, router]);
 
@@ -149,7 +150,6 @@ export default function OfficeDesignerPage() {
           setUserOffices(prev => prev.filter(o => o.id !== officeId));
           return;
       }
-      // Update activeOffice state with the potentially fresher data from getOfficeDetails
       setActiveOffice(officeData); 
 
       const [rooms, members, requests] = await Promise.all([
@@ -162,7 +162,7 @@ export default function OfficeDesignerPage() {
       setPendingJoinRequests(requests);
     } catch (error: any) {
       console.error("Detailed error fetching office details:", error);
-      toast({ variant: "destructive", title: "Error", description: `Could not fetch office details. ${error.message || ""}` });
+      toast({ variant: "destructive", title: "Fetch Error", description: `Could not fetch office details. ${error?.message || 'Unknown error'}` });
       setActiveOfficeRooms([]); 
       setActiveOfficeMembers([]);
       setPendingJoinRequests([]);
@@ -188,8 +188,8 @@ export default function OfficeDesignerPage() {
       setPendingJoinRequests([]);
       setIsLoadingDetails(false); 
       const officeIdFromParams = searchParams.get('officeId');
-       if (officeIdFromParams) { // If there was an ID in param but activeOffice became null
-         router.replace('/office-designer', { scroll: false }); // Clear param
+       if (officeIdFromParams) { 
+         router.replace('/office-designer', { scroll: false }); 
        }
     }
   }, [activeOffice, user, fetchActiveOfficeDetails, router, searchParams]);
@@ -251,7 +251,7 @@ export default function OfficeDesignerPage() {
     }
     setIsSubmitting(true);
     const logoUrlPlaceholder = newOfficeLogoFile ? `https://placehold.co/100x100.png?text=${newOfficeCompanyName.substring(0,3) || 'LOGO'}` : undefined;
-    const bannerUrlPlaceholder = newOfficeBannerFile ? `https://placehold.co/800x200.png?text=${newOfficeName.substring(0,6) || 'BANNER'}` : undefined;
+    const bannerUrlPlaceholder = newOfficeBannerFile ? `https://placehold.co/800x200.png?text=${newOfficeName.substring(0,10) || 'BANNER'}` : undefined;
 
     try {
       const newOffice = await createOffice(
@@ -430,7 +430,6 @@ export default function OfficeDesignerPage() {
         await rejectJoinRequest(activeOffice.id, request.id, user.uid, user.displayName || "User");
         toast({ title: "Request Rejected", description: `${request.requesterName}'s request has been rejected.` });
       }
-      // Re-fetch all details to update lists (members and join requests)
       fetchActiveOfficeDetails(activeOffice.id, user.uid);
     } catch (error: any) {
       toast({ variant: "destructive", title: `Error ${action === 'approve' ? 'Approving' : 'Rejecting'} Request`, description: error.message });
@@ -555,7 +554,6 @@ export default function OfficeDesignerPage() {
   }
   
   if(!activeOffice) {
-    // This state can happen if officeId in URL is invalid or user has no offices and hasn't created one yet
     return <div className="container mx-auto p-8 text-center"><Info className="h-12 w-12 text-primary mx-auto mb-4"/><p>Select an office or create a new one to get started.</p></div>;
   }
 
@@ -565,11 +563,25 @@ export default function OfficeDesignerPage() {
     <div className="container mx-auto p-4 sm:p-6 lg:p-8 space-y-8">
       {activeOffice.bannerUrl ? (
         <div className="mb-2 rounded-lg overflow-hidden shadow-lg aspect-[16/5] sm:aspect-[16/4] md:aspect-[16/3] relative bg-muted">
-          <Image src={activeOffice.bannerUrl} alt={`${activeOffice.name} Banner`} layout="fill" objectFit="cover" data-ai-hint="office banner background"/>
+          <Image 
+            src={activeOffice.bannerUrl} 
+            alt={`${activeOffice.name} Banner`} 
+            layout="fill" 
+            objectFit="cover" 
+            data-ai-hint="office banner background"
+            priority
+          />
         </div>
       ) : (
-        <div className="mb-2 rounded-lg aspect-[16/5] sm:aspect-[16/4] md:aspect-[16/3] relative bg-muted/50 flex items-center justify-center">
-          <ImageIcon className="h-16 w-16 text-muted-foreground" />
+        <div className="mb-2 rounded-lg overflow-hidden shadow-lg aspect-[16/5] sm:aspect-[16/4] md:aspect-[16/3] relative bg-muted">
+          <Image 
+            src={`https://placehold.co/800x300.png?text=${encodeURIComponent(activeOffice.name.substring(0,15) || 'Office Banner')}`} 
+            alt={`${activeOffice.name} Default Banner`} 
+            layout="fill" 
+            objectFit="cover" 
+            data-ai-hint="default office banner"
+            priority
+          />
         </div>
       )}
 
@@ -874,4 +886,6 @@ export default function OfficeDesignerPage() {
     </div>
   );
 }
+    
+
     
