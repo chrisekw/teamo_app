@@ -143,12 +143,14 @@ export type RoomFirestoreData = Omit<Room, 'id' | 'officeId' | 'createdAt' | 'up
 export interface OfficeMember {
   userId: string;
   name: string;
-  role: MemberRole;
+  role: MemberRole; // System role (Owner, Admin, Member)
+  workRole?: string; // Professional/functional role (e.g., Developer, Marketer)
   avatarUrl?: string;
   joinedAt?: Date;
 }
 
 export type OfficeMemberFirestoreData = Omit<OfficeMember, 'joinedAt' | 'userId'> & {
+  workRole?: string;
   joinedAt?: Timestamp;
 };
 
@@ -206,7 +208,7 @@ export type ActivityLogItemFirestoreData = Omit<ActivityLogItem, 'id' | 'timesta
 export interface ChatUser {
   id: string;
   name: string;
-  role: string;
+  role: string; // This can be MemberRole or a custom string like 'User'
   avatarUrl?: string;
 }
 

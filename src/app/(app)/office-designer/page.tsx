@@ -10,7 +10,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { PlusCircle, Trash2, Users, Briefcase, Coffee, Zap, Building, KeyRound, UserPlus, Copy, Settings2, ShieldCheck, UserCircle as UserIconLucide, Loader2, Edit, Info, Image as ImageIcon, MoreHorizontal, ExternalLink, UserCheck, UserX, CheckSquare, XSquare, Video, Tag, Layers, ImageUp } from "lucide-react";
+import { PlusCircle, Trash2, Users, Briefcase, Coffee, Zap, Building, KeyRound, UserPlus, Copy, Settings2, ShieldCheck, UserCircle as UserIconLucide, Loader2, Edit, Info, Image as ImageIcon, MoreHorizontal, ExternalLink, UserCheck, UserX, CheckSquare, XSquare, Video, Tag, Layers, ImageUp, Award } from "lucide-react";
 import Image from "next/image";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -23,21 +23,21 @@ import { useAuth } from "@/lib/firebase/auth";
 import type { Office, Room, OfficeMember, RoomType, MemberRole, OfficeJoinRequest, ChatUser } from "@/types";
 import {
   createOffice,
-  onUserOfficesUpdate, // Changed
-  getOfficeDetails, // Kept for initial load if needed, or for non-active office details
+  onUserOfficesUpdate, 
+  getOfficeDetails, 
   addRoomToOffice,
-  onRoomsUpdate, // Changed
+  onRoomsUpdate, 
   deleteRoomFromOffice,
-  onMembersUpdate, // Changed
-  updateMemberRoleInOffice,
+  onMembersUpdate, 
+  updateMemberDetailsInOffice, // Changed from updateMemberRoleInOffice
   removeMemberFromOffice,
   requestToJoinOfficeByCode,
-  onPendingJoinRequestsUpdate, // Changed
+  onPendingJoinRequestsUpdate, 
   approveJoinRequest,
   rejectJoinRequest
 } from "@/lib/firebase/firestore/offices";
 import { Textarea } from "@/components/ui/textarea";
-import type { Unsubscribe } from 'firebase/firestore'; // Added
+import type { Unsubscribe } from 'firebase/firestore'; 
 
 const roomTypeDetails: Record<RoomType, { icon: React.ElementType; defaultName: string, imageHint: string, iconName: string }> = {
   "Team Hub": { icon: Users, defaultName: "Team Hub", imageHint: "team collaboration", iconName: "Users" },
@@ -67,7 +67,7 @@ export default function OfficeDesignerPage() {
   const [pendingJoinRequests, setPendingJoinRequests] = useState<OfficeJoinRequest[]>([]);
 
   const [isLoadingUserOffices, setIsLoadingUserOffices] = useState(true);
-  const [isLoadingDetails, setIsLoadingDetails] = useState(false); // For rooms, members, requests
+  const [isLoadingDetails, setIsLoadingDetails] = useState(false); 
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const [isCreateOfficeDialogOpen, setIsCreateOfficeDialogOpen] = useState(false);
@@ -89,14 +89,14 @@ export default function OfficeDesignerPage() {
   const [selectedRoomType, setSelectedRoomType] = useState<RoomType | undefined>();
   const [newRoomName, setNewRoomName] = useState("");
   const [managingMember, setManagingMember] = useState<OfficeMember | null>(null);
-  const [selectedRole, setSelectedRole] = useState<MemberRole>("Member");
+  const [selectedSystemRole, setSelectedSystemRole] = useState<MemberRole>("Member");
+  const [selectedWorkRole, setSelectedWorkRole] = useState<string>("");
   const [deletingMember, setDeletingMember] = useState<OfficeMember | null>(null);
   const [deletingRoom, setDeletingRoom] = useState<Room | null>(null);
   const [processingRequestId, setProcessingRequestId] = useState<string | null>(null);
 
   const [currentDisplayOfficeId, setCurrentDisplayOfficeId] = useState<string | null>(null);
 
-  // Listener for user's offices
   useEffect(() => {
     if (user && !authLoading) {
       setIsLoadingUserOffices(true);
@@ -169,27 +169,24 @@ export default function OfficeDesignerPage() {
     }
   }, [currentDisplayOfficeId, userOffices, activeOffice]);
 
-  // Listeners for active office details
   useEffect(() => {
     if (activeOffice && user) {
       setIsLoadingDetails(true);
       const unsubRooms = onRoomsUpdate(activeOffice.id, (rooms) => {
         setActiveOfficeRooms(rooms);
-        // setIsLoadingDetails(false); // Wait for all listeners to provide initial data
       });
       const unsubMembers = onMembersUpdate(activeOffice.id, (members) => {
         setActiveOfficeMembers(members);
-        // setIsLoadingDetails(false);
       });
       let unsubRequests: Unsubscribe = () => {};
       if (activeOffice.ownerId === user.uid) {
         unsubRequests = onPendingJoinRequestsUpdate(activeOffice.id, (requests) => {
           setPendingJoinRequests(requests);
-          setIsLoadingDetails(false); // Set loading false after all initial data might have arrived
+          setIsLoadingDetails(false); 
         });
       } else {
         setPendingJoinRequests([]);
-        setIsLoadingDetails(false); // If not owner, no requests to load
+        setIsLoadingDetails(false); 
       }
 
       return () => {
@@ -272,10 +269,9 @@ export default function OfficeDesignerPage() {
         newOfficeName,
         newOfficeSector || undefined,
         newOfficeCompanyName || undefined,
-        logoUrlPlaceholder, // Actual upload to Firebase Storage would be done here
-        bannerUrlPlaceholder // Actual upload to Firebase Storage would be done here
+        logoUrlPlaceholder, 
+        bannerUrlPlaceholder 
       );
-      // setUserOffices will update via onUserOfficesUpdate listener
       handleSetActiveOffice(newOffice);
       resetCreateOfficeForm();
       setIsCreateOfficeDialogOpen(false);
@@ -301,7 +297,7 @@ export default function OfficeDesignerPage() {
         id: user.uid,
         name: user.displayName || user.email?.split('@')[0] || "Anonymous User",
         avatarUrl: user.photoURL || undefined,
-        role: "User"
+        role: "User" 
     };
     try {
       const result = await requestToJoinOfficeByCode(joinOfficeCode, requesterUser);
@@ -332,7 +328,6 @@ export default function OfficeDesignerPage() {
         iconName: details.iconName,
       };
       const addedRoom = await addRoomToOffice(activeOffice.id, newRoomData, user.uid, user.displayName || "User");
-      // setActiveOfficeRooms will update via onRoomsUpdate listener
       setNewRoomName("");
       setSelectedRoomType(undefined);
       setIsAddRoomDialogOpen(false);
@@ -354,7 +349,6 @@ export default function OfficeDesignerPage() {
     setIsSubmitting(true);
     try {
       await deleteRoomFromOffice(activeOffice.id, deletingRoom.id, user.uid, user.displayName || "User");
-      // setActiveOfficeRooms will update via onRoomsUpdate listener
       toast({ title: "Room Deleted", description: `The room "${deletingRoom.name}" has been removed.` });
     } catch (error: any) {
       toast({ variant: "destructive", title: "Error Deleting Room", description: error.message });
@@ -367,27 +361,45 @@ export default function OfficeDesignerPage() {
 
   const handleOpenManageMemberDialog = (member: OfficeMember) => {
     if (member.userId === user?.uid && member.role === "Owner") {
-        toast({title: "Information", description: "Owners cannot change their own role."});
-        return;
+        toast({title: "Information", description: "Owners cannot change their own system role."});
+        // Allow managing own work role
     }
     setManagingMember(member);
-    setSelectedRole(member.role);
+    setSelectedSystemRole(member.role);
+    setSelectedWorkRole(member.workRole || "");
     setIsManageMemberDialogOpen(true);
   };
 
-  const handleSaveMemberRole = async () => {
+  const handleSaveMemberDetails = async () => {
     if (!activeOffice || !managingMember || !user) return;
-    if (managingMember.userId === activeOffice.ownerId && selectedRole !== "Owner") {
-        toast({ variant: "destructive", title: "Action Denied", description: "The office owner's role cannot be changed from Owner."});
+
+    if (managingMember.userId === activeOffice.ownerId && selectedSystemRole !== "Owner") {
+        toast({ variant: "destructive", title: "Action Denied", description: "The office owner's system role cannot be changed from Owner."});
         return;
     }
+
     setIsSubmitting(true);
+    const detailsToUpdate: { role?: MemberRole; workRole?: string | null } = {};
+    if (managingMember.role !== selectedSystemRole) {
+        detailsToUpdate.role = selectedSystemRole;
+    }
+    if (managingMember.workRole !== selectedWorkRole) {
+        detailsToUpdate.workRole = selectedWorkRole.trim() === "" ? null : selectedWorkRole.trim();
+    }
+
+    if (Object.keys(detailsToUpdate).length === 0) {
+        toast({title: "No Changes", description: "No details were modified."});
+        setIsSubmitting(false);
+        setIsManageMemberDialogOpen(false);
+        setManagingMember(null);
+        return;
+    }
+
     try {
-      await updateMemberRoleInOffice(activeOffice.id, managingMember.userId, selectedRole, user.uid, user.displayName || "User");
-      // setActiveOfficeMembers will update via onMembersUpdate listener
-      toast({ title: "Role Updated", description: `${managingMember.name}'s role changed to ${selectedRole}.`});
+      await updateMemberDetailsInOffice(activeOffice.id, managingMember.userId, detailsToUpdate, user.uid, user.displayName || "User");
+      toast({ title: "Member Details Updated", description: `${managingMember.name}'s details have been updated.`});
     } catch (error: any) {
-       toast({ variant: "destructive", title: "Error Updating Role", description: error.message });
+       toast({ variant: "destructive", title: "Error Updating Details", description: error.message });
     } finally {
       setIsSubmitting(false);
       setIsManageMemberDialogOpen(false);
@@ -417,7 +429,6 @@ export default function OfficeDesignerPage() {
     setIsSubmitting(true);
     try {
       await removeMemberFromOffice(activeOffice.id, deletingMember.userId, user.uid, user.displayName || "User");
-      // setActiveOfficeMembers will update via onMembersUpdate listener
       toast({ title: "Member Removed", description: `"${deletingMember.name}" has been removed from the office.` });
     } catch (error: any) {
       toast({ variant: "destructive", title: "Error Removing Member", description: error.message });
@@ -439,7 +450,6 @@ export default function OfficeDesignerPage() {
         await rejectJoinRequest(activeOffice.id, request.id, user.uid, user.displayName || "User");
         toast({ title: "Request Rejected", description: `${request.requesterName}'s request has been rejected.` });
       }
-      // Data will refresh via onPendingJoinRequestsUpdate and onMembersUpdate listeners
     } catch (error: any) {
       toast({ variant: "destructive", title: `Error ${actionToTake === 'approve' ? 'Approving' : 'Rejecting'} Request`, description: error.message });
     } finally {
@@ -781,7 +791,7 @@ export default function OfficeDesignerPage() {
                         ) : (
                             activeOfficeMembers.map((member) => {
                             const RoleIcon = roleIcons[member.role] || UserIconLucide;
-                            const canManageMember = currentUserIsOwner && member.userId !== user?.uid;
+                            const canManageMember = currentUserIsOwner; // Owner can manage all members
                             return (
                             <div key={member.userId} className="flex items-center space-x-3 p-2.5 rounded-md hover:bg-muted/50 transition-colors">
                                 <Avatar className="h-10 w-10">
@@ -789,11 +799,14 @@ export default function OfficeDesignerPage() {
                                 <AvatarFallback>{member.name.substring(0,2).toUpperCase()}</AvatarFallback>
                                 </Avatar>
                                 <div className="flex-1">
-                                <p className="font-medium text-sm">{member.name}</p>
-                                <Badge variant={member.role === "Owner" ? "default" : member.role === "Admin" ? "secondary" : "outline"} className="text-xs">
-                                    <RoleIcon className="mr-1 h-3 w-3" />
-                                    {member.role}
-                                </Badge>
+                                    <p className="font-medium text-sm">{member.name}</p>
+                                    <div className="flex items-center space-x-2">
+                                        <Badge variant={member.role === "Owner" ? "default" : member.role === "Admin" ? "secondary" : "outline"} className="text-xs">
+                                            <RoleIcon className="mr-1 h-3 w-3" />
+                                            {member.role}
+                                        </Badge>
+                                        {member.workRole && <Badge variant="outline" className="text-xs bg-accent/20 border-accent/50 text-accent-foreground/80">{member.workRole}</Badge>}
+                                    </div>
                                 </div>
                                 {canManageMember && (
                                     <DropdownMenu>
@@ -804,11 +817,13 @@ export default function OfficeDesignerPage() {
                                     </DropdownMenuTrigger>
                                     <DropdownMenuContent align="end">
                                         <DropdownMenuItem onClick={() => handleOpenManageMemberDialog(member)} disabled={isSubmitting}>
-                                        <Edit className="mr-2 h-4 w-4" /> Manage Role
+                                        <Edit className="mr-2 h-4 w-4" /> Manage Member
                                         </DropdownMenuItem>
+                                        {member.role !== "Owner" && ( // Prevent deleting owner
                                         <DropdownMenuItem onClick={() => openDeleteMemberDialog(member)} className="text-destructive focus:bg-destructive/10 focus:text-destructive" disabled={isSubmitting}>
-                                        <Trash2 className="mr-2 h-4 w-4" /> Remove Member
+                                            <Trash2 className="mr-2 h-4 w-4" /> Remove Member
                                         </DropdownMenuItem>
+                                        )}
                                     </DropdownMenuContent>
                                     </DropdownMenu>
                                 )}
@@ -865,29 +880,34 @@ export default function OfficeDesignerPage() {
 
       {managingMember && (
         <Dialog open={isManageMemberDialogOpen} onOpenChange={(open) => { if(!isSubmitting){ setIsManageMemberDialogOpen(open); if (!open) setManagingMember(null);}}}>
-          <DialogContent className="sm:max-w-[425px]">
+          <DialogContent className="sm:max-w-md">
             <DialogHeader>
               <DialogTitle className="font-headline">Manage {managingMember.name}</DialogTitle>
-              <DialogDescription>Change their role in the office.</DialogDescription>
+              <DialogDescription>Update their system role and work role in the office.</DialogDescription>
             </DialogHeader>
-            <div className="space-y-4 py-4">
+            <div className="space-y-4 py-4 max-h-[70vh] overflow-y-auto pr-2">
               <div className="space-y-1.5">
-                <Label htmlFor="memberRole" className="flex items-center"><ShieldCheck className="mr-2 h-4 w-4 text-muted-foreground"/>Role</Label>
-                <Select value={selectedRole} onValueChange={(value) => setSelectedRole(value as MemberRole)} disabled={isSubmitting || managingMember.role === "Owner"}>
-                  <SelectTrigger id="memberRole">
-                    <SelectValue placeholder="Select role" />
+                <Label htmlFor="memberSystemRole" className="flex items-center"><ShieldCheck className="mr-2 h-4 w-4 text-muted-foreground"/>System Role</Label>
+                <Select value={selectedSystemRole} onValueChange={(value) => setSelectedSystemRole(value as MemberRole)} disabled={isSubmitting || managingMember.role === "Owner" && managingMember.userId === user?.uid || managingMember.role === "Owner" && managingMember.userId === activeOffice?.ownerId }>
+                  <SelectTrigger id="memberSystemRole">
+                    <SelectValue placeholder="Select system role" />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="Admin">Admin</SelectItem>
                     <SelectItem value="Member">Member</SelectItem>
-                    {managingMember.role === "Owner" && <SelectItem value="Owner" disabled>Owner (Cannot change)</SelectItem>}
+                    {(managingMember.role === "Owner") && <SelectItem value="Owner" disabled>Owner (Cannot change)</SelectItem>}
                   </SelectContent>
                 </Select>
+                 { (managingMember.role === "Owner" && managingMember.userId === user?.uid || managingMember.role === "Owner" && managingMember.userId === activeOffice?.ownerId ) && <p className="text-xs text-muted-foreground">The office owner's system role cannot be changed.</p> }
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="memberWorkRole" className="flex items-center"><Award className="mr-2 h-4 w-4 text-muted-foreground"/>Work Role (Optional)</Label>
+                <Input id="memberWorkRole" value={selectedWorkRole} onChange={(e) => setSelectedWorkRole(e.target.value)} placeholder="e.g., Developer, Designer" disabled={isSubmitting}/>
               </div>
             </div>
             <DialogFooter>
               <Button variant="outline" onClick={() => {setIsManageMemberDialogOpen(false); setManagingMember(null);}} disabled={isSubmitting}>Cancel</Button>
-              <Button onClick={handleSaveMemberRole} disabled={isSubmitting || managingMember.role === "Owner" || managingMember.role === selectedRole}>
+              <Button onClick={handleSaveMemberDetails} disabled={isSubmitting || (managingMember.role === "Owner" && managingMember.userId === activeOffice?.ownerId && selectedSystemRole === "Owner" && managingMember.workRole === selectedWorkRole) }>
                  {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin"/>} Save Changes
               </Button>
             </DialogFooter>

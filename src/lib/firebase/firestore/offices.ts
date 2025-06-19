@@ -18,7 +18,9 @@ import {
   orderBy,
   writeBatch,
   onSnapshot, // Added
-  type Unsubscribe // Added
+  type Unsubscribe, // Added
+  deleteField, // Added for removing fields
+  type FieldValue
 } from 'firebase/firestore';
 import type { Office, OfficeFirestoreData, Room, RoomFirestoreData, OfficeMember, OfficeMemberFirestoreData, RoomType, MemberRole, OfficeJoinRequest, OfficeJoinRequestFirestoreData, ChatUser, OfficeJoinRequestStatus } from '@/types';
 import { addActivityLog } from './activity';
@@ -80,20 +82,28 @@ const roomConverter: FirestoreDataConverter<Room, RoomFirestoreData> = {
 
 const officeMemberConverter: FirestoreDataConverter<OfficeMember, OfficeMemberFirestoreData> = {
   toFirestore: (memberInput: Partial<OfficeMember>): DocumentData => {
-    const data: any = { ...memberInput };
-    if (data.hasOwnProperty('userId')) delete data.userId;
+    const data: any = {}; // Start with an empty object for updates
 
-    if (!memberInput.joinedAt) data.joinedAt = serverTimestamp();
-    else if (memberInput.joinedAt instanceof Date) data.joinedAt = Timestamp.fromDate(memberInput.joinedAt);
+    // Only include fields that are explicitly part of memberInput
+    if (memberInput.hasOwnProperty('name')) data.name = memberInput.name;
+    if (memberInput.hasOwnProperty('role')) data.role = memberInput.role;
+    if (memberInput.hasOwnProperty('workRole')) {
+        data.workRole = memberInput.workRole === null || memberInput.workRole === '' ? deleteField() : memberInput.workRole;
+    }
+    if (memberInput.hasOwnProperty('avatarUrl')) {
+        data.avatarUrl = memberInput.avatarUrl === null ? deleteField() : memberInput.avatarUrl;
+    }
 
-    if (memberInput.avatarUrl === undefined) {
-        delete data.avatarUrl;
-    } else {
-        data.avatarUrl = memberInput.avatarUrl;
+    // joinedAt should only be set on creation, not general updates.
+    // If memberInput.joinedAt is a Date, it means it's likely from a read operation,
+    // or an explicit desire to set it (though rare for updates).
+    if (memberInput.joinedAt instanceof Date) {
+      data.joinedAt = Timestamp.fromDate(memberInput.joinedAt);
     }
-    if (memberInput.hasOwnProperty('invitationCodeUsedToJoin')) {
-      data.invitationCodeUsedToJoin = (memberInput as any).invitationCodeUsedToJoin;
-    }
+    // If it's for a new document and joinedAt is not provided, Firestore will set it if this converter is used with `addDoc`
+    // and the logic in `addDoc` for members sets `joinedAt: serverTimestamp()` for new members.
+    // For `updateDoc`, if `joinedAt` is not in `memberInput`, it won't be touched.
+
     return data;
   },
   fromFirestore: (snapshot, options): OfficeMember => {
@@ -102,6 +112,7 @@ const officeMemberConverter: FirestoreDataConverter<OfficeMember, OfficeMemberFi
       userId: snapshot.id,
       name: data.name,
       role: data.role as MemberRole,
+      workRole: data.workRole,
       avatarUrl: data.avatarUrl,
       joinedAt: data.joinedAt instanceof Timestamp ? data.joinedAt.toDate() : new Date(),
     };
@@ -183,10 +194,12 @@ export async function createOffice(
 
   const newOfficeDocRef = await addDoc(officesCol(), newOfficeData as Office);
 
-  const ownerMemberData: Omit<OfficeMember, 'joinedAt' | 'userId'> = {
+  // For creating a member, we explicitly include joinedAt as serverTimestamp
+  const ownerMemberData = {
     name: currentUserName,
-    role: "Owner",
+    role: "Owner" as MemberRole,
     avatarUrl: currentUserAvatar,
+    joinedAt: serverTimestamp() 
   };
   await setDoc(memberDocRef(newOfficeDocRef.id, currentUserId), ownerMemberData);
   await setDoc(doc(userOfficesCol(currentUserId), newOfficeDocRef.id), { officeId: newOfficeDocRef.id, officeName: officeName, role: "Owner", joinedAt: serverTimestamp() });
@@ -332,10 +345,12 @@ export async function approveJoinRequest(
     processedBy: approverUserId,
   });
 
-  const newMemberData: Omit<OfficeMember, 'joinedAt' | 'userId'> = {
+  // Explicitly set joinedAt on creation
+  const newMemberData = {
     name: requestData.requesterName,
     role: roleToAssign,
-    avatarUrl: requestData.requesterAvatarUrl,
+    avatarUrl: requestData.requesterAvatarUrl || undefined, // Ensure it's undefined if null/empty
+    joinedAt: serverTimestamp()
   };
   batch.set(memberDocRef(officeId, requestData.requesterId), newMemberData);
 
@@ -423,10 +438,29 @@ export async function getOfficesForUser(userId: string): Promise<Office[]> {
 
   if (officeIds.length === 0) return [];
 
-  const officePromises = officeIds.slice(0,30).map(id => getDoc(officeDocRef(id)));
-  const officeSnapshots = await Promise.all(officePromises);
+  // Firestore IN query limit is 30
+  const officePromises = [];
+  for (let i = 0; i < officeIds.length; i += 30) {
+      const chunk = officeIds.slice(i, i + 30);
+      if (chunk.length > 0) {
+          const officeQuery = query(officesCol(), where('__name__', 'in', chunk));
+          officePromises.push(getDocs(officeQuery));
+      }
+  }
+  
+  const officeSnapshotsArray = await Promise.all(officePromises);
+  const offices: Office[] = [];
+  officeSnapshotsArray.forEach(snapshot => {
+      snapshot.docs.forEach(doc => {
+          if (doc.exists()) {
+              offices.push(doc.data()!);
+          }
+      });
+  });
 
-  return officeSnapshots.filter(snap => snap.exists()).map(snap => snap.data()!);
+  // Preserve original order from userOfficesCol
+  const officeMap = new Map(offices.map(office => [office.id, office]));
+  return officeIds.map(id => officeMap.get(id)).filter(Boolean) as Office[];
 }
 
 export function onUserOfficesUpdate(
@@ -447,11 +481,26 @@ export function onUserOfficesUpdate(
       callback([]);
       return;
     }
+
     // Fetch details for each office. Consider batching if there are many offices.
-    const officePromises = officeIds.slice(0,30).map(id => getDoc(officeDocRef(id)));
-    const officeSnapshots = await Promise.all(officePromises);
-    const offices = officeSnapshots.filter(snap => snap.exists()).map(snap => snap.data()!);
-    callback(offices);
+    // Firestore IN query limit is 30
+    const officeData: Office[] = [];
+    for (let i = 0; i < officeIds.length; i += 30) {
+        const chunk = officeIds.slice(i, i + 30);
+        if (chunk.length > 0) {
+            const officeQuery = query(officesCol(), where('__name__', 'in', chunk));
+            const officeSnaps = await getDocs(officeQuery);
+            officeSnaps.docs.forEach(doc => {
+                if (doc.exists()) {
+                    officeData.push(doc.data()!);
+                }
+            });
+        }
+    }
+    // Preserve original order
+    const officeMap = new Map(officeData.map(office => [office.id, office]));
+    const orderedOffices = officeIds.map(id => officeMap.get(id)).filter(Boolean) as Office[];
+    callback(orderedOffices);
   }, (error) => {
     console.error(`Error listening to user's offices for user ${userId}:`, error);
     callback([]);
@@ -527,10 +576,10 @@ export async function deleteRoomFromOffice(
   await deleteDoc(roomDocRef(officeId, roomId));
 
   addActivityLog(officeId, {
-    type: "room-new",
+    type: "room-new", // This activity type might need adjustment or a new "room-deleted"
     title: `Room Deleted: ${roomName}`,
     description: `Deleted by ${actorName}`,
-    iconName: "Trash2",
+    iconName: "Trash2", // Changed icon
     actorId: actorId,
     actorName: actorName,
     entityId: roomId,
@@ -555,33 +604,60 @@ export function onMembersUpdate(
   });
 }
 
-export async function updateMemberRoleInOffice(
+export async function updateMemberDetailsInOffice(
   officeId: string,
   memberUserId: string,
-  newRole: MemberRole,
+  details: { role?: MemberRole; workRole?: string | null }, // Use null to signify deletion of workRole
   actorId: string,
   actorName: string
-  ): Promise<void> {
+): Promise<void> {
   const memberToUpdateSnap = await getDoc(memberDocRef(officeId, memberUserId));
-  if (!memberToUpdateSnap.exists()) throw new Error("Member not found for role update.");
+  if (!memberToUpdateSnap.exists()) throw new Error("Member not found for update.");
   const memberName = memberToUpdateSnap.data()?.name || "A member";
-  const oldRole = memberToUpdateSnap.data()?.role;
+  const oldDetails = memberToUpdateSnap.data();
 
-  if (oldRole === newRole) return;
+  const updatePayload: { role?: MemberRole; workRole?: string | FieldValue } = {};
+  let changesDescription = [];
 
-  await updateDoc(memberDocRef(officeId, memberUserId), { role: newRole });
+  if (details.role && details.role !== oldDetails?.role) {
+    if (memberUserId === officeDocRef(officeId).id && details.role !== "Owner") { // Check if it's the office owner
+        const officeData = await getDoc(officeDocRef(officeId));
+        if (officeData.exists() && officeData.data().ownerId === memberUserId && details.role !== "Owner"){
+             throw new Error("The office owner's system role cannot be changed from Owner.");
+        }
+    }
+    updatePayload.role = details.role;
+    changesDescription.push(`system role to ${details.role}`);
+  }
 
-  const userOfficeQuery = query(userOfficesCol(memberUserId), where("officeId", "==", officeId));
-  const userOfficeSnap = await getDocs(userOfficeQuery);
-  if (!userOfficeSnap.empty) {
-      const userOfficeDocToUpdateRef = userOfficeSnap.docs[0].ref;
-      await updateDoc(userOfficeDocToUpdateRef, { role: newRole });
+  if (details.hasOwnProperty('workRole')) {
+    if (details.workRole === null || details.workRole === "") {
+      updatePayload.workRole = deleteField(); // Explicitly delete if null or empty string
+      if (oldDetails?.workRole) changesDescription.push(`work role from "${oldDetails.workRole}" to none`);
+    } else if (details.workRole !== oldDetails?.workRole) {
+      updatePayload.workRole = details.workRole;
+      changesDescription.push(`work role to "${details.workRole}"`);
+    }
+  }
+
+  if (Object.keys(updatePayload).length === 0) return; // No actual changes
+
+  await updateDoc(memberDocRef(officeId, memberUserId), updatePayload);
+
+  // Update role in user's memberOfOffices collection if system role changed
+  if (updatePayload.role) {
+    const userOfficeQuery = query(userOfficesCol(memberUserId), where("officeId", "==", officeId));
+    const userOfficeSnap = await getDocs(userOfficeQuery);
+    if (!userOfficeSnap.empty) {
+        const userOfficeDocToUpdateRef = userOfficeSnap.docs[0].ref;
+        await updateDoc(userOfficeDocToUpdateRef, { role: updatePayload.role });
+    }
   }
 
   addActivityLog(officeId, {
       type: "member-role-updated",
-      title: `Role Update: ${memberName}`,
-      description: `${memberName}'s role changed from ${oldRole} to ${newRole} by ${actorName}`,
+      title: `Details Updated: ${memberName}`,
+      description: `${actorName} updated ${memberName}'s ${changesDescription.join(' and ')}.`,
       iconName: "Settings2",
       actorId: actorId,
       actorName: actorName,
@@ -619,7 +695,7 @@ export async function removeMemberFromOffice(
       type: "member-removed",
       title: `Member Removed: ${memberName}`,
       description: `${memberName} was removed from the office by ${actorName}`,
-      iconName: "UserMinus",
+      iconName: "UserX", // Changed icon
       actorId: actorId,
       actorName: actorName,
       entityId: memberUserId,
@@ -641,3 +717,4 @@ export async function getPendingJoinRequestsForOffice(officeId: string): Promise
   const snapshot = await getDocs(q);
   return snapshot.docs.map(doc => doc.data());
 }
+
