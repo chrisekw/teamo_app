@@ -185,19 +185,21 @@ export interface ChatUser {
 
 export interface ChatMessage {
   id: string;
-  text: string;
+  text: string; // For text messages, or "Voice Note" as placeholder for voice notes
   senderId: string;
   senderName: string;
   timestamp: Date;
   avatarUrl?: string;
   type?: 'text' | 'voice_note' | 'call_event';
   callDuration?: string;
-  voiceNoteDuration?: string;
+  voiceNoteDuration?: string; // e.g., "00:35"
+  audioDataUrl?: string; // Base64 data URI for the audio
   chatThreadId: string;
 }
 
 export type ChatMessageFirestoreData = Omit<ChatMessage, 'id' | 'timestamp' > & {
   timestamp: Timestamp;
+  audioDataUrl?: string; // Ensure this is part of Firestore data too
 };
 
 

@@ -7,11 +7,12 @@ import { useSearchParams, useRouter } from 'next/navigation';
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Paperclip, Send, Users, MessageSquareText, ArrowLeft, Loader2, Video, PhoneOff, Mic, Square, Play } from "lucide-react";
+import { Paperclip, Send, Users, MessageSquareText, ArrowLeft, Loader2, Video, PhoneOff, Mic, Square, Play, Pause, AlertTriangle } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
 import { Badge } from "@/components/ui/badge";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
@@ -48,14 +49,22 @@ export default function ChatPage() {
 
   const [currentUserForChat, setCurrentUserForChat] = useState<ChatUser | null>(null);
   const [currentOfficeMembers, setCurrentOfficeMembers] = useState<ChatUser[]>([]);
-  const [activeOfficeForChat, setActiveOfficeForChat] = useState<Office | null | undefined>(undefined); // undefined initially
+  const [activeOfficeForChat, setActiveOfficeForChat] = useState<Office | null | undefined>(undefined); 
 
   const [isLoadingMessages, setIsLoadingMessages] = useState(false);
   const [isSendingMessage, setIsSendingMessage] = useState(false);
 
   const [isCallActiveForChat, setIsCallActiveForChat] = useState<Record<string, boolean>>({});
+  
   const [isRecordingVoiceNote, setIsRecordingVoiceNote] = useState(false);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
   const voiceRecordingStartTimeRef = useRef<number | null>(null);
+  const [recordingDuration, setRecordingDuration] = useState(0);
+  const recordingIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  
+  const audioElementsRef = useRef<Record<string, HTMLAudioElement>>({});
+  const [currentlyPlayingAudioId, setCurrentlyPlayingAudioId] = useState<string | null>(null);
   const [userOfficesList, setUserOfficesList] = useState<Office[]>([]);
 
 
@@ -216,10 +225,8 @@ export default function ChatPage() {
     if (activeOfficeForChat !== undefined || threadIdFromUrl) {
       initializeChat();
     }
-  }, [user, currentUserForChat, activeOfficeForChat, searchParams, toast, authLoading, router, selectChat]);
+  }, [user, currentUserForChat, activeOfficeForChat, searchParams, toast, authLoading, router, selectChat, activeChatId]);
   
-
-
   useEffect(() => {
     if (scrollAreaRef.current) {
       const viewport = scrollAreaRef.current.querySelector('div[data-radix-scroll-area-viewport]');
@@ -230,7 +237,7 @@ export default function ChatPage() {
   }, [allMessages, activeChatId, mobileView, isLoadingMessages]);
 
 
-  const handleSendMessage = async () => {
+  const handleSendTextMessage = async () => {
     if (!newMessage.trim() || !activeChatId || !currentUserForChat || isSendingMessage) return;
     if (!activeChatType) {
         toast({title: "No Chat Selected", description: "Please select a chat."});
@@ -259,16 +266,17 @@ export default function ChatPage() {
 
     try {
       let sentMessage: ChatMessage | null = null;
+      const messageContent = { text: currentMsgText, type: 'text' as const };
       if (activeChatType === 'dm' && activeChatTargetUser) {
         sentMessage = await addChatMessageAndNotify(
             activeChatId, 
-            currentMsgText, 
+            messageContent,
             currentUserForChat, 
             [currentUserForChat, activeChatTargetUser], 
             activeOfficeForChat ? {officeId: activeOfficeForChat.id, officeName: activeOfficeForChat.name } : undefined
         );
       } else if (activeChatType === 'general' && activeOfficeForChat) {
-        sentMessage = await addGeneralOfficeMessage(activeOfficeForChat.id, currentMsgText, currentUserForChat);
+        sentMessage = await addGeneralOfficeMessage(activeOfficeForChat.id, messageContent, currentUserForChat);
       }
 
       if (sentMessage) {
@@ -290,6 +298,75 @@ export default function ChatPage() {
       setIsSendingMessage(false);
     }
   };
+
+  const handleSendVoiceNote = async (audioDataUrl: string, durationSeconds: number) => {
+    if (!activeChatId || !currentUserForChat || isSendingMessage) return;
+    if (!activeChatType) {
+      toast({ title: "No Chat Selected", description: "Please select a chat." });
+      return;
+    }
+    setIsSendingMessage(true);
+
+    const durationFormatted = `${String(Math.floor(durationSeconds / 60)).padStart(2, '0')}:${String(durationSeconds % 60).padStart(2, '0')}`;
+    const tempMessageId = Date.now().toString();
+    const optimisticMessage: ChatMessage = {
+      id: tempMessageId,
+      text: `Voice Note (${durationFormatted})`,
+      senderId: currentUserForChat.id,
+      timestamp: new Date(),
+      senderName: currentUserForChat.name,
+      avatarUrl: currentUserForChat.avatarUrl,
+      type: 'voice_note',
+      audioDataUrl: audioDataUrl,
+      voiceNoteDuration: durationFormatted,
+      chatThreadId: activeChatId,
+    };
+
+    setAllMessages(prev => ({
+      ...prev,
+      [activeChatId]: [...(prev[activeChatId] || []), optimisticMessage],
+    }));
+
+    try {
+      let sentMessage: ChatMessage | null = null;
+      const messageContent = { text: `Voice Note`, type: 'voice_note' as const, audioDataUrl, voiceNoteDuration: durationFormatted };
+
+      if (activeChatType === 'dm' && activeChatTargetUser) {
+        sentMessage = await addChatMessageAndNotify(
+          activeChatId,
+          messageContent,
+          currentUserForChat,
+          [currentUserForChat, activeChatTargetUser],
+          activeOfficeForChat ? { officeId: activeOfficeForChat.id, officeName: activeOfficeForChat.name } : undefined
+        );
+      } else if (activeChatType === 'general' && activeOfficeForChat) {
+        sentMessage = await addGeneralOfficeMessage(activeOfficeForChat.id, messageContent, currentUserForChat);
+      }
+      
+      if (sentMessage) {
+         setAllMessages(prev => ({
+            ...prev,
+            [activeChatId]: (prev[activeChatId] || []).map(m => m.id === tempMessageId ? sentMessage! : m)
+         }));
+      }
+      toast({
+        title: "Voice Note Sent",
+        description: `Duration: ${durationFormatted}. (Note: Audio stored in Firestore for prototype - consider Firebase Storage for production.)`,
+        variant: "default",
+        duration: 7000,
+      });
+    } catch (error) {
+      console.error("Error sending voice note:", error);
+      toast({ variant: "destructive", title: "Send Error", description: "Failed to send voice note." });
+       setAllMessages(prev => ({
+        ...prev,
+        [activeChatId]: (prev[activeChatId] || []).filter(m => m.id !== tempMessageId)
+      }));
+    } finally {
+      setIsSendingMessage(false);
+    }
+  };
+
 
   const addSystemMessage = (chatId: string, text: string, callDuration?: string) => {
     const systemMessage: ChatMessage = {
@@ -315,46 +392,99 @@ export default function ChatPage() {
     }
   };
 
-  const handleToggleVoiceRecording = () => {
-     if (!currentUserForChat || !activeChatId || !activeChatType) return;
+  const handleToggleVoiceRecording = async () => {
+    if (!currentUserForChat || !activeChatId || !activeChatType) return;
 
     if (isRecordingVoiceNote) {
-      setIsRecordingVoiceNote(false);
-      const endTime = Date.now();
-      const durationMs = endTime - (voiceRecordingStartTimeRef.current || endTime);
-      const durationSec = Math.max(1, Math.round(durationMs / 1000)); 
-      voiceRecordingStartTimeRef.current = null;
-
-      const voiceNoteText = `Voice Note (${String(Math.floor(durationSec / 60)).padStart(2, '0')}:${String(durationSec % 60).padStart(2, '0')})`;
-
-      const tempMessageId = Date.now().toString();
-      const optimisticMessage: ChatMessage = {
-        id: tempMessageId,
-        text: voiceNoteText, 
-        senderId: currentUserForChat.id,
-        timestamp: new Date(),
-        senderName: currentUserForChat.name,
-        avatarUrl: currentUserForChat.avatarUrl,
-        type: 'voice_note',
-        voiceNoteDuration: `${String(Math.floor(durationSec / 60)).padStart(2, '0')}:${String(durationSec % 60).padStart(2, '0')}`,
-        chatThreadId: activeChatId,
-      };
-      setAllMessages(prev => ({...prev, [activeChatId]: [...(prev[activeChatId] || []), optimisticMessage] }));
-
-      if (activeChatType === 'dm' && activeChatTargetUser) {
-          console.log("Sending voice note to DM:", voiceNoteText);
-          toast({ title: "Voice Note Sent (Mock)", description: `Duration: ${optimisticMessage.voiceNoteDuration}`});
-      } else if (activeChatType === 'general' && activeOfficeForChat) {
-          console.log("Sending voice note to General:", voiceNoteText);
-          toast({ title: "Voice Note Sent (Mock)", description: `Duration: ${optimisticMessage.voiceNoteDuration}`});
+      // Stop recording
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state === "recording") {
+        mediaRecorderRef.current.stop();
       }
-
+      if (recordingIntervalRef.current) {
+        clearInterval(recordingIntervalRef.current);
+        recordingIntervalRef.current = null;
+      }
+      setIsRecordingVoiceNote(false);
+      // onstop event will handle sending the message
     } else {
-      setIsRecordingVoiceNote(true);
-      voiceRecordingStartTimeRef.current = Date.now();
-      toast({ title: "Recording Started", description: "Recording voice note..."});
+      // Start recording
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        mediaRecorderRef.current = new MediaRecorder(stream);
+        audioChunksRef.current = [];
+
+        mediaRecorderRef.current.ondataavailable = (event) => {
+          audioChunksRef.current.push(event.data);
+        };
+
+        mediaRecorderRef.current.onstop = async () => {
+          const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' }); // Or appropriate MIME type
+          const audioUrl = URL.createObjectURL(audioBlob); // For potential local preview, not directly stored
+
+          // Convert Blob to Base64 Data URL for storing in Firestore (prototype solution)
+          const reader = new FileReader();
+          reader.readAsDataURL(audioBlob);
+          reader.onloadend = () => {
+            const base64AudioDataUrl = reader.result as string;
+            const durationMs = Date.now() - (voiceRecordingStartTimeRef.current || Date.now());
+            const durationSec = Math.max(1, Math.round(durationMs / 1000));
+            handleSendVoiceNote(base64AudioDataUrl, durationSec);
+            audioChunksRef.current = []; // Clear chunks for next recording
+          };
+           // Clean up the stream tracks
+          stream.getTracks().forEach(track => track.stop());
+        };
+        
+        mediaRecorderRef.current.onerror = (event) => {
+            console.error("MediaRecorder error:", event);
+            toast({variant: "destructive", title: "Recording Error", description: "Something went wrong during recording."});
+            setIsRecordingVoiceNote(false);
+            if (recordingIntervalRef.current) clearInterval(recordingIntervalRef.current);
+        }
+
+        mediaRecorderRef.current.start();
+        voiceRecordingStartTimeRef.current = Date.now();
+        setRecordingDuration(0);
+        recordingIntervalRef.current = setInterval(() => {
+          setRecordingDuration(prev => prev + 1);
+        }, 1000);
+        setIsRecordingVoiceNote(true);
+        toast({ title: "Recording Started", description: "Recording voice note..." });
+      } catch (error) {
+        console.error("Error accessing microphone:", error);
+        toast({ variant: "destructive", title: "Mic Access Denied", description: "Please enable microphone permissions." });
+      }
     }
   };
+  
+  const playAudio = (messageId: string) => {
+    const audioEl = audioElementsRef.current[messageId];
+    if (audioEl) {
+      // Pause any currently playing audio
+      if (currentlyPlayingAudioId && currentlyPlayingAudioId !== messageId && audioElementsRef.current[currentlyPlayingAudioId]) {
+        audioElementsRef.current[currentlyPlayingAudioId].pause();
+      }
+      
+      audioEl.play().then(() => {
+        setCurrentlyPlayingAudioId(messageId);
+      }).catch(e => console.error("Error playing audio:", e));
+    }
+  };
+
+  const pauseAudio = (messageId: string) => {
+    const audioEl = audioElementsRef.current[messageId];
+    if (audioEl) {
+      audioEl.pause();
+      setCurrentlyPlayingAudioId(null);
+    }
+  };
+
+  const handleAudioEnded = (messageId: string) => {
+    if (currentlyPlayingAudioId === messageId) {
+        setCurrentlyPlayingAudioId(null);
+    }
+  };
+
 
   const getChatTitle = () => {
     if (!activeChatId) return "Select a Chat";
@@ -461,10 +591,23 @@ export default function ChatPage() {
                   <div className={`max-w-xs lg:max-w-md px-3 py-2 sm:px-4 sm:py-2 rounded-lg shadow ${isUserSender ? 'bg-primary text-primary-foreground' : msg.senderId === 'system' ? 'bg-transparent w-full text-center' : 'bg-muted'}`}>
                       {!isUserSender && msg.senderId !== 'system' && <p className="text-xs font-semibold mb-1">{msg.senderName}</p>}
 
-                      {msg.type === 'voice_note' && msg.voiceNoteDuration ? (
+                      {msg.type === 'voice_note' && msg.audioDataUrl ? (
                         <div className="flex items-center space-x-2">
-                          <Button variant="ghost" size="icon" className="h-7 w-7"><Play className="h-4 w-4"/></Button>
-                          <span className="text-sm">{msg.voiceNoteDuration}</span>
+                          <audio 
+                            ref={el => { if (el) audioElementsRef.current[msg.id] = el; }} 
+                            src={msg.audioDataUrl} 
+                            onEnded={() => handleAudioEnded(msg.id)}
+                            className="hidden" // Hide default controls, we use custom button
+                           />
+                          <Button 
+                            variant="ghost" 
+                            size="icon" 
+                            className="h-7 w-7" 
+                            onClick={() => currentlyPlayingAudioId === msg.id ? pauseAudio(msg.id) : playAudio(msg.id)}
+                          >
+                            {currentlyPlayingAudioId === msg.id ? <Pause className="h-4 w-4"/> : <Play className="h-4 w-4"/>}
+                          </Button>
+                          <span className="text-sm">{msg.voiceNoteDuration || "Voice Note"}</span>
                         </div>
                       ) : msg.type === 'call_event' ? (
                         <p className="text-sm italic text-muted-foreground/80">{msg.text} {msg.callDuration && `(Duration: ${msg.callDuration})`}</p>
@@ -493,14 +636,19 @@ export default function ChatPage() {
           </CardContent>
           <div className={cn("border-t bg-background", isMobileLayout ? "p-2" : "p-4")}>
               <div className="flex items-center space-x-2">
-                  <Button variant="ghost" size="icon" aria-label="Attach file" className={cn(isMobileLayout && "h-8 w-8")} disabled={!activeChatId}><Paperclip className="h-4 w-4 sm:h-5 sm:w-5" /></Button>
+                  <Button variant="ghost" size="icon" aria-label="Attach file" className={cn(isMobileLayout && "h-8 w-8")} disabled={!activeChatId || isRecordingVoiceNote}><Paperclip className="h-4 w-4 sm:h-5 sm:w-5" /></Button>
                   <Button variant="ghost" size="icon" onClick={handleToggleVoiceRecording} aria-label={isRecordingVoiceNote ? "Stop recording" : "Record voice note"} className={cn(isMobileLayout && "h-8 w-8", isRecordingVoiceNote && "text-destructive animate-pulse")} disabled={!activeChatId || isSendingMessage}>
                     {isRecordingVoiceNote ? <Square className="h-4 w-4 sm:h-5 sm:w-5" /> : <Mic className="h-4 w-4 sm:h-5 sm:w-5" />}
                   </Button>
-                  {isRecordingVoiceNote ? (<p className="text-sm text-muted-foreground flex-1">Recording voice note...</p>) : (
-                      <Input type="text" placeholder="Type a message..." value={newMessage} onChange={(e) => setNewMessage(e.target.value)} onKeyPress={(e) => e.key === 'Enter' && !isRecordingVoiceNote && !isSendingMessage && handleSendMessage()} className="flex-1" disabled={!activeChatId || isRecordingVoiceNote || isSendingMessage}/>
+                  {isRecordingVoiceNote ? (
+                    <div className="text-sm text-muted-foreground flex-1 flex items-center">
+                        <span>Recording... </span>
+                        <span className="ml-2 font-mono">{String(Math.floor(recordingDuration / 60)).padStart(2, '0')}:{String(recordingDuration % 60).padStart(2, '0')}</span>
+                    </div>
+                    ) : (
+                      <Input type="text" placeholder="Type a message..." value={newMessage} onChange={(e) => setNewMessage(e.target.value)} onKeyPress={(e) => e.key === 'Enter' && !isRecordingVoiceNote && !isSendingMessage && handleSendTextMessage()} className="flex-1" disabled={!activeChatId || isRecordingVoiceNote || isSendingMessage}/>
                   )}
-                  <Button onClick={handleSendMessage} aria-label="Send message" disabled={!activeChatId || isRecordingVoiceNote || newMessage.trim() === "" || isSendingMessage} className={cn(isMobileLayout && "h-9 px-3")}>
+                  <Button onClick={handleSendTextMessage} aria-label="Send message" disabled={!activeChatId || isRecordingVoiceNote || newMessage.trim() === "" || isSendingMessage} className={cn(isMobileLayout && "h-9 px-3")}>
                       {isSendingMessage ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4 sm:h-5 sm:w-5" />}
                   </Button>
               </div>
@@ -515,3 +663,4 @@ export default function ChatPage() {
     </div>
   );
 }
+
