@@ -18,6 +18,8 @@ import { addMeetingForUser, getMeetingsForUser, deleteMeetingForUser } from "@/l
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { getOfficesForUser, type Office } from "@/lib/firebase/firestore/offices";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useSearchParams, useRouter, usePathname } from 'next/navigation';
+import { addUserNotification } from "@/lib/firebase/firestore/notifications";
 
 const ShadCNCalendar = dynamic(() => import('@/components/ui/calendar').then(mod => mod.Calendar), {
   ssr: false,
@@ -53,6 +55,10 @@ const VideoCallView = dynamic(() => import('@/components/meetings/video-call-vie
 export default function MeetingsPage() {
   const { user, loading: authLoading } = useAuth();
   const { toast } = useToast();
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+
 
   const [meetings, setMeetings] = useState<Meeting[]>([]);
   const [isLoadingMeetings, setIsLoadingMeetings] = useState(true);
@@ -107,6 +113,100 @@ export default function MeetingsPage() {
       fetchMeetings();
     }
   }, [authLoading, user, fetchMeetings]);
+
+  const handleJoinMeetingClick = useCallback((meeting: Meeting) => {
+    if (selectedMeetingForPreview?.id === meeting.id) { 
+      // If already selected, perhaps this is a re-click or programmatically triggered.
+      // If we want to "toggle off" preview, we'd do: setSelectedMeetingForPreview(null);
+      // For now, just ensure it's set.
+      if(!selectedMeetingForPreview) setSelectedMeetingForPreview(meeting);
+    } else {
+      setSelectedMeetingForPreview(meeting);
+    }
+  }, [selectedMeetingForPreview]);
+
+  useEffect(() => {
+    const meetingIdFromUrl = searchParams.get('meetingId');
+    if (meetingIdFromUrl && meetings.length > 0 && !selectedMeetingForPreview) { // Process only if not already previewing
+      const meetingToSelect = meetings.find(m => m.id === meetingIdFromUrl);
+      if (meetingToSelect) {
+         if (selectedMeetingForPreview?.id !== meetingToSelect.id) { // Avoid re-selecting same meeting
+            handleJoinMeetingClick(meetingToSelect);
+             // Optionally, clear the query param to prevent re-triggering on refresh if desired
+             // router.replace(pathname, { scroll: false }); 
+         }
+      } else {
+        // toast({ variant: "destructive", title: "Meeting not found", description: "The meeting specified in the URL could not be found." });
+      }
+    }
+  }, [searchParams, meetings, selectedMeetingForPreview, handleJoinMeetingClick, router, pathname]);
+
+
+  useEffect(() => {
+    if (!user || meetings.length === 0 || isLoadingMeetings) return;
+
+    const now = new Date();
+    const reminderSentKeyPrefix = `meetingReminderSent_`;
+
+    meetings.forEach(async (meeting) => {
+      const meetingTime = meeting.dateTime;
+      // Time difference in minutes
+      const timeDiffMinutes = (meetingTime.getTime() - now.getTime()) / (1000 * 60);
+      const reminderKey = `${reminderSentKeyPrefix}${meeting.id}`;
+
+      // Reminder window: 5 minutes before start to 1 minute after start time
+      if (timeDiffMinutes <= 5 && timeDiffMinutes >= -1) {
+        if (!sessionStorage.getItem(reminderKey)) {
+          console.log(`Meeting "${meeting.title}" is due. Sending reminder.`);
+          try {
+            // In a real app, iterate over actual participant UIDs
+            // For this prototype, notify the current user (meeting creator)
+            await addUserNotification(user.uid, {
+              type: "meeting-new", // Can be a more specific "meeting-reminder" type if desired
+              title: `Meeting Starting: ${meeting.title}`,
+              message: `Your meeting "${meeting.title}" is starting now or in the next few minutes. Click to join.`,
+              link: `/meetings?meetingId=${meeting.id}`,
+              actorName: "System Reminder",
+              entityId: meeting.id,
+              entityType: "meeting",
+              // officeId: meeting.officeId // Include if the meeting has office context
+            });
+            sessionStorage.setItem(reminderKey, 'true');
+            toast({ title: "Meeting Reminder", description: `Reminder for "${meeting.title}" triggered.` });
+          } catch (error) {
+            console.error("Failed to send meeting reminder notification:", error);
+          }
+        }
+      }
+    });
+  // Check every 30 seconds for meeting reminders
+  const intervalId = setInterval(() => {
+      meetings.forEach(async (meeting) => {
+          const meetingTime = meeting.dateTime;
+          const timeDiffMinutes = (meetingTime.getTime() - new Date().getTime()) / (1000 * 60);
+          const reminderKey = `${reminderSentKeyPrefix}${meeting.id}`;
+           if (timeDiffMinutes <= 5 && timeDiffMinutes >= -1 && !sessionStorage.getItem(reminderKey)) {
+              // Logic from above to send notification
+                try {
+                    await addUserNotification(user.uid, { /* ... notification data ... */ 
+                        type: "meeting-new",
+                        title: `Meeting Starting: ${meeting.title}`,
+                        message: `Your meeting "${meeting.title}" is starting now or in the next few minutes. Click to join.`,
+                        link: `/meetings?meetingId=${meeting.id}`,
+                        actorName: "System Reminder",
+                        entityId: meeting.id,
+                        entityType: "meeting",
+                    });
+                    sessionStorage.setItem(reminderKey, 'true');
+                    toast({ title: "Meeting Reminder", description: `Reminder for "${meeting.title}" triggered.` });
+                } catch (error) { console.error("Failed to send meeting reminder notification:", error); }
+            }
+        });
+    }, 30 * 1000);
+
+    return () => clearInterval(intervalId);
+
+}, [meetings, user, toast, isLoadingMeetings]);
 
 
   useEffect(() => {
@@ -217,19 +317,12 @@ export default function MeetingsPage() {
     }
   };
 
-  const handleJoinMeetingClick = (meeting: Meeting) => {
-    if (selectedMeetingForPreview?.id === meeting.id) { 
-      setSelectedMeetingForPreview(null);
-    } else {
-      setSelectedMeetingForPreview(meeting);
-    }
-  };
 
   const handleLeaveMeeting = () => {
     setSelectedMeetingForPreview(null);
   };
   
-  if (authLoading || isLoadingMeetings) {
+  if (authLoading || isLoadingMeetings && meetings.length === 0) { // Show loader if auth loading OR meetings loading AND no meetings yet
      return <div className="container mx-auto p-8 text-center"><Loader2 className="h-12 w-12 animate-spin text-primary" /></div>;
   }
 
@@ -269,7 +362,7 @@ export default function MeetingsPage() {
                   </div>
                 </div>
                 <div className="grid gap-2">
-                  <Label htmlFor="participants">Participants (comma-separated)</Label>
+                  <Label htmlFor="participants">Participants (comma-separated names)</Label>
                   <Input id="participants" value={newMeetingParticipants} onChange={(e) => setNewMeetingParticipants(e.target.value)} placeholder="Alice, Bob, ..." disabled={isSubmitting}/>
                 </div>
                 <div className="grid gap-2">
@@ -294,9 +387,20 @@ export default function MeetingsPage() {
           <h2 className="text-2xl font-headline font-semibold mb-4">
             All Scheduled Meetings
           </h2>
-          {meetings.length === 0 ? (
+          {isLoadingMeetings && meetings.length === 0 && (
+             <div className="space-y-4">
+                {[...Array(3)].map((_, i) => (
+                  <Card key={i} className="shadow-lg">
+                    <CardHeader><Skeleton className="h-6 w-3/4" /><Skeleton className="h-4 w-1/2 mt-1" /></CardHeader>
+                    <CardContent><Skeleton className="h-4 w-full" /></CardContent>
+                    <CardFooter><Skeleton className="h-10 w-28" /></CardFooter>
+                  </Card>
+                ))}
+            </div>
+          )}
+          {!isLoadingMeetings && meetings.length === 0 ? (
             <div className="text-center py-10 bg-muted/50 rounded-md flex flex-col items-center justify-center">
-              <Image src="https://placehold.co/200x150.png" alt="No meetings" width={200} height={150} className="mx-auto mb-4 rounded" data-ai-hint="calendar illustration" />
+              <Image src="https://placehold.co/200x150.png" alt="No meetings" width={200} height={150} className="mx-auto mb-4 rounded" data-ai-hint="calendar illustration empty" />
               <p className="text-muted-foreground">No meetings scheduled yet.</p>
               <p className="text-sm text-muted-foreground">Schedule a new meeting to get started.</p>
             </div>
@@ -377,3 +481,4 @@ export default function MeetingsPage() {
     </div>
   );
 }
+
