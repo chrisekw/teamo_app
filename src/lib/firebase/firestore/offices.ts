@@ -18,7 +18,7 @@ import {
   orderBy,
   writeBatch
 } from 'firebase/firestore';
-import type { Office, OfficeFirestoreData, Room, RoomFirestoreData, OfficeMember, OfficeMemberFirestoreData, RoomType, MemberRole, OfficeJoinRequest, OfficeJoinRequestFirestoreData, ChatUser } from '@/types';
+import type { Office, OfficeFirestoreData, Room, RoomFirestoreData, OfficeMember, OfficeMemberFirestoreData, RoomType, MemberRole, OfficeJoinRequest, OfficeJoinRequestFirestoreData, ChatUser, OfficeJoinRequestStatus } from '@/types';
 import { addActivityLog } from './activity';
 import { addUserNotification } from './notifications';
 
@@ -108,6 +108,11 @@ const officeJoinRequestConverter: FirestoreDataConverter<OfficeJoinRequest, Offi
     const data: any = { ...requestInput };
     delete data.id; // ID is document ID
     if (!requestInput.id) data.requestedAt = serverTimestamp(); // Set on creation
+    
+    if (requestInput.requesterAvatarUrl === undefined) {
+        delete data.requesterAvatarUrl;
+    }
+
     if (requestInput.processedAt instanceof Date) data.processedAt = Timestamp.fromDate(requestInput.processedAt);
     else if (requestInput.hasOwnProperty('processedAt') && requestInput.processedAt === undefined) data.processedAt = undefined;
     
@@ -118,14 +123,14 @@ const officeJoinRequestConverter: FirestoreDataConverter<OfficeJoinRequest, Offi
     return {
       id: snapshot.id,
       officeId: data.officeId,
-      officeName: data.officeName,
+      officeName: data.officeName, // For displaying in user's request list or notifications
       requesterId: data.requesterId,
       requesterName: data.requesterName,
       requesterAvatarUrl: data.requesterAvatarUrl,
       status: data.status as OfficeJoinRequestStatus,
       requestedAt: data.requestedAt instanceof Timestamp ? data.requestedAt.toDate() : new Date(),
-      processedAt: data.processedAt instanceof Timestamp ? data.processedAt.toDate() : undefined,
-      processedBy: data.processedBy,
+      processedAt: data.processedAt instanceof Timestamp ? data.processedAt.toDate() : undefined, // Timestamp when approved/rejected
+      processedBy: data.processedBy, // User ID of the owner/admin who processed it
     };
   }
 };
@@ -156,9 +161,7 @@ export async function createOffice(
   logoUrl?: string,
   bannerUrl?: string
 ): Promise<Office> {
-  console.log('[Firebase Debug] Starting office creation for user:', currentUserId, 'Office Name:', officeName);
   if (!currentUserId || !officeName) {
-    console.error('[Firebase Debug] User ID or office name is missing for createOffice.');
     throw new Error("User ID and office name are required.");
   }
   
@@ -252,11 +255,13 @@ export async function requestToJoinOfficeByCode(
     officeName: officeData.name,
     requesterId: requester.id,
     requesterName: requester.name,
-    requesterAvatarUrl: requester.avatarUrl,
+    requesterAvatarUrl: requester.avatarUrl, // This can be undefined if user has no avatar
     status: 'pending',
   };
 
-  const requestRef = await addDoc(joinRequestsCol(officeId), joinRequestData);
+  // The officeJoinRequestConverter will handle omitting requesterAvatarUrl if it's undefined.
+  const requestRef = await addDoc(joinRequestsCol(officeId), joinRequestData as OfficeJoinRequest);
+
 
   // Notify office owner
   if (officeData.ownerId) {
@@ -296,7 +301,7 @@ export async function getPendingJoinRequestsForOffice(officeId: string): Promise
 export async function approveJoinRequest(
   officeId: string,
   requestId: string,
-  approverUserId: string, // Typically the office owner
+  approverUserId: string, 
   approverName: string,
   roleToAssign: MemberRole = "Member"
 ): Promise<void> {
@@ -310,14 +315,12 @@ export async function approveJoinRequest(
 
   const batch = writeBatch(db);
 
-  // 1. Update join request status
   batch.update(requestRef, {
     status: 'approved',
     processedAt: serverTimestamp(),
     processedBy: approverUserId,
   });
 
-  // 2. Add user to office members
   const newMemberData: Omit<OfficeMember, 'joinedAt' | 'userId'> = {
     name: requestData.requesterName,
     role: roleToAssign,
@@ -325,7 +328,6 @@ export async function approveJoinRequest(
   };
   batch.set(memberDocRef(officeId, requestData.requesterId), newMemberData);
 
-  // 3. Add office to user's memberOfOffices list
   batch.set(doc(userOfficesCol(requestData.requesterId), officeId), {
     officeId: officeId,
     officeName: requestData.officeName,
@@ -335,19 +337,17 @@ export async function approveJoinRequest(
 
   await batch.commit();
 
-  // 4. Notify requester of approval
   await addUserNotification(requestData.requesterId, {
     type: 'office-join-approved',
     title: `Request Approved for ${requestData.officeName}`,
     message: `Your request to join "${requestData.officeName}" has been approved by ${approverName}.`,
-    link: `/chat?officeGeneral=${officeId}`, // Or link to office designer
+    link: `/chat?officeGeneral=${officeId}`, 
     actorName: approverName,
     entityId: officeId,
     entityType: 'office',
     officeId: officeId,
   });
 
-  // 5. Log activity
   addActivityLog(officeId, {
     type: 'office-join-request-approved',
     title: `Join Request Approved: ${requestData.requesterName}`,
@@ -355,7 +355,7 @@ export async function approveJoinRequest(
     iconName: 'CheckSquare',
     actorId: approverUserId,
     actorName: approverName,
-    entityId: requestData.requesterId, // entity is the user who joined
+    entityId: requestData.requesterId, 
     entityType: 'member',
   });
 }
@@ -363,7 +363,7 @@ export async function approveJoinRequest(
 export async function rejectJoinRequest(
   officeId: string,
   requestId: string,
-  rejectorUserId: string, // Typically the office owner
+  rejectorUserId: string, 
   rejectorName: string
 ): Promise<void> {
   const requestRef = joinRequestDocRef(officeId, requestId);
@@ -380,24 +380,21 @@ export async function rejectJoinRequest(
     processedBy: rejectorUserId,
   });
 
-  // Notify requester of rejection
   await addUserNotification(requestData.requesterId, {
     type: 'office-join-rejected',
     title: `Request Rejected for ${requestData.officeName}`,
     message: `Your request to join "${requestData.officeName}" has been rejected by ${rejectorName}.`,
-    // No specific link for rejection, or link to contact support/owner.
     actorName: rejectorName,
     entityId: officeId,
     entityType: 'office',
     officeId: officeId,
   });
 
-  // Log activity
   addActivityLog(officeId, {
     type: 'office-join-request-rejected',
     title: `Join Request Rejected: ${requestData.requesterName}`,
     description: `${rejectorName} rejected ${requestData.requesterName}'s request to join.`,
-    iconName: 'XSquare', // Consider a suitable icon
+    iconName: 'XSquare', 
     actorId: rejectorUserId,
     actorName: rejectorName,
     entityId: requestData.requesterId,
