@@ -64,7 +64,7 @@ export default function OfficeDesignerPage() {
   const [activeOfficeMembers, setActiveOfficeMembers] = useState<OfficeMember[]>([]);
   const [pendingJoinRequests, setPendingJoinRequests] = useState<OfficeJoinRequest[]>([]);
   
-  const [isLoading, setIsLoading] = useState(true); 
+  const [isLoadingUserOffices, setIsLoadingUserOffices] = useState(true); 
   const [isLoadingDetails, setIsLoadingDetails] = useState(false); 
   const [isSubmitting, setIsSubmitting] = useState(false); 
 
@@ -92,17 +92,19 @@ export default function OfficeDesignerPage() {
   const [deletingRoom, setDeletingRoom] = useState<Room | null>(null);
   const [processingRequestId, setProcessingRequestId] = useState<string | null>(null);
 
+  const [currentDisplayOfficeId, setCurrentDisplayOfficeId] = useState<string | null>(null);
+
 
   const fetchUserOffices = useCallback(async () => {
     if (user) {
-      setIsLoading(true);
+      setIsLoadingUserOffices(true);
       try {
         const offices = await getOfficesForUser(user.uid);
         setUserOffices(offices);
       } catch (error) {
         toast({ variant: "destructive", title: "Error", description: "Could not fetch your offices." });
       } finally {
-        setIsLoading(false);
+        setIsLoadingUserOffices(false);
       }
     }
   }, [user, toast]);
@@ -113,44 +115,83 @@ export default function OfficeDesignerPage() {
     }
   }, [authLoading, user, fetchUserOffices]);
   
-   useEffect(() => {
-    if (authLoading || isLoading) return; 
+  // Effect 1: Determine currentDisplayOfficeId based on URL and userOffices, and sync URL if needed.
+  useEffect(() => {
+    if (authLoading || isLoadingUserOffices || !user) return;
 
     const officeIdFromParams = searchParams.get('officeId');
 
     if (officeIdFromParams) {
-      const foundOffice = userOffices.find(o => o.id === officeIdFromParams);
-      if (foundOffice) {
-        if (!activeOffice || activeOffice.id !== foundOffice.id) {
-          setActiveOffice(foundOffice);
+      const isValidOfficeParam = userOffices.some(o => o.id === officeIdFromParams);
+      if (isValidOfficeParam) {
+        if (currentDisplayOfficeId !== officeIdFromParams) {
+          setCurrentDisplayOfficeId(officeIdFromParams);
         }
-        return; 
-      } else if (userOffices.length > 0 && !activeOffice) {
-         setActiveOffice(userOffices[0]);
-         router.replace(`/office-designer?officeId=${userOffices[0].id}`, { scroll: false });
-      } else if (userOffices.length === 0) {
-        setActiveOffice(null); 
+      } else { // Invalid officeId in URL
+        if (userOffices.length > 0) {
+          const defaultOfficeId = userOffices[0].id;
+          if (currentDisplayOfficeId !== defaultOfficeId || officeIdFromParams !== defaultOfficeId) { // Check if URL needs correction
+            setCurrentDisplayOfficeId(defaultOfficeId);
+            router.replace(`/office-designer?officeId=${defaultOfficeId}`, { scroll: false });
+          }
+        } else { // No offices available
+          if (currentDisplayOfficeId !== null || officeIdFromParams) { // Check if URL needs correction
+            setCurrentDisplayOfficeId(null);
+            router.replace('/office-designer', { scroll: false });
+          }
+        }
       }
-    } else if (!activeOffice && userOffices.length > 0) {
-       setActiveOffice(userOffices[0]);
-       router.replace(`/office-designer?officeId=${userOffices[0].id}`, { scroll: false });
-    } else if (userOffices.length === 0) {
-        setActiveOffice(null);
+    } else { // No officeId in URL
+      if (userOffices.length > 0) {
+        const defaultOfficeId = userOffices[0].id;
+        if (currentDisplayOfficeId !== defaultOfficeId) { // Only update if truly different
+          setCurrentDisplayOfficeId(defaultOfficeId);
+          router.replace(`/office-designer?officeId=${defaultOfficeId}`, { scroll: false });
+        }
+      } else { // No offices, no URL param
+        if (currentDisplayOfficeId !== null) {
+          setCurrentDisplayOfficeId(null);
+          // No router.replace needed if URL is already clean
+        }
+      }
     }
-  }, [userOffices, activeOffice, searchParams, authLoading, isLoading, router]);
+  }, [userOffices, searchParams, authLoading, isLoadingUserOffices, router, user, currentDisplayOfficeId]);
+
+
+  // Effect 2: Set activeOffice based on currentDisplayOfficeId
+  useEffect(() => {
+    if (currentDisplayOfficeId) {
+      const officeToSetActive = userOffices.find(o => o.id === currentDisplayOfficeId);
+      if (officeToSetActive) {
+        if (!activeOffice || activeOffice.id !== officeToSetActive.id) {
+          setActiveOffice(officeToSetActive);
+        }
+      } else if (activeOffice !== null) { 
+        // currentDisplayOfficeId is set, but office not found in userOffices (e.g., list changed)
+        setActiveOffice(null);
+      }
+    } else {
+      if (activeOffice !== null) {
+        setActiveOffice(null);
+      }
+    }
+  }, [currentDisplayOfficeId, userOffices, activeOffice]);
 
 
   const fetchActiveOfficeDetails = useCallback(async (officeId: string, currentUserId: string) => {
     setIsLoadingDetails(true);
+    setActiveOfficeRooms([]);
+    setActiveOfficeMembers([]);
+    setPendingJoinRequests([]);
     try {
       const officeData = await getOfficeDetails(officeId);
-      if (!officeData) {
-          toast({ variant: "destructive", title: "Error", description: "Office not found." });
-          setActiveOffice(null); 
+      if (!officeData) { // Office might have been deleted or access revoked
+          toast({ variant: "destructive", title: "Error", description: "Selected office not found or inaccessible." });
+          setCurrentDisplayOfficeId(null); // This will trigger effect to clear activeOffice and URL
           setUserOffices(prev => prev.filter(o => o.id !== officeId));
           return;
       }
-      setActiveOffice(officeData); 
+      // Note: setActiveOffice is handled by the effect listening to currentDisplayOfficeId
 
       const [rooms, members, requests] = await Promise.all([
         getRoomsForOffice(officeId),
@@ -163,39 +204,26 @@ export default function OfficeDesignerPage() {
     } catch (error: any) {
       console.error("Detailed error fetching office details:", error);
       toast({ variant: "destructive", title: "Fetch Error", description: `Could not fetch office details. ${error?.message || 'Unknown error'}` });
-      setActiveOfficeRooms([]); 
-      setActiveOfficeMembers([]);
-      setPendingJoinRequests([]);
+      // Don't clear activeOffice here, let the displayId logic handle it if office becomes invalid
     } finally {
       setIsLoadingDetails(false);
     }
-  }, [toast]);
+  }, [toast]); // Removed setUserOffices from deps as it's handled upstream
 
+  // Effect 3: Fetch details when activeOffice is set (and valid)
   useEffect(() => {
     if (activeOffice && user) {
-      setActiveOfficeRooms([]);
-      setActiveOfficeMembers([]);
-      setPendingJoinRequests([]);
       fetchActiveOfficeDetails(activeOffice.id, user.uid);
-      const officeIdFromParams = searchParams.get('officeId');
-      if (officeIdFromParams !== activeOffice.id) {
-        router.replace(`/office-designer?officeId=${activeOffice.id}`, { scroll: false });
-      }
-
     } else {
+      // Clear details if no active office or user
       setActiveOfficeRooms([]);
       setActiveOfficeMembers([]);
       setPendingJoinRequests([]);
       setIsLoadingDetails(false); 
-      const officeIdFromParams = searchParams.get('officeId');
-       if (officeIdFromParams) { 
-         router.replace('/office-designer', { scroll: false }); 
-       }
     }
-  }, [activeOffice, user, fetchActiveOfficeDetails, router, searchParams]);
+  }, [activeOffice, user, fetchActiveOfficeDetails]);
 
-  const handleSetActiveOffice = async (office: Office | null) => {
-    setActiveOffice(office);
+  const handleSetActiveOffice = (office: Office | null) => {
     if (office) {
         router.push(`/office-designer?officeId=${office.id}`, { scroll: false });
     } else {
@@ -430,7 +458,8 @@ export default function OfficeDesignerPage() {
         await rejectJoinRequest(activeOffice.id, request.id, user.uid, user.displayName || "User");
         toast({ title: "Request Rejected", description: `${request.requesterName}'s request has been rejected.` });
       }
-      fetchActiveOfficeDetails(activeOffice.id, user.uid);
+      // Re-fetch details to update member list and pending requests
+      fetchActiveOfficeDetails(activeOffice.id, user.uid); 
     } catch (error: any) {
       toast({ variant: "destructive", title: `Error ${action === 'approve' ? 'Approving' : 'Rejecting'} Request`, description: error.message });
     } finally {
@@ -446,17 +475,17 @@ export default function OfficeDesignerPage() {
     }
   };
 
-   if (authLoading || isLoading) {
+   if (authLoading || isLoadingUserOffices) {
     return <div className="container mx-auto p-8 text-center"><Loader2 className="h-12 w-12 animate-spin text-primary"/></div>;
   }
 
-  if (!activeOffice && !isCreateOfficeDialogOpen) {
+  if (!activeOffice && !isCreateOfficeDialogOpen && userOffices.length === 0) { // Adjusted condition
     return (
       <div className="container mx-auto p-4 sm:p-6 lg:p-8 flex flex-col items-center">
         <Building className="h-16 w-16 text-primary mb-6" />
         <h1 className="text-3xl font-headline font-bold mb-4 text-center">Virtual Office Hub</h1>
         
-        {userOffices.length > 0 && (
+        {userOffices.length > 0 && ( // This block will not render if userOffices.length === 0
           <Card className="w-full max-w-lg mb-8 shadow-lg">
             <CardHeader>
               <CardTitle className="font-headline">Your Offices</CardTitle>
@@ -484,7 +513,57 @@ export default function OfficeDesignerPage() {
           </Button>
         </div>
 
-        <Dialog open={isCreateOfficeDialogOpen} onOpenChange={(isOpen) => { if (!isSubmitting) setIsCreateOfficeDialogOpen(isOpen); }}>
+        {/* Dialogs for create/join moved outside the conditional return */}
+      </div>
+    );
+  }
+  
+  if(!activeOffice && userOffices.length > 0 && !currentDisplayOfficeId && !isLoadingDetails) {
+     // This state might occur briefly while the first effect determines the default
+     return <div className="container mx-auto p-8 text-center"><Loader2 className="h-12 w-12 animate-spin text-primary"/></div>;
+  }
+
+  if (!activeOffice && !isCreateOfficeDialogOpen) {
+     // Fallback if no active office and not creating one (e.g., after clearing URL and no defaults)
+     // Or simply display list of offices if any exist
+     return (
+        <div className="container mx-auto p-4 sm:p-6 lg:p-8 flex flex-col items-center">
+            <Building className="h-16 w-16 text-primary mb-6" />
+            <h1 className="text-3xl font-headline font-bold mb-4 text-center">Select or Create an Office</h1>
+            {userOffices.length > 0 && (
+                <Card className="w-full max-w-lg mb-8 shadow-lg">
+                    <CardHeader>
+                    <CardTitle className="font-headline">Your Offices</CardTitle>
+                    <CardDescription>Select an office to manage or create a new one.</CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-2">
+                    {userOffices.map(office => (
+                        <Button key={office.id} variant="outline" className="w-full justify-start" onClick={() => handleSetActiveOffice(office)}>
+                        <Building className="mr-2 h-4 w-4"/> {office.name}
+                        </Button>
+                    ))}
+                    </CardContent>
+                </Card>
+            )}
+            <div className="flex flex-col sm:flex-row space-y-3 sm:space-y-0 sm:space-x-4 mt-4">
+                <Button size="lg" onClick={() => { resetCreateOfficeForm(); setIsCreateOfficeDialogOpen(true);}} disabled={isSubmitting}>
+                    <Building className="mr-2 h-5 w-5" /> Create New Office
+                </Button>
+                <Button size="lg" variant="outline" onClick={() => setIsJoinOfficeDialogOpen(true)} disabled={isSubmitting}>
+                    <KeyRound className="mr-2 h-5 w-5" /> Join with Code
+                </Button>
+            </div>
+        </div>
+     );
+  }
+
+
+  const currentUserIsOwner = activeOffice?.ownerId === user?.uid;
+
+  return (
+    <div className="container mx-auto p-4 sm:p-6 lg:p-8 space-y-8">
+      {/* Create Office Dialog */}
+      <Dialog open={isCreateOfficeDialogOpen} onOpenChange={(isOpen) => { if (!isSubmitting) setIsCreateOfficeDialogOpen(isOpen); if(!isOpen) resetCreateOfficeForm(); }}>
           <DialogContent className="sm:max-w-md">
             <DialogHeader>
               <DialogTitle className="font-headline">Create New Virtual Office</DialogTitle>
@@ -531,7 +610,8 @@ export default function OfficeDesignerPage() {
           </DialogContent>
         </Dialog>
 
-        <Dialog open={isJoinOfficeDialogOpen} onOpenChange={(isOpen) => { if (!isSubmitting) setIsJoinOfficeDialogOpen(isOpen); }}>
+        {/* Join Office Dialog */}
+        <Dialog open={isJoinOfficeDialogOpen} onOpenChange={(isOpen) => { if (!isSubmitting) setIsJoinOfficeDialogOpen(isOpen); if(!isOpen) setJoinOfficeCode(""); }}>
           <DialogContent className="sm:max-w-[425px]">
             <DialogHeader>
               <DialogTitle className="font-headline">Join Existing Office</DialogTitle>
@@ -549,237 +629,217 @@ export default function OfficeDesignerPage() {
             </DialogFooter>
           </DialogContent>
         </Dialog>
-      </div>
-    );
-  }
-  
-  if(!activeOffice) {
-    return <div className="container mx-auto p-8 text-center"><Info className="h-12 w-12 text-primary mx-auto mb-4"/><p>Select an office or create a new one to get started.</p></div>;
-  }
 
-  const currentUserIsOwner = activeOffice.ownerId === user?.uid;
-
-  return (
-    <div className="container mx-auto p-4 sm:p-6 lg:p-8 space-y-8">
-      {activeOffice.bannerUrl ? (
-        <div className="mb-2 rounded-lg overflow-hidden shadow-lg aspect-[16/5] sm:aspect-[16/4] md:aspect-[16/3] relative bg-muted">
-          <Image 
-            src={activeOffice.bannerUrl} 
-            alt={`${activeOffice.name} Banner`} 
-            layout="fill" 
-            objectFit="cover" 
-            data-ai-hint="office banner background"
-            priority
-          />
-        </div>
-      ) : (
-        <div className="mb-2 rounded-lg overflow-hidden shadow-lg aspect-[16/5] sm:aspect-[16/4] md:aspect-[16/3] relative bg-muted">
-          <Image 
-            src={`https://placehold.co/800x300.png?text=${encodeURIComponent(activeOffice.name.substring(0,15) || 'Office Banner')}`} 
-            alt={`${activeOffice.name} Default Banner`} 
-            layout="fill" 
-            objectFit="cover" 
-            data-ai-hint="default office banner"
-            priority
-          />
-        </div>
-      )}
-
-      <Card className="shadow-xl -mt-16 sm:-mt-20 md:-mt-24 relative z-10 mx-auto max-w-5xl bg-card/90 backdrop-blur-sm">
-        <CardContent className="p-6">
-            <div className="flex flex-col sm:flex-row items-start sm:items-end space-y-4 sm:space-y-0 sm:space-x-6">
-                {activeOffice.logoUrl ? (
-                     <Image src={activeOffice.logoUrl} alt={`${activeOffice.name} Logo`} width={100} height={100} className="rounded-lg object-cover border-4 border-background shadow-md -mt-12 sm:-mt-16" data-ai-hint="company logo"/>
-                ) : (
-                     <div className="h-24 w-24 sm:h-28 sm:w-28 bg-muted rounded-lg flex items-center justify-center border-4 border-background shadow-md -mt-12 sm:-mt-16">
-                        <Building className="h-12 w-12 text-muted-foreground"/>
-                     </div>
-                )}
-                <div className="flex-1">
-                    <h1 className="text-3xl md:text-4xl font-headline font-bold text-foreground">{activeOffice.name}</h1>
-                    {activeOffice.companyName && <p className="text-lg text-muted-foreground">{activeOffice.companyName}</p>}
-                    {activeOffice.sector && <Badge variant="secondary" className="mt-1">{activeOffice.sector}</Badge>}
-                </div>
-                <Button onClick={() => handleSetActiveOffice(null)} variant="outline" className="w-full sm:w-auto" disabled={isLoadingDetails || isSubmitting}>Back to Office List</Button>
+      {activeOffice && (
+        <>
+            <div className="mb-2 rounded-lg overflow-hidden shadow-lg aspect-[16/5] sm:aspect-[16/4] md:aspect-[16/3] relative bg-muted">
+            <Image 
+                src={activeOffice.bannerUrl || `https://placehold.co/800x300.png?text=${encodeURIComponent(activeOffice.name.substring(0,15) || 'Office Banner')}`} 
+                alt={`${activeOffice.name} Banner`} 
+                layout="fill" 
+                objectFit="cover" 
+                data-ai-hint={activeOffice.bannerUrl ? "office banner background" : "default office banner"}
+                priority
+            />
             </div>
-             {currentUserIsOwner && activeOffice.invitationCode && (
-                <div className="mt-4 pt-4 border-t border-border flex items-center text-sm text-muted-foreground">
-                    <span>Invitation Code: <strong className="text-foreground">{activeOffice.invitationCode}</strong></span>
-                    <Button variant="ghost" size="sm" onClick={copyInviteCode} className="ml-2 px-1 py-0 h-auto">
-                    <Copy className="h-3 w-3 mr-1" /> Copy
-                    </Button>
-                </div>
-             )}
-        </CardContent>
-      </Card>
 
-
-      {isLoadingDetails && <div className="text-center my-8"><Loader2 className="h-10 w-10 animate-spin text-primary"/></div>}
-
-      {!isLoadingDetails && activeOffice && (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mt-8">
-          <section className="lg:col-span-2 space-y-8">
-            {currentUserIsOwner && pendingJoinRequests.length > 0 && (
-              <div>
-                <h2 className="text-2xl font-headline font-semibold mb-4">Join Requests ({pendingJoinRequests.length})</h2>
-                <Card className="shadow-md bg-card/80 backdrop-blur-sm">
-                    <CardContent className="p-4 space-y-3">
-                        {pendingJoinRequests.map(request => (
-                            <div key={request.id} className="flex items-center justify-between p-3 bg-background rounded-md shadow-sm">
-                                <div className="flex items-center space-x-3">
-                                    <Avatar className="h-10 w-10">
-                                        <AvatarImage src={request.requesterAvatarUrl || `https://placehold.co/40x40.png?text=${request.requesterName.substring(0,1)}`} alt={request.requesterName} data-ai-hint="person avatar"/>
-                                        <AvatarFallback>{request.requesterName.substring(0,2).toUpperCase()}</AvatarFallback>
-                                    </Avatar>
-                                    <div>
-                                        <p className="font-medium text-sm">{request.requesterName}</p>
-                                        <p className="text-xs text-muted-foreground">Wants to join your office</p>
-                                    </div>
-                                </div>
-                                <div className="flex space-x-2">
-                                    <Button 
-                                        size="sm" 
-                                        variant="outline" 
-                                        onClick={() => handleProcessJoinRequest(request, 'reject')} 
-                                        disabled={processingRequestId === request.id || isSubmitting}
-                                        className="hover:bg-destructive/10 hover:text-destructive"
-                                    >
-                                        {processingRequestId === request.id && <Loader2 className="mr-1 h-4 w-4 animate-spin"/>}
-                                        <UserX className="mr-1 h-4 w-4"/> Reject
-                                    </Button>
-                                    <Button 
-                                        size="sm" 
-                                        onClick={() => handleProcessJoinRequest(request, 'approve')} 
-                                        disabled={processingRequestId === request.id || isSubmitting}
-                                        className="hover:bg-green-500/90 bg-green-600 text-white"
-                                    >
-                                        {processingRequestId === request.id && <Loader2 className="mr-1 h-4 w-4 animate-spin"/>}
-                                        <UserCheck className="mr-1 h-4 w-4"/> Approve
-                                    </Button>
-                                </div>
+            <Card className="shadow-xl -mt-16 sm:-mt-20 md:-mt-24 relative z-10 mx-auto max-w-5xl bg-card/90 backdrop-blur-sm">
+                <CardContent className="p-6">
+                    <div className="flex flex-col sm:flex-row items-start sm:items-end space-y-4 sm:space-y-0 sm:space-x-6">
+                        {activeOffice.logoUrl ? (
+                            <Image src={activeOffice.logoUrl} alt={`${activeOffice.name} Logo`} width={100} height={100} className="rounded-lg object-cover border-4 border-background shadow-md -mt-12 sm:-mt-16" data-ai-hint="company logo"/>
+                        ) : (
+                            <div className="h-24 w-24 sm:h-28 sm:w-28 bg-muted rounded-lg flex items-center justify-center border-4 border-background shadow-md -mt-12 sm:-mt-16">
+                                <Building className="h-12 w-12 text-muted-foreground"/>
                             </div>
-                        ))}
-                    </CardContent>
-                </Card>
-              </div>
-            )}
-
-            <div>
-              <div className="flex justify-between items-center mb-4">
-                <h2 className="text-2xl font-headline font-semibold">Office Rooms ({activeOfficeRooms.length})</h2>
-                {currentUserIsOwner && (
-                  <Button onClick={() => setIsAddRoomDialogOpen(true)} disabled={isSubmitting} variant="outline" size="sm">
-                      <PlusCircle className="mr-2 h-4 w-4" /> Add Room
-                  </Button>
-                )}
-              </div>
-              {activeOfficeRooms.length === 0 ? (
-                <Card className="shadow-sm">
-                  <CardContent className="text-center py-12 bg-muted/20 rounded-lg">
-                    <Image src="https://placehold.co/300x200.png" alt="Empty office rooms" width={200} height={150} className="mx-auto mb-4 rounded-md" data-ai-hint="office blueprint plan" />
-                    <p className="text-lg text-muted-foreground">This office has no rooms yet.</p>
-                    {currentUserIsOwner && <p className="text-sm text-muted-foreground">Click "Add Room" to design your virtual space.</p>}
-                  </CardContent>
-                </Card>
-              ) : (
-                <div className="grid gap-6 md:grid-cols-2">
-                  {activeOfficeRooms.map((room) => {
-                     const RoomIconComponent = lucideIcons[room.iconName] || Building;
-                     return (
-                      <Card key={room.id} className="flex flex-col shadow-md hover:shadow-lg transition-shadow duration-300 bg-card/80 backdrop-blur-sm">
-                        <CardHeader>
-                          <div className="flex justify-between items-start">
-                            <div className="flex-1">
-                              <CardTitle className="font-headline flex items-center text-lg">
-                                <RoomIconComponent className="mr-2 h-5 w-5 text-primary" />
-                                {room.name}
-                              </CardTitle>
-                              <CardDescription>{room.type}</CardDescription>
-                            </div>
-                             {currentUserIsOwner && (
-                              <Button variant="ghost" size="icon" onClick={() => openDeleteRoomDialog(room)} aria-label="Delete room" disabled={isSubmitting} className="h-8 w-8">
-                                  <Trash2 className="h-4 w-4 text-destructive" />
-                              </Button>
-                             )}
-                          </div>
-                        </CardHeader>
-                        <CardContent className="flex-grow">
-                          <div className="aspect-video bg-muted rounded-md overflow-hidden relative">
-                            <Image 
-                              src={`https://placehold.co/400x225.png`} 
-                              alt={room.name} 
-                              layout="fill" 
-                              objectFit="cover"
-                              data-ai-hint={roomTypeDetails[room.type]?.imageHint || "office room interior"}
-                            />
-                          </div>
-                        </CardContent>
-                        <CardFooter>
-                          <Button variant="outline" className="w-full" disabled>
-                            <ExternalLink className="mr-2 h-4 w-4" /> Enter Room (Future)
-                          </Button>
-                        </CardFooter>
-                      </Card>
-                    )
-                  })}
-                </div>
-              )}
-            </div>
-          </section>
-          
-          <aside className="lg:col-span-1 space-y-6">
-             <Card className="shadow-md bg-card/80 backdrop-blur-sm">
-                <CardHeader>
-                  <CardTitle className="font-headline flex items-center text-xl"><Users className="mr-2 h-5 w-5"/>Team Members ({activeOfficeMembers.length})</CardTitle>
-                  <CardDescription>Manage roles and access for office members.</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-3 max-h-96 overflow-y-auto pr-1">
-                  {activeOfficeMembers.length === 0 ? (
-                    <p className="text-muted-foreground text-sm">No members yet. Share the invite code!</p>
-                  ) : (
-                    activeOfficeMembers.map((member) => {
-                      const RoleIcon = roleIcons[member.role] || UserIconLucide;
-                      const canManageMember = currentUserIsOwner && member.userId !== user?.uid;
-                      return (
-                      <div key={member.userId} className="flex items-center space-x-3 p-2.5 rounded-md hover:bg-muted/50 transition-colors">
-                        <Avatar className="h-10 w-10">
-                          <AvatarImage src={member.avatarUrl || `https://placehold.co/40x40.png?text=${member.name.substring(0,1)}`} alt={member.name} data-ai-hint="person avatar"/>
-                          <AvatarFallback>{member.name.substring(0,2).toUpperCase()}</AvatarFallback>
-                        </Avatar>
-                        <div className="flex-1">
-                          <p className="font-medium text-sm">{member.name}</p>
-                          <Badge variant={member.role === "Owner" ? "default" : member.role === "Admin" ? "secondary" : "outline"} className="text-xs">
-                            <RoleIcon className="mr-1 h-3 w-3" />
-                            {member.role}
-                          </Badge>
-                        </div>
-                        {canManageMember && (
-                            <DropdownMenu>
-                              <DropdownMenuTrigger asChild>
-                                <Button variant="ghost" size="icon" className="h-8 w-8" disabled={isSubmitting}>
-                                  <MoreHorizontal className="h-4 w-4" />
-                                </Button>
-                              </DropdownMenuTrigger>
-                              <DropdownMenuContent align="end">
-                                <DropdownMenuItem onClick={() => handleOpenManageMemberDialog(member)} disabled={isSubmitting}>
-                                  <Edit className="mr-2 h-4 w-4" /> Manage Role
-                                </DropdownMenuItem>
-                                <DropdownMenuItem onClick={() => openDeleteMemberDialog(member)} className="text-destructive focus:bg-destructive/10 focus:text-destructive" disabled={isSubmitting}>
-                                  <Trash2 className="mr-2 h-4 w-4" /> Remove Member
-                                </DropdownMenuItem>
-                              </DropdownMenuContent>
-                            </DropdownMenu>
                         )}
-                      </div>
-                    )})
-                  )}
+                        <div className="flex-1">
+                            <h1 className="text-3xl md:text-4xl font-headline font-bold text-foreground">{activeOffice.name}</h1>
+                            {activeOffice.companyName && <p className="text-lg text-muted-foreground">{activeOffice.companyName}</p>}
+                            {activeOffice.sector && <Badge variant="secondary" className="mt-1">{activeOffice.sector}</Badge>}
+                        </div>
+                        <Button onClick={() => handleSetActiveOffice(null)} variant="outline" className="w-full sm:w-auto" disabled={isLoadingDetails || isSubmitting}>Back to Office List</Button>
+                    </div>
+                    {currentUserIsOwner && activeOffice.invitationCode && (
+                        <div className="mt-4 pt-4 border-t border-border flex items-center text-sm text-muted-foreground">
+                            <span>Invitation Code: <strong className="text-foreground">{activeOffice.invitationCode}</strong></span>
+                            <Button variant="ghost" size="sm" onClick={copyInviteCode} className="ml-2 px-1 py-0 h-auto">
+                            <Copy className="h-3 w-3 mr-1" /> Copy
+                            </Button>
+                        </div>
+                    )}
                 </CardContent>
-              </Card>
-          </aside>
-        </div>
+            </Card>
+
+
+            {isLoadingDetails && <div className="text-center my-8"><Loader2 className="h-10 w-10 animate-spin text-primary"/></div>}
+
+            {!isLoadingDetails && (
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mt-8">
+                <section className="lg:col-span-2 space-y-8">
+                    {currentUserIsOwner && pendingJoinRequests.length > 0 && (
+                    <div>
+                        <h2 className="text-2xl font-headline font-semibold mb-4">Join Requests ({pendingJoinRequests.length})</h2>
+                        <Card className="shadow-md bg-card/80 backdrop-blur-sm">
+                            <CardContent className="p-4 space-y-3">
+                                {pendingJoinRequests.map(request => (
+                                    <div key={request.id} className="flex items-center justify-between p-3 bg-background rounded-md shadow-sm">
+                                        <div className="flex items-center space-x-3">
+                                            <Avatar className="h-10 w-10">
+                                                <AvatarImage src={request.requesterAvatarUrl || `https://placehold.co/40x40.png?text=${request.requesterName.substring(0,1)}`} alt={request.requesterName} data-ai-hint="person avatar"/>
+                                                <AvatarFallback>{request.requesterName.substring(0,2).toUpperCase()}</AvatarFallback>
+                                            </Avatar>
+                                            <div>
+                                                <p className="font-medium text-sm">{request.requesterName}</p>
+                                                <p className="text-xs text-muted-foreground">Wants to join your office</p>
+                                            </div>
+                                        </div>
+                                        <div className="flex space-x-2">
+                                            <Button 
+                                                size="sm" 
+                                                variant="outline" 
+                                                onClick={() => handleProcessJoinRequest(request, 'reject')} 
+                                                disabled={processingRequestId === request.id || isSubmitting}
+                                                className="hover:bg-destructive/10 hover:text-destructive"
+                                            >
+                                                {processingRequestId === request.id && action === 'reject' && <Loader2 className="mr-1 h-4 w-4 animate-spin"/>}
+                                                <UserX className="mr-1 h-4 w-4"/> Reject
+                                            </Button>
+                                            <Button 
+                                                size="sm" 
+                                                onClick={() => handleProcessJoinRequest(request, 'approve')} 
+                                                disabled={processingRequestId === request.id || isSubmitting}
+                                                className="hover:bg-green-500/90 bg-green-600 text-white"
+                                            >
+                                               {processingRequestId === request.id && action === 'approve' && <Loader2 className="mr-1 h-4 w-4 animate-spin"/>}
+                                                <UserCheck className="mr-1 h-4 w-4"/> Approve
+                                            </Button>
+                                        </div>
+                                    </div>
+                                ))}
+                            </CardContent>
+                        </Card>
+                    </div>
+                    )}
+
+                    <div>
+                    <div className="flex justify-between items-center mb-4">
+                        <h2 className="text-2xl font-headline font-semibold">Office Rooms ({activeOfficeRooms.length})</h2>
+                        {currentUserIsOwner && (
+                        <Button onClick={() => setIsAddRoomDialogOpen(true)} disabled={isSubmitting} variant="outline" size="sm">
+                            <PlusCircle className="mr-2 h-4 w-4" /> Add Room
+                        </Button>
+                        )}
+                    </div>
+                    {activeOfficeRooms.length === 0 ? (
+                        <Card className="shadow-sm">
+                        <CardContent className="text-center py-12 bg-muted/20 rounded-lg">
+                            <Image src="https://placehold.co/300x200.png" alt="Empty office rooms" width={200} height={150} className="mx-auto mb-4 rounded-md" data-ai-hint="office blueprint plan" />
+                            <p className="text-lg text-muted-foreground">This office has no rooms yet.</p>
+                            {currentUserIsOwner && <p className="text-sm text-muted-foreground">Click "Add Room" to design your virtual space.</p>}
+                        </CardContent>
+                        </Card>
+                    ) : (
+                        <div className="grid gap-6 md:grid-cols-2">
+                        {activeOfficeRooms.map((room) => {
+                            const RoomIconComponent = lucideIcons[room.iconName] || Building;
+                            return (
+                            <Card key={room.id} className="flex flex-col shadow-md hover:shadow-lg transition-shadow duration-300 bg-card/80 backdrop-blur-sm">
+                                <CardHeader>
+                                <div className="flex justify-between items-start">
+                                    <div className="flex-1">
+                                    <CardTitle className="font-headline flex items-center text-lg">
+                                        <RoomIconComponent className="mr-2 h-5 w-5 text-primary" />
+                                        {room.name}
+                                    </CardTitle>
+                                    <CardDescription>{room.type}</CardDescription>
+                                    </div>
+                                    {currentUserIsOwner && (
+                                    <Button variant="ghost" size="icon" onClick={() => openDeleteRoomDialog(room)} aria-label="Delete room" disabled={isSubmitting} className="h-8 w-8">
+                                        <Trash2 className="h-4 w-4 text-destructive" />
+                                    </Button>
+                                    )}
+                                </div>
+                                </CardHeader>
+                                <CardContent className="flex-grow">
+                                <div className="aspect-video bg-muted rounded-md overflow-hidden relative">
+                                    <Image 
+                                    src={`https://placehold.co/400x225.png`} 
+                                    alt={room.name} 
+                                    layout="fill" 
+                                    objectFit="cover"
+                                    data-ai-hint={roomTypeDetails[room.type]?.imageHint || "office room interior"}
+                                    />
+                                </div>
+                                </CardContent>
+                                <CardFooter>
+                                <Button variant="outline" className="w-full" disabled>
+                                    <ExternalLink className="mr-2 h-4 w-4" /> Enter Room (Future)
+                                </Button>
+                                </CardFooter>
+                            </Card>
+                            )
+                        })}
+                        </div>
+                    )}
+                    </div>
+                </section>
+                
+                <aside className="lg:col-span-1 space-y-6">
+                    <Card className="shadow-md bg-card/80 backdrop-blur-sm">
+                        <CardHeader>
+                        <CardTitle className="font-headline flex items-center text-xl"><Users className="mr-2 h-5 w-5"/>Team Members ({activeOfficeMembers.length})</CardTitle>
+                        <CardDescription>Manage roles and access for office members.</CardDescription>
+                        </CardHeader>
+                        <CardContent className="space-y-3 max-h-96 overflow-y-auto pr-1">
+                        {activeOfficeMembers.length === 0 ? (
+                            <p className="text-muted-foreground text-sm">No members yet. Share the invite code!</p>
+                        ) : (
+                            activeOfficeMembers.map((member) => {
+                            const RoleIcon = roleIcons[member.role] || UserIconLucide;
+                            const canManageMember = currentUserIsOwner && member.userId !== user?.uid;
+                            return (
+                            <div key={member.userId} className="flex items-center space-x-3 p-2.5 rounded-md hover:bg-muted/50 transition-colors">
+                                <Avatar className="h-10 w-10">
+                                <AvatarImage src={member.avatarUrl || `https://placehold.co/40x40.png?text=${member.name.substring(0,1)}`} alt={member.name} data-ai-hint="person avatar"/>
+                                <AvatarFallback>{member.name.substring(0,2).toUpperCase()}</AvatarFallback>
+                                </Avatar>
+                                <div className="flex-1">
+                                <p className="font-medium text-sm">{member.name}</p>
+                                <Badge variant={member.role === "Owner" ? "default" : member.role === "Admin" ? "secondary" : "outline"} className="text-xs">
+                                    <RoleIcon className="mr-1 h-3 w-3" />
+                                    {member.role}
+                                </Badge>
+                                </div>
+                                {canManageMember && (
+                                    <DropdownMenu>
+                                    <DropdownMenuTrigger asChild>
+                                        <Button variant="ghost" size="icon" className="h-8 w-8" disabled={isSubmitting}>
+                                        <MoreHorizontal className="h-4 w-4" />
+                                        </Button>
+                                    </DropdownMenuTrigger>
+                                    <DropdownMenuContent align="end">
+                                        <DropdownMenuItem onClick={() => handleOpenManageMemberDialog(member)} disabled={isSubmitting}>
+                                        <Edit className="mr-2 h-4 w-4" /> Manage Role
+                                        </DropdownMenuItem>
+                                        <DropdownMenuItem onClick={() => openDeleteMemberDialog(member)} className="text-destructive focus:bg-destructive/10 focus:text-destructive" disabled={isSubmitting}>
+                                        <Trash2 className="mr-2 h-4 w-4" /> Remove Member
+                                        </DropdownMenuItem>
+                                    </DropdownMenuContent>
+                                    </DropdownMenu>
+                                )}
+                            </div>
+                            )})
+                        )}
+                        </CardContent>
+                    </Card>
+                </aside>
+                </div>
+            )}
+        </>
       )}
       
-      <Dialog open={isAddRoomDialogOpen} onOpenChange={(isOpen) => { if (!isSubmitting) setIsAddRoomDialogOpen(isOpen); }}>
+      <Dialog open={isAddRoomDialogOpen} onOpenChange={(isOpen) => { if (!isSubmitting) setIsAddRoomDialogOpen(isOpen); if(!isOpen) { setNewRoomName(""); setSelectedRoomType(undefined);}}}>
         <DialogContent className="sm:max-w-[425px]">
           <DialogHeader>
             <DialogTitle className="font-headline">Add New Room</DialogTitle>
@@ -850,7 +910,7 @@ export default function OfficeDesignerPage() {
         </Dialog>
       )}
 
-      <AlertDialog open={isConfirmDeleteMemberDialogOpen} onOpenChange={(isOpen) => {if(!isSubmitting) setIsConfirmDeleteMemberDialogOpen(isOpen)}}>
+      <AlertDialog open={isConfirmDeleteMemberDialogOpen} onOpenChange={(isOpen) => {if(!isSubmitting) setIsConfirmDeleteMemberDialogOpen(isOpen); if(!isOpen) setDeletingMember(null);}}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle className="font-headline">Remove {deletingMember?.name || 'Member'}</AlertDialogTitle>
@@ -867,7 +927,7 @@ export default function OfficeDesignerPage() {
         </AlertDialogContent>
       </AlertDialog>
 
-       <AlertDialog open={isConfirmDeleteRoomDialogOpen} onOpenChange={(isOpen) => {if(!isSubmitting) setIsConfirmDeleteRoomDialogOpen(isOpen)}}>
+       <AlertDialog open={isConfirmDeleteRoomDialogOpen} onOpenChange={(isOpen) => {if(!isSubmitting) setIsConfirmDeleteRoomDialogOpen(isOpen); if(!isOpen) setDeletingRoom(null); }}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle className="font-headline">Delete {deletingRoom?.name || 'Room'}</AlertDialogTitle>
@@ -886,6 +946,8 @@ export default function OfficeDesignerPage() {
     </div>
   );
 }
+    
+
     
 
     
