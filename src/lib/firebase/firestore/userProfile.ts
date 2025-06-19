@@ -19,10 +19,23 @@ const userProfileConverter: FirestoreDataConverter<UserProfile, UserProfileFires
 
     if (profileInput.birthday && profileInput.birthday instanceof Date) {
       data.birthday = Timestamp.fromDate(profileInput.birthday);
+    } else if (profileInput.hasOwnProperty('birthday') && !profileInput.birthday) {
+        // If birthday is explicitly set to null or undefined in the input,
+        // ensure it's not sent or explicitly deleted if your types allow for it.
+        // Firestore handles 'undefined' by not writing the field.
+        // If you need to remove an existing field, you'd use deleteField() with updateDoc.
+        // For setDoc, just not including it or setting to undefined works.
+        delete data.birthday;
     }
     
-    // Set timestamps
-    if (!profileInput.createdAt && !data.createdAt) { // Only set createdAt if not already set (for creation)
+    // Ensure optional fields that are undefined are not sent as null
+    for (const key in data) {
+        if (data[key] === undefined) {
+            delete data[key];
+        }
+    }
+
+    if (!profileInput.createdAt && !data.createdAt) { 
         data.createdAt = serverTimestamp();
     }
     data.updatedAt = serverTimestamp();
@@ -48,7 +61,10 @@ const userProfileConverter: FirestoreDataConverter<UserProfile, UserProfileFires
 };
 
 const userProfileDocRef = (userId: string) => {
-  if (!userId) throw new Error("User ID is required for profile operations.");
+  if (!userId || typeof userId !== 'string' || userId.trim() === "") { // Stricter check
+    // console.error("UserProfile Error: Attempted to get docRef with invalid userId:", userId);
+    throw new Error("User ID is invalid for profile operations.");
+  }
   return doc(db, 'userProfiles', userId).withConverter(userProfileConverter);
 };
 
@@ -56,25 +72,46 @@ export async function getOrCreateUserProfile(
   userId: string, 
   initialData?: Partial<Pick<UserProfile, 'displayName' | 'email' | 'avatarUrl'>>
 ): Promise<UserProfile> {
-  const docRef = userProfileDocRef(userId);
+  if (!userId || typeof userId !== 'string' || userId.trim() === "") {
+    // console.error("getOrCreateUserProfile Error: Invalid userId provided:", userId);
+    throw new Error("User ID is invalid for profile creation/retrieval.");
+  }
+
+  const docRef = userProfileDocRef(userId); // This will throw if userId is invalid due to the check in userProfileDocRef
   const docSnap = await getDoc(docRef);
 
   if (docSnap.exists()) {
     return docSnap.data();
   } else {
-    const newProfileData: Partial<UserProfile> = {
-      id: userId,
-      displayName: initialData?.displayName || 'New User',
-      email: initialData?.email || '',
-      avatarUrl: initialData?.avatarUrl || undefined,
-      // Initialize other fields as needed or leave them undefined
+    const displayNameFallback = `User-${userId.substring(0,4)}`;
+    const emailFallback = `${userId.substring(0,5)}@example.com`;
+
+    const profileToCreate: Partial<UserProfile> = {
+      // id is not part of the data, it's the doc ID
+      displayName: (initialData?.displayName?.trim() || "").trim() || displayNameFallback,
+      email: initialData?.email || emailFallback,
+      avatarUrl: initialData?.avatarUrl, // This can be undefined, converter handles it
+      // Optional fields are left undefined; Firestore won't store them.
+      // Timestamps (createdAt, updatedAt) are handled by the toFirestore converter.
     };
-    // Use setDoc with merge:true to avoid overwriting if somehow created concurrently,
-    // and to ensure serverTimestamp is applied correctly on creation.
-    await setDoc(docRef, newProfileData, { merge: true });
-    const newSnap = await getDoc(docRef);
-    if (!newSnap.exists()) throw new Error("Failed to create user profile.");
-    return newSnap.data();
+    
+    // Ensure displayName and email are not empty strings before setting
+    if (!profileToCreate.displayName) profileToCreate.displayName = displayNameFallback;
+    if (!profileToCreate.email) profileToCreate.email = emailFallback;
+
+
+    try {
+      await setDoc(docRef, profileToCreate, { merge: true }); 
+      const newSnap = await getDoc(docRef);
+      if (!newSnap.exists()) {
+        // console.error("getOrCreateUserProfile Error: Failed to retrieve profile immediately after creation for userId:", userId);
+        throw new Error("Failed to create and then retrieve user profile.");
+      }
+      return newSnap.data();
+    } catch (error) {
+      // console.error("getOrCreateUserProfile Error: During setDoc or subsequent getDoc for userId:", userId, error);
+      throw error; 
+    }
   }
 }
 
@@ -89,18 +126,26 @@ export async function updateUserProfile(
   profileData: Partial<Omit<UserProfile, 'id' | 'email' | 'createdAt' | 'updatedAt'>>
 ): Promise<void> {
   const docRef = userProfileDocRef(userId);
-  // Ensure email and createdAt are not part of the update payload from client
   const { email, createdAt, ...updatableData } = profileData as any; 
   
   const firestoreData: Partial<UserProfileFirestoreData> = {
     ...updatableData,
-    updatedAt: serverTimestamp() as Timestamp // For type consistency, actual value is server-generated
+    updatedAt: serverTimestamp() as Timestamp 
   };
 
   if (updatableData.birthday && updatableData.birthday instanceof Date) {
     firestoreData.birthday = Timestamp.fromDate(updatableData.birthday);
   } else if (updatableData.hasOwnProperty('birthday') && updatableData.birthday === undefined) {
-    firestoreData.birthday = undefined; // Or use deleteField() if you want to remove it completely
+    firestoreData.birthday = undefined; 
+  }
+  
+  // Ensure truly undefined fields are not part of the update payload
+  // to avoid accidentally writing nulls if that's not intended.
+  // The converter should help, but this is an extra check.
+  for (const key in firestoreData) {
+    if ((firestoreData as any)[key] === undefined) {
+        delete (firestoreData as any)[key];
+    }
   }
 
   await updateDoc(docRef, firestoreData);

@@ -58,10 +58,15 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         // Ensure displayName and photoURL are up-to-date before creating profile
         await firebaseUser.reload(); 
         
+        let initialDisplayName = firebaseUser.displayName || data.name || 'New User';
+        if (!initialDisplayName.trim()) {
+          initialDisplayName = 'User-' + firebaseUser.uid.substring(0, 5); // Fallback if name is empty/whitespace
+        }
+
         // Create or get the user profile in Firestore
         await getOrCreateUserProfile(firebaseUser.uid, {
-          displayName: firebaseUser.displayName || data.name || 'New User',
-          email: firebaseUser.email || '',
+          displayName: initialDisplayName,
+          email: firebaseUser.email || '', // Email should always exist from createUserWithEmailAndPassword
           avatarUrl: firebaseUser.photoURL || undefined,
         });
 
