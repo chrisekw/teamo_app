@@ -6,7 +6,7 @@ import { useAuth } from "@/lib/firebase/auth";
 import { getUserProfile, updateUserProfile, getOrCreateUserProfile } from "@/lib/firebase/firestore/userProfile";
 import type { UserProfile } from "@/types";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
