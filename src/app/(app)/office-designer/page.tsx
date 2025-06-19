@@ -3,13 +3,14 @@
 
 import { useState, useEffect, type ReactNode, useCallback, ChangeEvent } from "react";
 import { useSearchParams, useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { PlusCircle, Trash2, Users, Briefcase, Coffee, Zap, Building, KeyRound, UserPlus, Copy, Settings2, ShieldCheck, UserCircle as UserIconLucide, Loader2, Edit, Info, Image as ImageIcon, MoreHorizontal, ExternalLink, UserCheck, UserX, CheckSquare, XSquare } from "lucide-react";
+import { PlusCircle, Trash2, Users, Briefcase, Coffee, Zap, Building, KeyRound, UserPlus, Copy, Settings2, ShieldCheck, UserCircle as UserIconLucide, Loader2, Edit, Info, Image as ImageIcon, MoreHorizontal, ExternalLink, UserCheck, UserX, CheckSquare, XSquare, Video } from "lucide-react";
 import Image from "next/image";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -39,12 +40,12 @@ import { Textarea } from "@/components/ui/textarea";
 
 const roomTypeDetails: Record<RoomType, { icon: React.ElementType; defaultName: string, imageHint: string, iconName: string }> = {
   "Team Hub": { icon: Users, defaultName: "Team Hub", imageHint: "team collaboration", iconName: "Users" },
-  "Meeting Room": { icon: Briefcase, defaultName: "Meeting Room", imageHint: "conference room", iconName: "Briefcase" },
+  "Meeting Room": { icon: Video, defaultName: "Meeting Room", imageHint: "conference room", iconName: "Video" },
   "Focus Booth": { icon: Zap, defaultName: "Focus Booth", imageHint: "quiet workspace", iconName: "Zap" },
   "Social Lounge": { icon: Coffee, defaultName: "Social Lounge", imageHint: "office lounge", iconName: "Coffee" },
 };
 
-const lucideIcons: Record<string, React.ElementType> = { Users, Briefcase, Zap, Coffee, Building }; 
+const lucideIcons: Record<string, React.ElementType> = { Users, Briefcase, Zap, Coffee, Building, Video }; 
 
 const roleIcons: Record<MemberRole, React.ElementType> = {
   "Owner": ShieldCheck,
@@ -271,7 +272,7 @@ export default function OfficeDesignerPage() {
     }
     setIsSubmitting(true);
     const logoUrlPlaceholder = newOfficeLogoFile ? `https://placehold.co/100x100.png?text=${newOfficeCompanyName.substring(0,3) || 'LOGO'}` : undefined;
-    const bannerUrlPlaceholder = newOfficeBannerFile ? `https://placehold.co/800x200.png?text=${newOfficeName.substring(0,10) || 'BANNER'}` : undefined;
+    const bannerUrlPlaceholder = newOfficeBannerFile ? `https://placehold.co/800x200.png?text=${encodeURIComponent(newOfficeName.substring(0,10) || 'BANNER')}` : undefined;
 
     try {
       const newOffice = await createOffice(
@@ -634,7 +635,7 @@ export default function OfficeDesignerPage() {
                 <CardContent className="p-6">
                     <div className="flex flex-col sm:flex-row items-start sm:items-end space-y-4 sm:space-y-0 sm:space-x-6">
                         {activeOffice.logoUrl ? (
-                            <Image src={activeOffice.logoUrl} alt={`${activeOffice.name} Logo`} width={100} height={100} className="rounded-lg object-cover border-4 border-background shadow-md -mt-12 sm:-mt-16" data-ai-hint="company logo"/>
+                            <Image src={activeOffice.logoUrl} alt={`${activeOffice.name} Logo`} width={100} height={100} className="rounded-lg object-cover border-4 border-background shadow-md -mt-12 sm:-mt-16" data-ai-hint="company logo" priority/>
                         ) : (
                             <div className="h-24 w-24 sm:h-28 sm:w-28 bg-muted rounded-lg flex items-center justify-center border-4 border-background shadow-md -mt-12 sm:-mt-16">
                                 <Building className="h-12 w-12 text-muted-foreground"/>
@@ -760,9 +761,17 @@ export default function OfficeDesignerPage() {
                                 </div>
                                 </CardContent>
                                 <CardFooter>
-                                <Button variant="outline" className="w-full" disabled>
-                                    <ExternalLink className="mr-2 h-4 w-4" /> Enter Room (Future)
-                                </Button>
+                                  {room.type === "Meeting Room" && activeOffice ? (
+                                    <Button variant="outline" className="w-full" asChild>
+                                      <Link href={`/office-designer/room/${activeOffice.id}/${room.id}`}>
+                                        <Video className="mr-2 h-4 w-4" /> Enter Meeting Room
+                                      </Link>
+                                    </Button>
+                                  ) : (
+                                    <Button variant="outline" className="w-full" disabled>
+                                      <ExternalLink className="mr-2 h-4 w-4" /> Enter Room (Future)
+                                    </Button>
+                                  )}
                                 </CardFooter>
                             </Card>
                             )

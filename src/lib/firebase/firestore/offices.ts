@@ -453,6 +453,13 @@ export async function getRoomsForOffice(officeId: string): Promise<Room[]> {
   return snapshot.docs.map(d => d.data());
 }
 
+export async function getRoomDetails(officeId: string, roomId: string): Promise<Room | null> {
+  if (!officeId || !roomId) throw new Error("Office ID and Room ID are required.");
+  const docRef = roomDocRef(officeId, roomId);
+  const docSnap = await getDoc(docRef);
+  return docSnap.exists() ? docSnap.data() : null;
+}
+
 export async function deleteRoomFromOffice(
   officeId: string, 
   roomId: string,
