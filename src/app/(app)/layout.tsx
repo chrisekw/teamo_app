@@ -13,7 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Logo, TeamoTextLogo } from "@/components/icons";
 import { SidebarNav } from "@/components/layout/sidebar-nav";
 import { Header } from "@/components/layout/header";
-import { Plus, Play, Apple, Sparkles, Loader2 } from "lucide-react";
+import { Plus, Play, Apple, Sparkles, Loader2, ChevronDown, ChevronUp } from "lucide-react";
 import Image from "next/image";
 import { Card, CardContent } from "@/components/ui/card";
 import { useIsMobile } from "@/hooks/use-mobile";
@@ -22,12 +22,13 @@ import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/firebase/auth";
 import { useRouter } from "next/navigation";
-import React, { useEffect } from "react";
+import React, { useEffect, useState } from "react";
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const isMobile = useIsMobile();
   const { user, loading } = useAuth();
   const router = useRouter();
+  const [aiFabMode, setAiFabMode] = useState<'expanded' | 'collapsed'>('expanded');
 
   useEffect(() => {
     if (!loading && !user) {
@@ -44,8 +45,6 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   }
 
   if (!user) {
-    // This check is mainly for the brief moment before redirect effect runs or if JS is disabled.
-    // The useEffect above handles the redirect for client-side navigation.
     return null; 
   }
 
@@ -60,7 +59,6 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           <SidebarHeader className="h-auto items-center border-b border-sidebar-border p-4 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:py-3 space-y-4">
             <div className="flex items-center justify-center w-full h-8 group-data-[collapsible=icon]:h-7">
               <TeamoTextLogo className="h-full w-auto group-data-[collapsible=icon]:hidden" />
-              {/* <Logo className="h-full w-auto hidden group-data-[collapsible=icon]:block" /> // Removed extra logo */}
             </div>
             <Button variant="default" className="w-full bg-sidebar-primary text-sidebar-primary-foreground hover:bg-sidebar-primary/90 group-data-[collapsible=icon]:hidden">
               <Plus className="mr-2 h-5 w-5" /> Create New
@@ -110,18 +108,43 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         {isMobile && (
           <>
             <BottomNav />
-            <Link
-                href="/ai-assistant"
+            {aiFabMode === 'expanded' ? (
+              <div className="fixed bottom-20 right-4 z-50 flex items-end space-x-1">
+                <Link
+                  href="/ai-assistant"
+                  className={cn(
+                    "bg-primary text-primary-foreground rounded-full shadow-lg",
+                    "w-14 h-14 flex items-center justify-center", 
+                    "hover:bg-primary/90 transition-colors"
+                  )}
+                  aria-label="AI Assistant"
+                >
+                  <Sparkles className="h-7 w-7" />
+                </Link>
+                <Button
+                  size="icon"
+                  variant="secondary"
+                  className="rounded-full w-8 h-8 p-0 shadow-md"
+                  onClick={() => setAiFabMode('collapsed')}
+                  aria-label="Collapse AI Assistant Button"
+                >
+                  <ChevronDown className="h-4 w-4" />
+                </Button>
+              </div>
+            ) : ( // Collapsed mode
+              <Button
                 className={cn(
-                  "fixed bottom-20 right-4 z-50 p-0", 
-                  "bg-primary text-primary-foreground rounded-full shadow-lg",
-                  "w-14 h-14 flex items-center justify-center", 
-                  "hover:bg-primary/90 transition-colors"
+                  "fixed bottom-20 right-4 z-50 p-0",
+                  "bg-secondary text-secondary-foreground rounded-full shadow-lg",
+                  "w-10 h-10 flex items-center justify-center", 
+                  "hover:bg-secondary/80 transition-colors"
                 )}
-                aria-label="AI Assistant"
+                onClick={() => setAiFabMode('expanded')}
+                aria-label="Expand AI Assistant Button"
               >
-                <Sparkles className="h-7 w-7" />
-            </Link>
+                <Sparkles className="h-5 w-5" /> 
+              </Button>
+            )}
           </>
         )}
       </div>
