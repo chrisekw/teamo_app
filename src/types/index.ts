@@ -40,18 +40,20 @@ export interface Task {
   id: string;
   name: string;
   assignedTo: string;
-  dueDate: Date;
+  dueDate?: Date; // Made optional as per new form design
   status: "To Do" | "In Progress" | "Done" | "Blocked";
   priority: "Low" | "Medium" | "High";
   progress: number;
   description?: string;
+  department?: string; // Added new field
   createdAt?: Date;
   updatedAt?: Date;
   userId?: string;
 }
 
 export type TaskFirestoreData = Omit<Task, 'id' | 'dueDate' | 'createdAt' | 'updatedAt' | 'userId'> & {
-  dueDate: Timestamp;
+  dueDate?: Timestamp; // Made optional
+  department?: string; // Added new field
   createdAt?: Timestamp;
   updatedAt?: Timestamp;
 };

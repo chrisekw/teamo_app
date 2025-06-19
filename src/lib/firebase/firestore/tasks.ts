@@ -14,7 +14,11 @@ const taskConverter: FirestoreDataConverter<Task, TaskFirestoreData> = {
 
     if (taskInput.dueDate && taskInput.dueDate instanceof Date) {
       data.dueDate = Timestamp.fromDate(taskInput.dueDate);
+    } else if (taskInput.hasOwnProperty('dueDate') && !taskInput.dueDate) {
+      delete data.dueDate; // Remove if explicitly set to undefined
     }
+    
+    if (taskInput.department === undefined) delete data.department;
     
     if (!taskInput.id) { 
         data.createdAt = serverTimestamp();
@@ -28,11 +32,12 @@ const taskConverter: FirestoreDataConverter<Task, TaskFirestoreData> = {
       id: snapshot.id,
       name: data.name,
       assignedTo: data.assignedTo,
-      dueDate: data.dueDate instanceof Timestamp ? data.dueDate.toDate() : new Date(),
+      dueDate: data.dueDate instanceof Timestamp ? data.dueDate.toDate() : undefined,
       status: data.status,
       priority: data.priority,
       progress: data.progress,
       description: data.description || "",
+      department: data.department,
       createdAt: data.createdAt instanceof Timestamp ? data.createdAt.toDate() : new Date(),
       updatedAt: data.updatedAt instanceof Timestamp ? data.updatedAt.toDate() : new Date(),
     };
@@ -83,7 +88,7 @@ export async function addTaskForUser(
     addActivityLog(officeId, {
       type: "task-new",
       title: `New Task: ${newTask.name}`,
-      description: `Assigned to: ${newTask.assignedTo || 'Unassigned'} by ${actorName}`,
+      description: `Assigned to: ${newTask.assignedTo || 'Unassigned'}${newTask.department ? ` in ${newTask.department}` : ''} by ${actorName}`,
       iconName: "ListChecks",
       actorId: actorUserId,
       actorName: actorName,
@@ -130,7 +135,15 @@ export async function updateTaskForUser(
   const updatePayload: any = { ...taskData };
   if (taskData.dueDate && taskData.dueDate instanceof Date) {
     updatePayload.dueDate = Timestamp.fromDate(taskData.dueDate);
+  } else if (taskData.hasOwnProperty('dueDate') && !taskData.dueDate) {
+    updatePayload.dueDate = undefined; // Allows removing due date
   }
+  
+  if (taskData.hasOwnProperty('department') && taskData.department === undefined) {
+    updatePayload.department = undefined; // Allows removing department
+  }
+
+
   await updateDoc(taskDocRef, updatePayload);
 
   if (officeId && originalTask) {
@@ -163,4 +176,3 @@ export const statusColors: Record<Task["status"], string> = {
   "Done": "bg-green-500",
   "Blocked": "bg-red-500",
 };
-
