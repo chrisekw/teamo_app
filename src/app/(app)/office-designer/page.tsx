@@ -21,22 +21,23 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/firebase/auth";
 import type { Office, Room, OfficeMember, RoomType, MemberRole, OfficeJoinRequest, ChatUser } from "@/types";
-import { 
-  createOffice, 
-  getOfficesForUser, 
-  getOfficeDetails,
-  addRoomToOffice, 
-  getRoomsForOffice, 
+import {
+  createOffice,
+  onUserOfficesUpdate, // Changed
+  getOfficeDetails, // Kept for initial load if needed, or for non-active office details
+  addRoomToOffice,
+  onRoomsUpdate, // Changed
   deleteRoomFromOffice,
-  getMembersForOffice,
+  onMembersUpdate, // Changed
   updateMemberRoleInOffice,
   removeMemberFromOffice,
   requestToJoinOfficeByCode,
-  getPendingJoinRequestsForOffice,
+  onPendingJoinRequestsUpdate, // Changed
   approveJoinRequest,
   rejectJoinRequest
 } from "@/lib/firebase/firestore/offices";
 import { Textarea } from "@/components/ui/textarea";
+import type { Unsubscribe } from 'firebase/firestore'; // Added
 
 const roomTypeDetails: Record<RoomType, { icon: React.ElementType; defaultName: string, imageHint: string, iconName: string }> = {
   "Team Hub": { icon: Users, defaultName: "Team Hub", imageHint: "team collaboration", iconName: "Users" },
@@ -45,7 +46,7 @@ const roomTypeDetails: Record<RoomType, { icon: React.ElementType; defaultName: 
   "Social Lounge": { icon: Coffee, defaultName: "Social Lounge", imageHint: "office lounge", iconName: "Coffee" },
 };
 
-const lucideIcons: Record<string, React.ElementType> = { Users, Briefcase, Zap, Coffee, Building, Video }; 
+const lucideIcons: Record<string, React.ElementType> = { Users, Briefcase, Zap, Coffee, Building, Video };
 
 const roleIcons: Record<MemberRole, React.ElementType> = {
   "Owner": ShieldCheck,
@@ -64,10 +65,10 @@ export default function OfficeDesignerPage() {
   const [activeOfficeRooms, setActiveOfficeRooms] = useState<Room[]>([]);
   const [activeOfficeMembers, setActiveOfficeMembers] = useState<OfficeMember[]>([]);
   const [pendingJoinRequests, setPendingJoinRequests] = useState<OfficeJoinRequest[]>([]);
-  
-  const [isLoadingUserOffices, setIsLoadingUserOffices] = useState(true); 
-  const [isLoadingDetails, setIsLoadingDetails] = useState(false); 
-  const [isSubmitting, setIsSubmitting] = useState(false); 
+
+  const [isLoadingUserOffices, setIsLoadingUserOffices] = useState(true);
+  const [isLoadingDetails, setIsLoadingDetails] = useState(false); // For rooms, members, requests
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const [isCreateOfficeDialogOpen, setIsCreateOfficeDialogOpen] = useState(false);
   const [isJoinOfficeDialogOpen, setIsJoinOfficeDialogOpen] = useState(false);
@@ -75,7 +76,7 @@ export default function OfficeDesignerPage() {
   const [isManageMemberDialogOpen, setIsManageMemberDialogOpen] = useState(false);
   const [isConfirmDeleteMemberDialogOpen, setIsConfirmDeleteMemberDialogOpen] = useState(false);
   const [isConfirmDeleteRoomDialogOpen, setIsConfirmDeleteRoomDialogOpen] = useState(false);
-  
+
   const [newOfficeName, setNewOfficeName] = useState("");
   const [newOfficeSector, setNewOfficeSector] = useState("");
   const [newOfficeCompanyName, setNewOfficeCompanyName] = useState("");
@@ -95,27 +96,21 @@ export default function OfficeDesignerPage() {
 
   const [currentDisplayOfficeId, setCurrentDisplayOfficeId] = useState<string | null>(null);
 
-
-  const fetchUserOffices = useCallback(async () => {
-    if (user) {
-      setIsLoadingUserOffices(true);
-      try {
-        const offices = await getOfficesForUser(user.uid);
-        setUserOffices(offices);
-      } catch (error) {
-        toast({ variant: "destructive", title: "Error", description: "Could not fetch your offices." });
-      } finally {
-        setIsLoadingUserOffices(false);
-      }
-    }
-  }, [user, toast]);
-
+  // Listener for user's offices
   useEffect(() => {
-    if (!authLoading && user) {
-      fetchUserOffices();
+    if (user && !authLoading) {
+      setIsLoadingUserOffices(true);
+      const unsubscribe = onUserOfficesUpdate(user.uid, (offices) => {
+        setUserOffices(offices);
+        setIsLoadingUserOffices(false);
+      });
+      return () => unsubscribe();
+    } else if (!user && !authLoading) {
+      setUserOffices([]);
+      setIsLoadingUserOffices(false);
     }
-  }, [authLoading, user, fetchUserOffices]);
-  
+  }, [user, authLoading]);
+
   useEffect(() => {
     if (authLoading || isLoadingUserOffices || !user) return;
 
@@ -127,28 +122,28 @@ export default function OfficeDesignerPage() {
         if (currentDisplayOfficeId !== officeIdFromParams) {
           setCurrentDisplayOfficeId(officeIdFromParams);
         }
-      } else { 
+      } else {
         if (userOffices.length > 0) {
           const defaultOfficeId = userOffices[0].id;
-          if (currentDisplayOfficeId !== defaultOfficeId || officeIdFromParams !== defaultOfficeId) { 
+          if (currentDisplayOfficeId !== defaultOfficeId || officeIdFromParams !== defaultOfficeId) {
             setCurrentDisplayOfficeId(defaultOfficeId);
             router.replace(`/office-designer?officeId=${defaultOfficeId}`, { scroll: false });
           }
-        } else { 
-          if (currentDisplayOfficeId !== null || officeIdFromParams) { 
+        } else {
+          if (currentDisplayOfficeId !== null || officeIdFromParams) {
             setCurrentDisplayOfficeId(null);
             router.replace('/office-designer', { scroll: false });
           }
         }
       }
-    } else { 
+    } else {
       if (userOffices.length > 0) {
         const defaultOfficeId = userOffices[0].id;
-        if (currentDisplayOfficeId !== defaultOfficeId) { 
+        if (currentDisplayOfficeId !== defaultOfficeId) {
           setCurrentDisplayOfficeId(defaultOfficeId);
           router.replace(`/office-designer?officeId=${defaultOfficeId}`, { scroll: false });
         }
-      } else { 
+      } else {
         if (currentDisplayOfficeId !== null) {
           setCurrentDisplayOfficeId(null);
         }
@@ -164,7 +159,7 @@ export default function OfficeDesignerPage() {
         if (!activeOffice || activeOffice.id !== officeToSetActive.id) {
           setActiveOffice(officeToSetActive);
         }
-      } else if (activeOffice !== null) { 
+      } else if (activeOffice !== null) {
         setActiveOffice(null);
       }
     } else {
@@ -174,47 +169,42 @@ export default function OfficeDesignerPage() {
     }
   }, [currentDisplayOfficeId, userOffices, activeOffice]);
 
-
-  const fetchActiveOfficeDetails = useCallback(async (officeId: string, currentUserId: string) => {
-    setIsLoadingDetails(true);
-    setActiveOfficeRooms([]);
-    setActiveOfficeMembers([]);
-    setPendingJoinRequests([]);
-    try {
-      const officeData = await getOfficeDetails(officeId);
-      if (!officeData) { 
-          toast({ variant: "destructive", title: "Error", description: "Selected office not found or inaccessible." });
-          setCurrentDisplayOfficeId(null); 
-          setUserOffices(prev => prev.filter(o => o.id !== officeId));
-          return;
-      }
-
-      const [rooms, members, requests] = await Promise.all([
-        getRoomsForOffice(officeId),
-        getMembersForOffice(officeId),
-        officeData.ownerId === currentUserId ? getPendingJoinRequestsForOffice(officeId) : Promise.resolve([])
-      ]);
-      setActiveOfficeRooms(rooms);
-      setActiveOfficeMembers(members);
-      setPendingJoinRequests(requests);
-    } catch (error: any) {
-      console.error("Detailed error fetching office details:", error);
-      toast({ variant: "destructive", title: "Fetch Error", description: `Could not fetch office details. ${error?.message || 'Unknown error'}` });
-    } finally {
-      setIsLoadingDetails(false);
-    }
-  }, [toast]);
-
+  // Listeners for active office details
   useEffect(() => {
     if (activeOffice && user) {
-      fetchActiveOfficeDetails(activeOffice.id, user.uid);
+      setIsLoadingDetails(true);
+      const unsubRooms = onRoomsUpdate(activeOffice.id, (rooms) => {
+        setActiveOfficeRooms(rooms);
+        // setIsLoadingDetails(false); // Wait for all listeners to provide initial data
+      });
+      const unsubMembers = onMembersUpdate(activeOffice.id, (members) => {
+        setActiveOfficeMembers(members);
+        // setIsLoadingDetails(false);
+      });
+      let unsubRequests: Unsubscribe = () => {};
+      if (activeOffice.ownerId === user.uid) {
+        unsubRequests = onPendingJoinRequestsUpdate(activeOffice.id, (requests) => {
+          setPendingJoinRequests(requests);
+          setIsLoadingDetails(false); // Set loading false after all initial data might have arrived
+        });
+      } else {
+        setPendingJoinRequests([]);
+        setIsLoadingDetails(false); // If not owner, no requests to load
+      }
+
+      return () => {
+        unsubRooms();
+        unsubMembers();
+        unsubRequests();
+      };
     } else {
       setActiveOfficeRooms([]);
       setActiveOfficeMembers([]);
       setPendingJoinRequests([]);
-      setIsLoadingDetails(false); 
+      setIsLoadingDetails(false);
     }
-  }, [activeOffice, user, fetchActiveOfficeDetails]);
+  }, [activeOffice, user]);
+
 
   const handleSetActiveOffice = (office: Office | null) => {
     if (office) {
@@ -223,7 +213,7 @@ export default function OfficeDesignerPage() {
         router.push('/office-designer', { scroll: false });
     }
   };
-  
+
   const resetCreateOfficeForm = () => {
     setNewOfficeName("");
     setNewOfficeSector("");
@@ -276,17 +266,17 @@ export default function OfficeDesignerPage() {
 
     try {
       const newOffice = await createOffice(
-        user.uid, 
-        user.displayName || user.email?.split('@')[0] || "User", 
-        user.photoURL || undefined, 
+        user.uid,
+        user.displayName || user.email?.split('@')[0] || "User",
+        user.photoURL || undefined,
         newOfficeName,
         newOfficeSector || undefined,
         newOfficeCompanyName || undefined,
-        logoUrlPlaceholder,
-        bannerUrlPlaceholder
+        logoUrlPlaceholder, // Actual upload to Firebase Storage would be done here
+        bannerUrlPlaceholder // Actual upload to Firebase Storage would be done here
       );
-      setUserOffices(prev => [...prev, newOffice]);
-      handleSetActiveOffice(newOffice); 
+      // setUserOffices will update via onUserOfficesUpdate listener
+      handleSetActiveOffice(newOffice);
       resetCreateOfficeForm();
       setIsCreateOfficeDialogOpen(false);
       toast({ title: "Office Created!", description: `Your new office "${newOffice.name}" is ready.` });
@@ -311,7 +301,7 @@ export default function OfficeDesignerPage() {
         id: user.uid,
         name: user.displayName || user.email?.split('@')[0] || "Anonymous User",
         avatarUrl: user.photoURL || undefined,
-        role: "User" 
+        role: "User"
     };
     try {
       const result = await requestToJoinOfficeByCode(joinOfficeCode, requesterUser);
@@ -333,7 +323,7 @@ export default function OfficeDesignerPage() {
     if (!activeOffice || !selectedRoomType || !user) return;
     const details = roomTypeDetails[selectedRoomType];
     const roomName = newRoomName.trim() === "" ? `${details.defaultName} ${activeOfficeRooms.filter(r => r.type === selectedRoomType).length + 1}` : newRoomName;
-    
+
     setIsSubmitting(true);
     try {
       const newRoomData: Omit<Room, 'id' | 'officeId' | 'createdAt' | 'updatedAt'> = {
@@ -342,7 +332,7 @@ export default function OfficeDesignerPage() {
         iconName: details.iconName,
       };
       const addedRoom = await addRoomToOffice(activeOffice.id, newRoomData, user.uid, user.displayName || "User");
-      setActiveOfficeRooms(prev => [...prev, addedRoom]);
+      // setActiveOfficeRooms will update via onRoomsUpdate listener
       setNewRoomName("");
       setSelectedRoomType(undefined);
       setIsAddRoomDialogOpen(false);
@@ -358,13 +348,13 @@ export default function OfficeDesignerPage() {
     setDeletingRoom(room);
     setIsConfirmDeleteRoomDialogOpen(true);
   };
-  
+
   const handleDeleteRoom = async () => {
     if (!activeOffice || !deletingRoom || !user) return;
     setIsSubmitting(true);
     try {
       await deleteRoomFromOffice(activeOffice.id, deletingRoom.id, user.uid, user.displayName || "User");
-      setActiveOfficeRooms(prev => prev.filter((room) => room.id !== deletingRoom.id));
+      // setActiveOfficeRooms will update via onRoomsUpdate listener
       toast({ title: "Room Deleted", description: `The room "${deletingRoom.name}" has been removed.` });
     } catch (error: any) {
       toast({ variant: "destructive", title: "Error Deleting Room", description: error.message });
@@ -394,9 +384,7 @@ export default function OfficeDesignerPage() {
     setIsSubmitting(true);
     try {
       await updateMemberRoleInOffice(activeOffice.id, managingMember.userId, selectedRole, user.uid, user.displayName || "User");
-      setActiveOfficeMembers(prev => 
-        prev.map(m => m.userId === managingMember.userId ? { ...m, role: selectedRole } : m)
-      );
+      // setActiveOfficeMembers will update via onMembersUpdate listener
       toast({ title: "Role Updated", description: `${managingMember.name}'s role changed to ${selectedRole}.`});
     } catch (error: any) {
        toast({ variant: "destructive", title: "Error Updating Role", description: error.message });
@@ -425,11 +413,11 @@ export default function OfficeDesignerPage() {
       setDeletingMember(null);
       return;
     }
-    
+
     setIsSubmitting(true);
     try {
       await removeMemberFromOffice(activeOffice.id, deletingMember.userId, user.uid, user.displayName || "User");
-      setActiveOfficeMembers(prev => prev.filter(m => m.userId !== deletingMember.userId));
+      // setActiveOfficeMembers will update via onMembersUpdate listener
       toast({ title: "Member Removed", description: `"${deletingMember.name}" has been removed from the office.` });
     } catch (error: any) {
       toast({ variant: "destructive", title: "Error Removing Member", description: error.message });
@@ -451,7 +439,7 @@ export default function OfficeDesignerPage() {
         await rejectJoinRequest(activeOffice.id, request.id, user.uid, user.displayName || "User");
         toast({ title: "Request Rejected", description: `${request.requesterName}'s request has been rejected.` });
       }
-      fetchActiveOfficeDetails(activeOffice.id, user.uid); 
+      // Data will refresh via onPendingJoinRequestsUpdate and onMembersUpdate listeners
     } catch (error: any) {
       toast({ variant: "destructive", title: `Error ${actionToTake === 'approve' ? 'Approving' : 'Rejecting'} Request`, description: error.message });
     } finally {
@@ -471,13 +459,13 @@ export default function OfficeDesignerPage() {
     return <div className="container mx-auto p-8 text-center"><Loader2 className="h-12 w-12 animate-spin text-primary"/></div>;
   }
 
-  if (!activeOffice && !isCreateOfficeDialogOpen && userOffices.length === 0) { 
+  if (!activeOffice && !isCreateOfficeDialogOpen && userOffices.length === 0) {
     return (
       <div className="container mx-auto p-4 sm:p-6 lg:p-8 flex flex-col items-center">
         <Building className="h-16 w-16 text-primary mb-6" />
         <h1 className="text-3xl font-headline font-bold mb-4 text-center">Virtual Office Hub</h1>
-        
-        {userOffices.length > 0 && ( 
+
+        {userOffices.length > 0 && (
           <Card className="w-full max-w-lg mb-8 shadow-lg">
             <CardHeader>
               <CardTitle className="font-headline">Your Offices</CardTitle>
@@ -492,7 +480,7 @@ export default function OfficeDesignerPage() {
             </CardContent>
           </Card>
         )}
-        
+
         <p className="text-muted-foreground mb-6 text-center max-w-md">
           {userOffices.length > 0 ? "Or, you can create a new office or join another one." : "Create your own virtual office space or join an existing one."}
         </p>
@@ -507,7 +495,7 @@ export default function OfficeDesignerPage() {
       </div>
     );
   }
-  
+
   if(!activeOffice && userOffices.length > 0 && !currentDisplayOfficeId && !isLoadingDetails) {
      return <div className="container mx-auto p-8 text-center"><Loader2 className="h-12 w-12 animate-spin text-primary"/></div>;
   }
@@ -550,11 +538,11 @@ export default function OfficeDesignerPage() {
     <div className="container mx-auto p-4 sm:p-6 lg:p-8 space-y-8">
       {activeOffice && (
         <div className="mb-2 rounded-lg overflow-hidden shadow-lg aspect-[16/5] sm:aspect-[16/4] md:aspect-[16/3] relative bg-muted">
-          <Image 
-            src={activeOffice.bannerUrl || `https://placehold.co/800x300.png?text=${encodeURIComponent(activeOffice.name.substring(0,15) || 'Office Banner')}`} 
-            alt={`${activeOffice.name} Banner`} 
-            layout="fill" 
-            objectFit="cover" 
+          <Image
+            src={activeOffice.bannerUrl || `https://placehold.co/800x300.png?text=${encodeURIComponent(activeOffice.name.substring(0,15) || 'Office Banner')}`}
+            alt={`${activeOffice.name} Banner`}
+            layout="fill"
+            objectFit="cover"
             data-ai-hint={activeOffice.bannerUrl ? "office banner background" : "default office banner"}
             priority
           />
@@ -683,19 +671,19 @@ export default function OfficeDesignerPage() {
                                             </div>
                                         </div>
                                         <div className="flex space-x-2">
-                                            <Button 
-                                                size="sm" 
-                                                variant="outline" 
-                                                onClick={() => handleProcessJoinRequest(request, 'reject')} 
+                                            <Button
+                                                size="sm"
+                                                variant="outline"
+                                                onClick={() => handleProcessJoinRequest(request, 'reject')}
                                                 disabled={processingRequestId === request.id || isSubmitting}
                                                 className="hover:bg-destructive/10 hover:text-destructive"
                                             >
                                                 {processingRequestId === request.id && <Loader2 className="mr-1 h-4 w-4 animate-spin"/>}
                                                 <UserX className="mr-1 h-4 w-4"/> Reject
                                             </Button>
-                                            <Button 
-                                                size="sm" 
-                                                onClick={() => handleProcessJoinRequest(request, 'approve')} 
+                                            <Button
+                                                size="sm"
+                                                onClick={() => handleProcessJoinRequest(request, 'approve')}
                                                 disabled={processingRequestId === request.id || isSubmitting}
                                                 className="hover:bg-green-500/90 bg-green-600 text-white"
                                             >
@@ -751,10 +739,10 @@ export default function OfficeDesignerPage() {
                                 </CardHeader>
                                 <CardContent className="flex-grow">
                                 <div className="aspect-video bg-muted rounded-md overflow-hidden relative">
-                                    <Image 
-                                    src={`https://placehold.co/400x225.png`} 
-                                    alt={room.name} 
-                                    layout="fill" 
+                                    <Image
+                                    src={`https://placehold.co/400x225.png`}
+                                    alt={room.name}
+                                    layout="fill"
                                     objectFit="cover"
                                     data-ai-hint={roomTypeDetails[room.type]?.imageHint || "office room interior"}
                                     />
@@ -780,7 +768,7 @@ export default function OfficeDesignerPage() {
                     )}
                     </div>
                 </section>
-                
+
                 <aside className="lg:col-span-1 space-y-6">
                     <Card className="shadow-md bg-card/80 backdrop-blur-sm">
                         <CardHeader>
@@ -834,7 +822,7 @@ export default function OfficeDesignerPage() {
             )}
         </>
       )}
-      
+
       <Dialog open={isAddRoomDialogOpen} onOpenChange={(isOpen) => { if (!isSubmitting) setIsAddRoomDialogOpen(isOpen); if(!isOpen) { setNewRoomName(""); setSelectedRoomType(undefined);}}}>
         <DialogContent className="sm:max-w-[425px]">
           <DialogHeader>
@@ -943,10 +931,3 @@ export default function OfficeDesignerPage() {
     </div>
   );
 }
-    
-
-    
-
-    
-
-    

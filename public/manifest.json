@@ -21,5 +21,5 @@
   "display": "standalone",
   "background_color": "#F0F0F0",
   "theme_color": "#007FFF",
-  "gcm_sender_id": "YOUR_FIREBASE_MESSAGING_SENDER_ID_HERE"
+  "gcm_sender_id": "631252042250"
 }

@@ -22,12 +22,12 @@ import { getOfficesForUser, getMembersForOffice } from '@/lib/firebase/firestore
 import {
   getOrCreateDmThread,
   addChatMessageAndNotify,
-  getMessagesForThread,
+  onMessagesUpdate, // Changed
   addGeneralOfficeMessage,
-  getGeneralOfficeMessages
+  onGeneralOfficeMessagesUpdate // Changed
 } from '@/lib/firebase/firestore/chat';
 import { markNotificationsAsReadByLink } from '@/lib/firebase/firestore/notifications';
-import { doc, getDoc } from 'firebase/firestore';
+import { doc, getDoc, type Unsubscribe } from 'firebase/firestore'; // Added Unsubscribe
 import { db } from '@/lib/firebase/client';
 
 
@@ -49,20 +49,20 @@ export default function ChatPage() {
 
   const [currentUserForChat, setCurrentUserForChat] = useState<ChatUser | null>(null);
   const [currentOfficeMembers, setCurrentOfficeMembers] = useState<ChatUser[]>([]);
-  const [activeOfficeForChat, setActiveOfficeForChat] = useState<Office | null | undefined>(undefined); 
+  const [activeOfficeForChat, setActiveOfficeForChat] = useState<Office | null | undefined>(undefined);
 
   const [isLoadingMessages, setIsLoadingMessages] = useState(false);
   const [isSendingMessage, setIsSendingMessage] = useState(false);
 
   const [isCallActiveForChat, setIsCallActiveForChat] = useState<Record<string, boolean>>({});
-  
+
   const [isRecordingVoiceNote, setIsRecordingVoiceNote] = useState(false);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const voiceRecordingStartTimeRef = useRef<number | null>(null);
   const [recordingDuration, setRecordingDuration] = useState(0);
   const recordingIntervalRef = useRef<NodeJS.Timeout | null>(null);
-  
+
   const audioElementsRef = useRef<Record<string, HTMLAudioElement>>({});
   const [currentlyPlayingAudioId, setCurrentlyPlayingAudioId] = useState<string | null>(null);
   const [userOfficesList, setUserOfficesList] = useState<Office[]>([]);
@@ -73,7 +73,7 @@ export default function ChatPage() {
       setCurrentUserForChat({
         id: user.uid,
         name: user.displayName || user.email?.split('@')[0] || 'You',
-        role: 'User', 
+        role: 'User',
         avatarUrl: user.photoURL || `https://placehold.co/40x40.png?text=${(user.displayName || 'U').substring(0,1)}`,
       });
     }
@@ -85,9 +85,9 @@ export default function ChatPage() {
         const offices = await getOfficesForUser(user.uid);
         setUserOfficesList(offices);
         if (offices.length > 0) {
-          setActiveOfficeForChat(offices[0]); 
+          setActiveOfficeForChat(offices[0]);
         } else {
-          setActiveOfficeForChat(null); 
+          setActiveOfficeForChat(null);
           setCurrentOfficeMembers([]);
         }
       }
@@ -99,7 +99,7 @@ export default function ChatPage() {
 
   useEffect(() => {
     const fetchMembers = async () => {
-      if (activeOfficeForChat && user) { 
+      if (activeOfficeForChat && user) {
         const members = await getMembersForOffice(activeOfficeForChat.id);
         const chatUsers: ChatUser[] = members.map(m => ({
           id: m.userId,
@@ -112,7 +112,7 @@ export default function ChatPage() {
         setCurrentOfficeMembers([]);
       }
     };
-    if (activeOfficeForChat !== undefined) { 
+    if (activeOfficeForChat !== undefined) {
         fetchMembers();
     }
   }, [activeOfficeForChat, user]);
@@ -124,32 +124,43 @@ export default function ChatPage() {
     setActiveChatId(chatId);
     setActiveChatType(type);
     setActiveChatTargetUser(targetUser || null);
-    setIsLoadingMessages(true);
-    setAllMessages(prev => ({ ...prev, [chatId]: [] })); 
+    // setIsLoadingMessages(true); // Will be set by onSnapshot initial call
 
-    try {
-      let messages: ChatMessage[] = [];
-      if (type === 'dm' && targetUser) {
-        messages = await getMessagesForThread(chatId);
-        await markNotificationsAsReadByLink(user.uid, `/chat?threadId=${chatId}`);
-      } else if (type === 'general' && activeOfficeForChat) { 
-        messages = await getGeneralOfficeMessages(activeOfficeForChat.id);
-      }
-      setAllMessages(prev => ({ ...prev, [chatId]: messages }));
-    } catch (error) {
-      console.error("Error fetching messages:", error);
-      toast({ variant: "destructive", title: "Error", description: "Could not load messages." });
-    } finally {
-      setIsLoadingMessages(false);
-      if (isMobile) setMobileView('chat');
-
-      if (type === 'dm') {
-        router.replace(`/chat?threadId=${chatId}`, { scroll: false });
-      } else if (type === 'general' && activeOfficeForChat) {
-         router.replace(`/chat?officeGeneral=${activeOfficeForChat.id}`, { scroll: false });
-      }
+    if (type === 'dm') {
+      await markNotificationsAsReadByLink(user.uid, `/chat?threadId=${chatId}`);
+      router.replace(`/chat?threadId=${chatId}`, { scroll: false });
+    } else if (type === 'general' && activeOfficeForChat) {
+      router.replace(`/chat?officeGeneral=${activeOfficeForChat.id}`, { scroll: false });
     }
-  }, [user, currentUserForChat, activeOfficeForChat, isMobile, toast, router]);
+
+    if (isMobile) setMobileView('chat');
+  }, [user, currentUserForChat, activeOfficeForChat, isMobile, router]);
+
+
+  // Real-time message listener
+  useEffect(() => {
+    if (!activeChatId || !activeChatType) {
+      return () => {};
+    }
+
+    setIsLoadingMessages(true);
+    let unsubscribe: Unsubscribe = () => {};
+
+    if (activeChatType === 'dm') {
+      unsubscribe = onMessagesUpdate(activeChatId, (messages) => {
+        setAllMessages(prev => ({ ...prev, [activeChatId]: messages }));
+        setIsLoadingMessages(false);
+      });
+    } else if (activeChatType === 'general' && activeOfficeForChat) {
+      unsubscribe = onGeneralOfficeMessagesUpdate(activeOfficeForChat.id, (messages) => {
+        setAllMessages(prev => ({ ...prev, [`general-${activeOfficeForChat.id}`]: messages }));
+        setIsLoadingMessages(false);
+      });
+    }
+
+    return () => unsubscribe();
+  }, [activeChatId, activeChatType, activeOfficeForChat?.id]);
+
 
   useEffect(() => {
     if (authLoading || !currentUserForChat || activeChatId || activeOfficeForChat === undefined) {
@@ -160,21 +171,21 @@ export default function ChatPage() {
     const officeGeneralFromUrl = searchParams.get('officeGeneral');
 
     const initializeChat = async () => {
-      setIsLoadingMessages(true);
+      // setIsLoadingMessages(true); // Moved to onSnapshot listener effect
       try {
         if (threadIdFromUrl) {
           const threadDataSnap = await getDoc(doc(db, 'chatThreads', threadIdFromUrl));
           if (threadDataSnap.exists()) {
-            const threadData = threadDataSnap.data() as ChatThread; 
+            const threadData = threadDataSnap.data() as ChatThread;
             const targetId = threadData.participantIds.find(pid => pid !== user?.uid);
 
             let targetUserInfo: ChatUser | undefined;
-            
+
             if (targetId && threadData.participantInfo && threadData.participantInfo[targetId]) {
               targetUserInfo = {
                 id: targetId,
                 name: threadData.participantInfo[targetId].name,
-                role: 'User', 
+                role: 'User',
                 avatarUrl: threadData.participantInfo[targetId].avatarUrl
               };
             } else if (targetId) {
@@ -191,42 +202,40 @@ export default function ChatPage() {
               await selectChat(threadIdFromUrl, 'dm', targetUserInfo);
             } else if (targetId && !targetUserInfo){
                 await selectChat(threadIdFromUrl, 'dm', {id: targetId, name: `User ${targetId.substring(0,4)}`, role: 'User'});
-            } else if (activeOfficeForChat) { 
+            } else if (activeOfficeForChat) {
               await selectChat(`general-${activeOfficeForChat.id}`, 'general');
             } else {
-              setActiveChatId(null); setAllMessages({}); 
+              setActiveChatId(null); // No specific chat selected
             }
-          } else if (activeOfficeForChat) { 
+          } else if (activeOfficeForChat) {
             await selectChat(`general-${activeOfficeForChat.id}`, 'general');
           } else {
-            setActiveChatId(null); setAllMessages({});
+            setActiveChatId(null);
           }
         } else if (officeGeneralFromUrl && activeOfficeForChat && officeGeneralFromUrl === activeOfficeForChat.id) {
           await selectChat(`general-${activeOfficeForChat.id}`, 'general');
-        } else if (activeOfficeForChat) { 
+        } else if (activeOfficeForChat) {
           await selectChat(`general-${activeOfficeForChat.id}`, 'general');
         } else {
           setActiveChatId(null);
-          setAllMessages({});
         }
       } catch (error) {
         console.error("Error initializing chat from URL:", error);
         toast({ variant: "destructive", title: "Error", description: "Could not initialize chat." });
         if (activeOfficeForChat) {
-          await selectChat(`general-${activeOfficeForChat.id}`, 'general'); 
+          await selectChat(`general-${activeOfficeForChat.id}`, 'general');
         } else {
-          setActiveChatId(null); setAllMessages({});
+          setActiveChatId(null);
         }
-      } finally {
-        setIsLoadingMessages(false);
       }
+      // setIsLoadingMessages(false); // Moved to onSnapshot listener effect
     };
 
     if (activeOfficeForChat !== undefined || threadIdFromUrl) {
       initializeChat();
     }
   }, [user, currentUserForChat, activeOfficeForChat, searchParams, toast, authLoading, router, selectChat, activeChatId]);
-  
+
   useEffect(() => {
     if (scrollAreaRef.current) {
       const viewport = scrollAreaRef.current.querySelector('div[data-radix-scroll-area-viewport]');
@@ -245,55 +254,46 @@ export default function ChatPage() {
     }
 
     setIsSendingMessage(true);
-    const tempMessageId = Date.now().toString();
-    const optimisticMessage: ChatMessage = {
-      id: tempMessageId,
-      text: newMessage,
-      senderId: currentUserForChat.id,
-      timestamp: new Date(),
-      senderName: currentUserForChat.name,
-      avatarUrl: currentUserForChat.avatarUrl,
-      type: 'text',
-      chatThreadId: activeChatId, 
-    };
-
-    setAllMessages(prev => ({
-      ...prev,
-      [activeChatId]: [...(prev[activeChatId] || []), optimisticMessage]
-    }));
     const currentMsgText = newMessage;
     setNewMessage("");
 
+    // Optimistic update (optional but good for UX)
+    const tempMessageId = Date.now().toString();
+    const optimisticMessage: ChatMessage = {
+      id: tempMessageId, text: currentMsgText, senderId: currentUserForChat.id,
+      timestamp: new Date(), senderName: currentUserForChat.name, avatarUrl: currentUserForChat.avatarUrl,
+      type: 'text', chatThreadId: activeChatId,
+    };
+    setAllMessages(prev => ({
+      ...prev, [activeChatId]: [...(prev[activeChatId] || []), optimisticMessage]
+    }));
+
     try {
-      let sentMessage: ChatMessage | null = null;
       const messageContent = { text: currentMsgText, type: 'text' as const };
       if (activeChatType === 'dm' && activeChatTargetUser) {
-        sentMessage = await addChatMessageAndNotify(
-            activeChatId, 
+        await addChatMessageAndNotify(
+            activeChatId,
             messageContent,
-            currentUserForChat, 
-            [currentUserForChat, activeChatTargetUser], 
+            currentUserForChat,
+            [currentUserForChat, activeChatTargetUser],
             activeOfficeForChat ? {officeId: activeOfficeForChat.id, officeName: activeOfficeForChat.name } : undefined
         );
       } else if (activeChatType === 'general' && activeOfficeForChat) {
-        sentMessage = await addGeneralOfficeMessage(activeOfficeForChat.id, messageContent, currentUserForChat);
+        await addGeneralOfficeMessage(activeOfficeForChat.id, messageContent, currentUserForChat);
       }
+      // Message will be added via onSnapshot listener, remove optimistic one if IDs don't match or handle potential duplicates if IDs are same
+      setAllMessages(prev => ({
+         ...prev, [activeChatId]: (prev[activeChatId] || []).filter(m => m.id !== tempMessageId || m.text !== currentMsgText) // Simple removal, real message comes via listener
+      }));
 
-      if (sentMessage) {
-         setAllMessages(prev => ({
-            ...prev,
-            [activeChatId]: (prev[activeChatId] || []).map(m => m.id === tempMessageId ? sentMessage! : m)
-         }));
-      }
 
     } catch (error) {
       console.error("Error sending message:", error);
       toast({ variant: "destructive", title: "Send Error", description: "Failed to send message." });
       setAllMessages(prev => ({
-        ...prev,
-        [activeChatId]: (prev[activeChatId] || []).filter(m => m.id !== tempMessageId)
+        ...prev, [activeChatId]: (prev[activeChatId] || []).filter(m => m.id !== tempMessageId)
       }));
-      setNewMessage(currentMsgText); 
+      setNewMessage(currentMsgText);
     } finally {
       setIsSendingMessage(false);
     }
@@ -308,59 +308,44 @@ export default function ChatPage() {
     setIsSendingMessage(true);
 
     const durationFormatted = `${String(Math.floor(durationSeconds / 60)).padStart(2, '0')}:${String(durationSeconds % 60).padStart(2, '0')}`;
+    
+    // Optimistic update
     const tempMessageId = Date.now().toString();
     const optimisticMessage: ChatMessage = {
-      id: tempMessageId,
-      text: `Voice Note (${durationFormatted})`,
-      senderId: currentUserForChat.id,
-      timestamp: new Date(),
-      senderName: currentUserForChat.name,
-      avatarUrl: currentUserForChat.avatarUrl,
-      type: 'voice_note',
-      audioDataUrl: audioDataUrl,
-      voiceNoteDuration: durationFormatted,
-      chatThreadId: activeChatId,
+      id: tempMessageId, text: `Voice Note (${durationFormatted})`, senderId: currentUserForChat.id,
+      timestamp: new Date(), senderName: currentUserForChat.name, avatarUrl: currentUserForChat.avatarUrl,
+      type: 'voice_note', audioDataUrl: audioDataUrl, voiceNoteDuration: durationFormatted, chatThreadId: activeChatId,
     };
-
     setAllMessages(prev => ({
-      ...prev,
-      [activeChatId]: [...(prev[activeChatId] || []), optimisticMessage],
+        ...prev, [activeChatId]: [...(prev[activeChatId] || []), optimisticMessage]
     }));
 
     try {
-      let sentMessage: ChatMessage | null = null;
       const messageContent = { text: `Voice Note`, type: 'voice_note' as const, audioDataUrl, voiceNoteDuration: durationFormatted };
 
       if (activeChatType === 'dm' && activeChatTargetUser) {
-        sentMessage = await addChatMessageAndNotify(
-          activeChatId,
-          messageContent,
-          currentUserForChat,
+        await addChatMessageAndNotify(
+          activeChatId, messageContent, currentUserForChat,
           [currentUserForChat, activeChatTargetUser],
           activeOfficeForChat ? { officeId: activeOfficeForChat.id, officeName: activeOfficeForChat.name } : undefined
         );
       } else if (activeChatType === 'general' && activeOfficeForChat) {
-        sentMessage = await addGeneralOfficeMessage(activeOfficeForChat.id, messageContent, currentUserForChat);
+        await addGeneralOfficeMessage(activeOfficeForChat.id, messageContent, currentUserForChat);
       }
       
-      if (sentMessage) {
-         setAllMessages(prev => ({
-            ...prev,
-            [activeChatId]: (prev[activeChatId] || []).map(m => m.id === tempMessageId ? sentMessage! : m)
-         }));
-      }
+      setAllMessages(prev => ({
+         ...prev, [activeChatId]: (prev[activeChatId] || []).filter(m => m.id !== tempMessageId)
+      }));
       toast({
         title: "Voice Note Sent",
         description: `Duration: ${durationFormatted}. (Note: Audio stored in Firestore for prototype - consider Firebase Storage for production.)`,
-        variant: "default",
-        duration: 7000,
+        variant: "default", duration: 7000,
       });
     } catch (error) {
       console.error("Error sending voice note:", error);
       toast({ variant: "destructive", title: "Send Error", description: "Failed to send voice note." });
        setAllMessages(prev => ({
-        ...prev,
-        [activeChatId]: (prev[activeChatId] || []).filter(m => m.id !== tempMessageId)
+        ...prev, [activeChatId]: (prev[activeChatId] || []).filter(m => m.id !== tempMessageId)
       }));
     } finally {
       setIsSendingMessage(false);
@@ -396,7 +381,6 @@ export default function ChatPage() {
     if (!currentUserForChat || !activeChatId || !activeChatType) return;
 
     if (isRecordingVoiceNote) {
-      // Stop recording
       if (mediaRecorderRef.current && mediaRecorderRef.current.state === "recording") {
         mediaRecorderRef.current.stop();
       }
@@ -405,9 +389,7 @@ export default function ChatPage() {
         recordingIntervalRef.current = null;
       }
       setIsRecordingVoiceNote(false);
-      // onstop event will handle sending the message
     } else {
-      // Start recording
       try {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
         mediaRecorderRef.current = new MediaRecorder(stream);
@@ -418,10 +400,7 @@ export default function ChatPage() {
         };
 
         mediaRecorderRef.current.onstop = async () => {
-          const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' }); // Or appropriate MIME type
-          const audioUrl = URL.createObjectURL(audioBlob); // For potential local preview, not directly stored
-
-          // Convert Blob to Base64 Data URL for storing in Firestore (prototype solution)
+          const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
           const reader = new FileReader();
           reader.readAsDataURL(audioBlob);
           reader.onloadend = () => {
@@ -429,12 +408,11 @@ export default function ChatPage() {
             const durationMs = Date.now() - (voiceRecordingStartTimeRef.current || Date.now());
             const durationSec = Math.max(1, Math.round(durationMs / 1000));
             handleSendVoiceNote(base64AudioDataUrl, durationSec);
-            audioChunksRef.current = []; // Clear chunks for next recording
+            audioChunksRef.current = [];
           };
-           // Clean up the stream tracks
           stream.getTracks().forEach(track => track.stop());
         };
-        
+
         mediaRecorderRef.current.onerror = (event) => {
             console.error("MediaRecorder error:", event);
             toast({variant: "destructive", title: "Recording Error", description: "Something went wrong during recording."});
@@ -456,15 +434,13 @@ export default function ChatPage() {
       }
     }
   };
-  
+
   const playAudio = (messageId: string) => {
     const audioEl = audioElementsRef.current[messageId];
     if (audioEl) {
-      // Pause any currently playing audio
       if (currentlyPlayingAudioId && currentlyPlayingAudioId !== messageId && audioElementsRef.current[currentlyPlayingAudioId]) {
         audioElementsRef.current[currentlyPlayingAudioId].pause();
       }
-      
       audioEl.play().then(() => {
         setCurrentlyPlayingAudioId(messageId);
       }).catch(e => console.error("Error playing audio:", e));
@@ -490,7 +466,7 @@ export default function ChatPage() {
     if (!activeChatId) return "Select a Chat";
     if (activeChatType === 'general' && activeOfficeForChat) return `${activeOfficeForChat.name} General`;
     if (activeChatType === 'dm' && activeChatTargetUser) return activeChatTargetUser.name;
-    if (activeChatType === 'dm' && !activeChatTargetUser) return "Direct Message"; 
+    if (activeChatType === 'dm' && !activeChatTargetUser) return "Direct Message";
     return "Chat";
   };
 
@@ -498,10 +474,10 @@ export default function ChatPage() {
     if (!currentUserForChat || (type === 'general' && !activeOfficeForChat)) return;
 
     if (type === 'dm' && member) {
-      const thread = await getOrCreateDmThread(currentUserForChat, member); 
+      const thread = await getOrCreateDmThread(currentUserForChat, member);
       await selectChat(thread.id, 'dm', member);
     } else if (type === 'general' && activeOfficeForChat) {
-      await selectChat(`general-${activeOfficeForChat.id}`, 'general'); 
+      await selectChat(`general-${activeOfficeForChat.id}`, 'general');
     }
   };
 
@@ -593,16 +569,16 @@ export default function ChatPage() {
 
                       {msg.type === 'voice_note' && msg.audioDataUrl ? (
                         <div className="flex items-center space-x-2">
-                          <audio 
-                            ref={el => { if (el) audioElementsRef.current[msg.id] = el; }} 
-                            src={msg.audioDataUrl} 
+                          <audio
+                            ref={el => { if (el) audioElementsRef.current[msg.id] = el; }}
+                            src={msg.audioDataUrl}
                             onEnded={() => handleAudioEnded(msg.id)}
-                            className="hidden" // Hide default controls, we use custom button
+                            className="hidden"
                            />
-                          <Button 
-                            variant="ghost" 
-                            size="icon" 
-                            className="h-7 w-7" 
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7"
                             onClick={() => currentlyPlayingAudioId === msg.id ? pauseAudio(msg.id) : playAudio(msg.id)}
                           >
                             {currentlyPlayingAudioId === msg.id ? <Pause className="h-4 w-4"/> : <Play className="h-4 w-4"/>}
@@ -663,4 +639,3 @@ export default function ChatPage() {
     </div>
   );
 }
-

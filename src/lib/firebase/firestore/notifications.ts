@@ -16,6 +16,8 @@ import {
   type FirestoreDataConverter,
   writeBatch,
   getCountFromServer,
+  onSnapshot, // Added
+  type Unsubscribe // Added
 } from 'firebase/firestore';
 import type { UserNotification, UserNotificationFirestoreData, UserNotificationType } from '@/types';
 
@@ -23,7 +25,7 @@ const userNotificationConverter: FirestoreDataConverter<UserNotification, UserNo
   toFirestore: (notificationInput: Omit<UserNotification, 'id' | 'timestamp' | 'userId'>): DocumentData => {
     const data: any = { ...notificationInput };
     data.timestamp = serverTimestamp();
-    if (!notificationInput.isRead) { // Ensure isRead is explicitly set if not provided
+    if (!notificationInput.isRead) {
         data.isRead = false;
     }
     return data;
@@ -32,7 +34,7 @@ const userNotificationConverter: FirestoreDataConverter<UserNotification, UserNo
     const data = snapshot.data(options)!;
     return {
       id: snapshot.id,
-      userId: snapshot.ref.parent.parent!.id, // Assumes users/{userId}/notifications structure
+      userId: snapshot.ref.parent.parent!.id,
       type: data.type as UserNotificationType,
       title: data.title,
       message: data.message,
@@ -62,23 +64,26 @@ export async function addUserNotification(
   notificationData: Omit<UserNotification, 'id' | 'timestamp' | 'isRead' | 'userId'>
 ): Promise<UserNotification> {
   const notificationsCol = getUserNotificationsCollection(targetUserId);
-  // Ensure isRead is false by default if not provided in notificationData
   const dataToSave = { ...notificationData, isRead: notificationData.isRead || false };
   const docRef = await addDoc(notificationsCol, dataToSave);
-  
-  // To return the full UserNotification object, we'd ideally fetch it, but this is simpler:
+
   return {
     id: docRef.id,
     userId: targetUserId,
     ...dataToSave,
-    timestamp: new Date(), // Approximate, actual timestamp is server-generated
+    timestamp: new Date(),
   } as UserNotification;
 }
 
-export async function getUserNotifications(
+export function onUserNotificationsUpdate(
   userId: string,
+  callback: (notifications: UserNotification[]) => void,
   options: { count?: number; unreadOnly?: boolean } = {}
-): Promise<UserNotification[]> {
+): Unsubscribe {
+  if (!userId) {
+    console.error("User ID is required to listen for notification updates.");
+    return () => {};
+  }
   const notificationsCol = getUserNotificationsCollection(userId);
   const constraints = [orderBy("timestamp", "desc")];
   if (options.count) {
@@ -88,8 +93,14 @@ export async function getUserNotifications(
     constraints.push(where("isRead", "==", false));
   }
   const q = query(notificationsCol, ...constraints);
-  const snapshot = await getDocs(q);
-  return snapshot.docs.map(doc => doc.data());
+
+  return onSnapshot(q, (snapshot) => {
+    const notifications = snapshot.docs.map(doc => doc.data());
+    callback(notifications);
+  }, (error) => {
+    console.error(`Error listening to notifications for user ${userId}:`, error);
+    callback([]);
+  });
 }
 
 export async function markNotificationAsRead(userId: string, notificationId: string): Promise<void> {
@@ -100,7 +111,7 @@ export async function markNotificationAsRead(userId: string, notificationId: str
 export async function markAllUserNotificationsAsRead(userId: string): Promise<void> {
   const notificationsCol = getUserNotificationsCollection(userId);
   const q = query(notificationsCol, where("isRead", "==", false));
-  const snapshot = await getDocs(q);
+  const snapshot = await getDocs(q); // Get all unread once
 
   if (snapshot.empty) return;
 
@@ -114,13 +125,6 @@ export async function markAllUserNotificationsAsRead(userId: string): Promise<vo
 export async function markNotificationsAsReadByLink(userId: string, linkPrefix: string): Promise<void> {
   if (!userId || !linkPrefix) return;
   const notificationsCol = getUserNotificationsCollection(userId);
-  // This query looks for notifications that are unread AND start with the given link prefix.
-  // Firestore doesn't support "startsWith" queries directly on strings in this manner for general cases.
-  // A common workaround is to query for equality on the full link, or fetch and filter client-side if not too many.
-  // For a more robust "startsWith", you might need to structure your data differently or use a more complex query
-  // often involving >= and < conditions on the string field.
-  // For now, we'll query for exact link match if possible or all unread and filter.
-  // Assuming link is specific enough, e.g., /chat?threadId=XYZ
   const q = query(notificationsCol, where("isRead", "==", false), where("link", "==", linkPrefix));
   const snapshot = await getDocs(q);
 
@@ -133,7 +137,46 @@ export async function markNotificationsAsReadByLink(userId: string, linkPrefix: 
   await batch.commit();
 }
 
+export function onUnreadNotificationCountUpdate(
+  userId: string,
+  callback: (count: number) => void
+): Unsubscribe {
+   if (!userId) {
+    console.error("User ID is required to listen for unread notification count.");
+    return () => {};
+  }
+  const notificationsCol = getUserNotificationsCollection(userId);
+  const q = query(notificationsCol, where("isRead", "==", false));
 
+  return onSnapshot(q, (snapshot) => {
+    callback(snapshot.size);
+  }, (error) => {
+    console.error(`Error listening to unread notification count for user ${userId}:`, error);
+    callback(0);
+  });
+}
+
+export function onUnreadNotificationCountByTypeUpdate(
+  userId: string,
+  type: UserNotificationType,
+  callback: (count: number) => void
+): Unsubscribe {
+  if (!userId) {
+    console.error("User ID is required to listen for unread notification count by type.");
+    return () => {};
+  }
+  const notificationsCol = getUserNotificationsCollection(userId);
+  const q = query(notificationsCol, where("isRead", "==", false), where("type", "==", type));
+  
+  return onSnapshot(q, (snapshot) => {
+    callback(snapshot.size);
+  }, (error) => {
+    console.error(`Error listening to unread count for type ${type} for user ${userId}:`, error);
+    callback(0);
+  });
+}
+
+// Deprecated getCountFromServer versions (can be removed if onSnapshot versions are sufficient)
 export async function getUnreadNotificationCount(userId: string): Promise<number> {
   const notificationsCol = getUserNotificationsCollection(userId);
   const q = query(notificationsCol, where("isRead", "==", false));

@@ -13,10 +13,11 @@ import dynamic from 'next/dynamic';
 import { Skeleton } from "@/components/ui/skeleton";
 import type { ChartConfig } from "@/components/ui/chart";
 import { useAuth } from "@/lib/firebase/auth";
-import { getOfficesForUser, getMembersForOffice, type Office } from "@/lib/firebase/firestore/offices";
-import { getActivityLogForOffice, type ActivityLogItem } from "@/lib/firebase/firestore/activity";
+import { onUserOfficesUpdate, onMembersUpdate, type Office } from "@/lib/firebase/firestore/offices"; // Changed
+import { onActivityLogUpdate, type ActivityLogItem } from "@/lib/firebase/firestore/activity"; // Changed
 import { Loader2 } from "lucide-react";
 import Link from "next/link";
+import type { Unsubscribe } from "firebase/firestore"; // Added
 
 const activityIconMap: Record<string, React.ElementType> = {
   "task-new": ListChecks,
@@ -29,77 +30,84 @@ const activityIconMap: Record<string, React.ElementType> = {
   "office-created": Building,
   "member-join": UserPlus,
   "room-new": PlusCircle,
-  // Default icon if no match
   "default": Activity,
 };
 
-
-const chartConfig = { // This is kept for the ChartContainer but the chart itself is removed for now
-  progress: {
-    label: "Team Progress",
-    color: "hsl(var(--primary))",
-  },
-  target: {
-    label: "Target Progress",
-    color: "hsl(var(--muted-foreground))",
-  }
+const chartConfig = {
+  progress: { label: "Team Progress", color: "hsl(var(--primary))" },
+  target: { label: "Target Progress", color: "hsl(var(--muted-foreground))" }
 } satisfies ChartConfig;
 
 const DynamicProgressChart = dynamic(
   () => import('@/components/dashboard/progress-chart').then((mod) => mod.ProgressChart),
-  { 
-    ssr: false, 
-    loading: () => <Skeleton className="h-[250px] w-full" /> 
-  }
+  { ssr: false, loading: () => <Skeleton className="h-[250px] w-full" /> }
 );
-
 
 export default function DashboardPage() {
   const { user, loading: authLoading } = useAuth();
-  const [activeProjectsCount, setActiveProjectsCount] = useState(0);
+  const [activeOfficesCount, setActiveOfficesCount] = useState(0);
   const [teamMembersCount, setTeamMembersCount] = useState(0);
   const [activityFeed, setActivityFeed] = useState<ActivityLogItem[]>([]);
   const [isLoadingStats, setIsLoadingStats] = useState(true);
   const [isLoadingActivity, setIsLoadingActivity] = useState(true);
   const [selectedOfficeForDashboard, setSelectedOfficeForDashboard] = useState<Office | null>(null);
 
-  const fetchDashboardData = useCallback(async () => {
-    if (user) {
-      setIsLoadingStats(true);
-      setIsLoadingActivity(true);
-      try {
-        const offices = await getOfficesForUser(user.uid);
-        setActiveProjectsCount(offices.length);
-
-        if (offices.length > 0) {
-          const firstOffice = offices[0];
-          setSelectedOfficeForDashboard(firstOffice); // Use first office for member count and activity
-          
-          const members = await getMembersForOffice(firstOffice.id);
-          setTeamMembersCount(members.length);
-          
-          const activities = await getActivityLogForOffice(firstOffice.id, 7);
-          setActivityFeed(activities);
-
-        } else {
-          setTeamMembersCount(0);
-          setActivityFeed([]);
-        }
-      } catch (error) {
-        console.error("Error fetching dashboard data:", error);
-        // Optionally set error state and display toast
-      } finally {
-        setIsLoadingStats(false);
-        setIsLoadingActivity(false);
-      }
-    }
-  }, [user]);
-
+  // Listener for user's offices to update count and select the first one for details
   useEffect(() => {
-    if (!authLoading && user) {
-      fetchDashboardData();
+    if (user && !authLoading) {
+      setIsLoadingStats(true); // For office count part
+      const unsubscribeOffices = onUserOfficesUpdate(user.uid, (offices) => {
+        setActiveOfficesCount(offices.length);
+        if (offices.length > 0) {
+          // If selectedOfficeForDashboard is not set or different from the first office, update it
+          if (!selectedOfficeForDashboard || selectedOfficeForDashboard.id !== offices[0].id) {
+            setSelectedOfficeForDashboard(offices[0]);
+          }
+        } else {
+          setSelectedOfficeForDashboard(null);
+          setTeamMembersCount(0); // No office, no members
+        }
+        setIsLoadingStats(false);
+      });
+      return () => unsubscribeOffices();
+    } else if (!user && !authLoading) {
+      // Reset if user logs out
+      setActiveOfficesCount(0);
+      setSelectedOfficeForDashboard(null);
+      setTeamMembersCount(0);
+      setIsLoadingStats(false);
     }
-  }, [authLoading, user, fetchDashboardData]);
+  }, [user, authLoading]); // Removed selectedOfficeForDashboard from deps
+
+  // Listener for members of the selected office
+  useEffect(() => {
+    if (selectedOfficeForDashboard) {
+      setIsLoadingStats(true); // For team members count part
+      const unsubscribeMembers = onMembersUpdate(selectedOfficeForDashboard.id, (members) => {
+        setTeamMembersCount(members.length);
+        setIsLoadingStats(false);
+      });
+      return () => unsubscribeMembers();
+    } else {
+      setTeamMembersCount(0); // No selected office, so no members
+      if (!isLoadingStats) setIsLoadingStats(false); // Ensure loading is off if no office
+    }
+  }, [selectedOfficeForDashboard]); // Only depends on selectedOfficeForDashboard
+
+  // Listener for activity feed of the selected office
+  useEffect(() => {
+    if (selectedOfficeForDashboard) {
+      setIsLoadingActivity(true);
+      const unsubscribeActivity = onActivityLogUpdate(selectedOfficeForDashboard.id, (activities) => {
+        setActivityFeed(activities);
+        setIsLoadingActivity(false);
+      }, 7);
+      return () => unsubscribeActivity();
+    } else {
+      setActivityFeed([]); // No selected office, clear activity
+      setIsLoadingActivity(false);
+    }
+  }, [selectedOfficeForDashboard]);
 
 
   const formatTimeAgo = (date: Date): string => {
@@ -127,7 +135,7 @@ export default function DashboardPage() {
          <TrendingUp className="h-8 w-8 mr-3 text-primary" />
          <h1 className="text-3xl font-headline font-bold">Team Dashboard</h1>
       </div>
-      
+
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
         <Card className="shadow-lg hover:shadow-xl transition-shadow duration-300">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -135,7 +143,7 @@ export default function DashboardPage() {
             <Briefcase className="h-5 w-5 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            {isLoadingStats ? <Skeleton className="h-8 w-1/4" /> : <div className="text-2xl font-bold">{activeProjectsCount}</div>}
+            {isLoadingStats && activeOfficesCount === 0 ? <Skeleton className="h-8 w-1/4" /> : <div className="text-2xl font-bold">{activeOfficesCount}</div>}
             <p className="text-xs text-muted-foreground">Offices you are part of</p>
           </CardContent>
         </Card>
@@ -146,7 +154,7 @@ export default function DashboardPage() {
             <Users className="h-5 w-5 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            {isLoadingStats ? <Skeleton className="h-8 w-1/4" /> : <div className="text-2xl font-bold">{teamMembersCount}</div>}
+            {isLoadingStats && teamMembersCount === 0 && selectedOfficeForDashboard ? <Skeleton className="h-8 w-1/4" /> : <div className="text-2xl font-bold">{teamMembersCount}</div>}
             <p className="text-xs text-muted-foreground">
               {selectedOfficeForDashboard ? `In "${selectedOfficeForDashboard.name}"` : "No active office selected"}
             </p>
@@ -159,7 +167,7 @@ export default function DashboardPage() {
             <MessageCircle className="h-5 w-5 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">0</div> 
+            <div className="text-2xl font-bold">0</div>
             <p className="text-xs text-muted-foreground">Pending chat migration</p>
           </CardContent>
         </Card>
@@ -218,7 +226,7 @@ export default function DashboardPage() {
           </CardContent>
         </Card>
       </div>
-      
+
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <Card className="lg:col-span-1 shadow-lg hover:shadow-xl transition-shadow duration-300">
           <CardHeader>
@@ -248,12 +256,12 @@ export default function DashboardPage() {
           </CardHeader>
           <CardContent>
             <div className="relative h-72 w-full rounded-md overflow-hidden bg-muted/50">
-              <Image 
-                src="https://placehold.co/800x450.png" 
-                alt="Virtual Office Space" 
-                layout="fill" 
+              <Image
+                src="https://placehold.co/800x450.png"
+                alt="Virtual Office Space"
+                layout="fill"
                 objectFit="cover"
-                data-ai-hint="modern office team" 
+                data-ai-hint="modern office team"
               />
               <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
                  <Button size="lg" variant="secondary" className="hover:bg-primary hover:text-primary-foreground transition-colors" asChild>
@@ -267,4 +275,3 @@ export default function DashboardPage() {
     </div>
   );
 }
-

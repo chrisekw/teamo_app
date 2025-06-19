@@ -5,11 +5,12 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { LayoutGrid, MessageCircleMore, CalendarDays, ClipboardCheck, Settings, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import type { NavItem } from "@/types"; 
+import type { NavItem } from "@/types";
 import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/lib/firebase/auth";
-import { getUnreadNotificationCountByType } from "@/lib/firebase/firestore/notifications";
-import { useState, useEffect, useCallback } from "react";
+import { onUnreadNotificationCountByTypeUpdate } from "@/lib/firebase/firestore/notifications"; // Changed
+import { useState, useEffect } from "react";
+import type { Unsubscribe } from 'firebase/firestore'; // Added
 
 const bottomNavItems: NavItem[] = [
   { title: "Dashboard", href: "/dashboard", icon: LayoutGrid },
@@ -23,38 +24,33 @@ export function BottomNav() {
   const pathname = usePathname();
   const { user, loading: authLoading } = useAuth();
   const [unreadChatCount, setUnreadChatCount] = useState(0);
-  const [isLoadingCount, setIsLoadingCount] = useState(false);
-
-  const fetchUnreadChatCount = useCallback(async () => {
-    if (user) {
-      setIsLoadingCount(true);
-      try {
-        const count = await getUnreadNotificationCountByType(user.uid, "chat-new-message");
-        setUnreadChatCount(count);
-      } catch (error) {
-        console.error("Failed to fetch unread chat count:", error);
-        setUnreadChatCount(0); // Default to 0 on error
-      } finally {
-        setIsLoadingCount(false);
-      }
-    }
-  }, [user]);
+  const [isLoadingCount, setIsLoadingCount] = useState(true); // Set true initially
 
   useEffect(() => {
     if (user && !authLoading) {
-      fetchUnreadChatCount();
-      // Poll for unread chat count
-      const intervalId = setInterval(fetchUnreadChatCount, 30000); // Poll every 30 seconds
-      return () => clearInterval(intervalId);
+      setIsLoadingCount(true); // Set loading before starting listener
+      const unsubscribe = onUnreadNotificationCountByTypeUpdate(
+        user.uid,
+        "chat-new-message",
+        (count) => {
+          setUnreadChatCount(count);
+          setIsLoadingCount(false); // Set loading false after first update
+        }
+      );
+      return () => unsubscribe();
+    } else if (!user && !authLoading) {
+      // Reset if user logs out or no user
+      setUnreadChatCount(0);
+      setIsLoadingCount(false);
     }
-  }, [user, authLoading, fetchUnreadChatCount]);
+  }, [user, authLoading]);
 
 
   return (
     <nav className="fixed bottom-0 left-0 right-0 h-16 bg-background border-t border-border shadow-lg md:hidden z-50">
       <div className="flex justify-around items-center h-full">
         {bottomNavItems.map((item) => {
-          const isActive = pathname.startsWith(item.href) && (item.href !== "/" || pathname === "/"); // More robust active check
+          const isActive = pathname.startsWith(item.href) && (item.href !== "/" || pathname === "/");
           const Icon = item.icon;
           const isChatIcon = item.title === "Chat";
 
@@ -70,12 +66,12 @@ export function BottomNav() {
                 <span className={cn("text-xs", isActive ? "font-medium" : "font-normal")}>
                   {item.title}
                 </span>
+                {isChatIcon && isLoadingCount && <Loader2 className="absolute top-1 right-3 sm:right-4 h-3 w-3 animate-spin" />}
                 {isChatIcon && !isLoadingCount && unreadChatCount > 0 && (
                   <Badge variant="destructive" className="absolute top-1 right-3 sm:right-4 h-4 w-4 min-w-fit justify-center p-0.5 text-xs">
                     {unreadChatCount > 9 ? '9+' : unreadChatCount}
                   </Badge>
                 )}
-                {isChatIcon && isLoadingCount && <Loader2 className="absolute top-1 right-3 sm:right-4 h-3 w-3 animate-spin" />}
               </div>
             </Link>
           );

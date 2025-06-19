@@ -3,7 +3,6 @@ import { db } from '@/lib/firebase/client';
 import {
   collection,
   addDoc,
-  getDocs,
   doc,
   getDoc,
   updateDoc,
@@ -16,8 +15,8 @@ import {
   where,
   limit,
   setDoc,
-  collectionGroup,
-  writeBatch,
+  onSnapshot, // Added onSnapshot
+  type Unsubscribe // Added Unsubscribe type
 } from 'firebase/firestore';
 import type { ChatMessage, ChatMessageFirestoreData, ChatThread, ChatThreadFirestoreData, ChatUser } from '@/types';
 import { addUserNotification } from './notifications';
@@ -29,7 +28,7 @@ const chatMessageConverter: FirestoreDataConverter<ChatMessage, ChatMessageFires
     const { chatThreadId, ...rest } = chatMessage;
     const data: Partial<ChatMessageFirestoreData> = {
       ...rest,
-      timestamp: serverTimestamp(), // Always set server timestamp on creation
+      timestamp: serverTimestamp(),
     };
     if (chatMessage.audioDataUrl) {
       data.audioDataUrl = chatMessage.audioDataUrl;
@@ -46,7 +45,7 @@ const chatMessageConverter: FirestoreDataConverter<ChatMessage, ChatMessageFires
     const data = snapshot.data(options)!;
     return {
       id: snapshot.id,
-      chatThreadId: snapshot.ref.parent.parent!.id, 
+      chatThreadId: snapshot.ref.parent.parent!.id,
       text: data.text,
       senderId: data.senderId,
       senderName: data.senderName,
@@ -62,17 +61,17 @@ const chatMessageConverter: FirestoreDataConverter<ChatMessage, ChatMessageFires
 
 const chatThreadConverter: FirestoreDataConverter<ChatThread, ChatThreadFirestoreData> = {
   toFirestore: (chatThreadInput: Partial<ChatThread>): DocumentData => {
-    const { id, lastMessageTimestamp, updatedAt, ...rest } = chatThreadInput; 
+    const { id, lastMessageTimestamp, updatedAt, ...rest } = chatThreadInput;
     const data: Partial<ChatThreadFirestoreData> = { ...rest };
-    
+
     if (lastMessageTimestamp instanceof Date) {
       data.lastMessageTimestamp = Timestamp.fromDate(lastMessageTimestamp);
     } else if (lastMessageTimestamp === undefined && chatThreadInput.hasOwnProperty('lastMessageTimestamp')) {
-        data.lastMessageTimestamp = undefined; 
+        data.lastMessageTimestamp = undefined;
     }
 
-    data.updatedAt = serverTimestamp(); 
-    
+    data.updatedAt = serverTimestamp();
+
     return data as DocumentData;
   },
   fromFirestore: (snapshot, options): ChatThread => {
@@ -118,8 +117,8 @@ export async function getOrCreateDmThread(user1: ChatUser, user2: ChatUser): Pro
         [user2.id]: { name: user2.name, avatarUrl: user2.avatarUrl },
       },
     };
-    await setDoc(threadRef, newThreadData); 
-    const newlyCreatedSnap = await getDoc(threadRef); 
+    await setDoc(threadRef, newThreadData);
+    const newlyCreatedSnap = await getDoc(threadRef);
     if (!newlyCreatedSnap.exists()) throw new Error("Failed to create DM thread.");
     return newlyCreatedSnap.data();
   }
@@ -129,7 +128,7 @@ export async function addChatMessageAndNotify(
   threadId: string,
   messageContent: { text: string; type: 'text' } | { text: string; type: 'voice_note'; audioDataUrl: string; voiceNoteDuration: string },
   sender: ChatUser,
-  participantsInThread: ChatUser[], 
+  participantsInThread: ChatUser[],
   officeContext?: { officeId: string; officeName: string }
 ): Promise<ChatMessage> {
   if (!threadId || !sender) {
@@ -156,7 +155,7 @@ export async function addChatMessageAndNotify(
     };
   } else { // voice_note
     messageData = {
-      text: messageContent.text, // e.g., "Voice Note"
+      text: messageContent.text,
       senderId: sender.id,
       senderName: sender.name,
       avatarUrl: sender.avatarUrl,
@@ -167,13 +166,13 @@ export async function addChatMessageAndNotify(
   }
 
   const messageDocRef = await addDoc(messagesCollection, messageData);
-  
+
   const threadRef = chatThreadDocRef(threadId);
   const lastMessageText = messageContent.type === 'voice_note' ? "Voice Note" : messageContent.text;
   await updateDoc(threadRef, {
     lastMessageText: lastMessageText,
     lastMessageSenderName: sender.name,
-    lastMessageTimestamp: serverTimestamp(), 
+    lastMessageTimestamp: serverTimestamp(),
     updatedAt: serverTimestamp()
   });
 
@@ -201,28 +200,55 @@ export async function addChatMessageAndNotify(
   return newMsgSnap.data();
 }
 
-export async function getMessagesForThread(threadId: string, count: number = 25): Promise<ChatMessage[]> {
-  if (!threadId) return [];
+export function onMessagesUpdate(
+  threadId: string,
+  callback: (messages: ChatMessage[]) => void,
+  count: number = 25
+): Unsubscribe {
+  if (!threadId) {
+    console.error("Thread ID is required to listen for message updates.");
+    return () => {};
+  }
   const messagesCollection = messagesColRef(threadId);
   const q = query(messagesCollection, orderBy("timestamp", "desc"), limit(count));
-  const snapshot = await getDocs(q);
-  return snapshot.docs.map(doc => doc.data()).reverse(); 
+
+  return onSnapshot(q, (snapshot) => {
+    const messages = snapshot.docs.map(doc => doc.data()).reverse();
+    callback(messages);
+  }, (error) => {
+    console.error(`Error listening to messages for thread ${threadId}:`, error);
+    callback([]); // Send empty array on error
+  });
 }
 
-export async function getChatThreadsForUser(userId: string, count: number = 20): Promise<ChatThread[]> {
-  if (!userId) return [];
+
+export function onChatThreadsUpdate(
+  userId: string,
+  callback: (threads: ChatThread[]) => void,
+  count: number = 20
+): Unsubscribe {
+  if (!userId) {
+    console.error("User ID is required to listen for chat thread updates.");
+    return () => {};
+  }
   const q = query(
     chatThreadsColRef(),
     where("participantIds", "array-contains", userId),
     orderBy("updatedAt", "desc"),
     limit(count)
   );
-  const snapshot = await getDocs(q);
-  return snapshot.docs.map(doc => doc.data());
+
+  return onSnapshot(q, (snapshot) => {
+    const threads = snapshot.docs.map(doc => doc.data());
+    callback(threads);
+  }, (error) => {
+    console.error(`Error listening to chat threads for user ${userId}:`, error);
+    callback([]);
+  });
 }
 
 
-const generalMessagesColRef = (officeId: string) => 
+const generalMessagesColRef = (officeId: string) =>
     collection(db, 'offices', officeId, 'generalMessages').withConverter(chatMessageConverter);
 
 export async function addGeneralOfficeMessage(
@@ -254,7 +280,7 @@ export async function addGeneralOfficeMessage(
     };
   } else { // voice_note
     messageData = {
-      text: messageContent.text, // e.g., "Voice Note"
+      text: messageContent.text,
       senderId: sender.id,
       senderName: sender.name,
       avatarUrl: sender.avatarUrl,
@@ -264,18 +290,30 @@ export async function addGeneralOfficeMessage(
       chatThreadId: `general-${officeId}`
     };
   }
-  
+
   const messageDocRef = await addDoc(messagesCollection, messageData);
   const newMsgSnap = await getDoc(messageDocRef);
   if (!newMsgSnap.exists()) throw new Error("Failed to send general office message");
   return newMsgSnap.data();
 }
 
-export async function getGeneralOfficeMessages(officeId: string, count: number = 25): Promise<ChatMessage[]> {
-  if (!officeId) return [];
+export function onGeneralOfficeMessagesUpdate(
+  officeId: string,
+  callback: (messages: ChatMessage[]) => void,
+  count: number = 25
+): Unsubscribe {
+  if (!officeId) {
+    console.error("Office ID is required to listen for general office message updates.");
+    return () => {};
+  }
   const messagesCollection = generalMessagesColRef(officeId);
   const q = query(messagesCollection, orderBy("timestamp", "desc"), limit(count));
-  const snapshot = await getDocs(q);
-  return snapshot.docs.map(doc => doc.data()).reverse();
-}
 
+  return onSnapshot(q, (snapshot) => {
+    const messages = snapshot.docs.map(doc => doc.data()).reverse();
+    callback(messages);
+  }, (error) => {
+    console.error(`Error listening to general messages for office ${officeId}:`, error);
+    callback([]);
+  });
+}

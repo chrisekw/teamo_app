@@ -16,7 +16,9 @@ import {
   type FirestoreDataConverter,
   setDoc,
   orderBy,
-  writeBatch
+  writeBatch,
+  onSnapshot, // Added
+  type Unsubscribe // Added
 } from 'firebase/firestore';
 import type { Office, OfficeFirestoreData, Room, RoomFirestoreData, OfficeMember, OfficeMemberFirestoreData, RoomType, MemberRole, OfficeJoinRequest, OfficeJoinRequestFirestoreData, ChatUser, OfficeJoinRequestStatus } from '@/types';
 import { addActivityLog } from './activity';
@@ -28,7 +30,7 @@ const officeConverter: FirestoreDataConverter<Office, OfficeFirestoreData> = {
     delete data.id;
     if (!officeInput.id) data.createdAt = serverTimestamp();
     data.updatedAt = serverTimestamp();
-    
+
     if (officeInput.sector === undefined) delete data.sector;
     if (officeInput.companyName === undefined) delete data.companyName;
     if (officeInput.logoUrl === undefined) delete data.logoUrl;
@@ -57,7 +59,7 @@ const roomConverter: FirestoreDataConverter<Room, RoomFirestoreData> = {
   toFirestore: (roomInput: Partial<Room>): DocumentData => {
     const data: any = { ...roomInput };
     delete data.id;
-    delete data.officeId; 
+    delete data.officeId;
     if (!roomInput.id) data.createdAt = serverTimestamp();
     data.updatedAt = serverTimestamp();
     return data;
@@ -66,7 +68,7 @@ const roomConverter: FirestoreDataConverter<Room, RoomFirestoreData> = {
     const data = snapshot.data(options)!;
     return {
       id: snapshot.id,
-      officeId: snapshot.ref.parent.parent!.id, 
+      officeId: snapshot.ref.parent.parent!.id,
       name: data.name,
       type: data.type as RoomType,
       iconName: data.iconName,
@@ -77,19 +79,18 @@ const roomConverter: FirestoreDataConverter<Room, RoomFirestoreData> = {
 };
 
 const officeMemberConverter: FirestoreDataConverter<OfficeMember, OfficeMemberFirestoreData> = {
-  toFirestore: (memberInput: Partial<OfficeMember>): DocumentData => { 
+  toFirestore: (memberInput: Partial<OfficeMember>): DocumentData => {
     const data: any = { ...memberInput };
     if (data.hasOwnProperty('userId')) delete data.userId;
 
     if (!memberInput.joinedAt) data.joinedAt = serverTimestamp();
     else if (memberInput.joinedAt instanceof Date) data.joinedAt = Timestamp.fromDate(memberInput.joinedAt);
-    
+
     if (memberInput.avatarUrl === undefined) {
-        delete data.avatarUrl; 
+        delete data.avatarUrl;
     } else {
-        data.avatarUrl = memberInput.avatarUrl; 
+        data.avatarUrl = memberInput.avatarUrl;
     }
-    // If invitationCodeUsedToJoin is present, pass it through for rule validation, but it's not part of the stored OfficeMember model
     if (memberInput.hasOwnProperty('invitationCodeUsedToJoin')) {
       data.invitationCodeUsedToJoin = (memberInput as any).invitationCodeUsedToJoin;
     }
@@ -110,16 +111,16 @@ const officeMemberConverter: FirestoreDataConverter<OfficeMember, OfficeMemberFi
 const officeJoinRequestConverter: FirestoreDataConverter<OfficeJoinRequest, OfficeJoinRequestFirestoreData> = {
   toFirestore: (requestInput: Partial<OfficeJoinRequest>): DocumentData => {
     const data: any = { ...requestInput };
-    delete data.id; // ID is document ID
-    if (!requestInput.id) data.requestedAt = serverTimestamp(); // Set on creation
-    
+    delete data.id;
+    if (!requestInput.id) data.requestedAt = serverTimestamp();
+
     if (requestInput.requesterAvatarUrl === undefined) {
         delete data.requesterAvatarUrl;
     }
 
     if (requestInput.processedAt instanceof Date) data.processedAt = Timestamp.fromDate(requestInput.processedAt);
     else if (requestInput.hasOwnProperty('processedAt') && requestInput.processedAt === undefined) data.processedAt = undefined;
-    
+
     return data;
   },
   fromFirestore: (snapshot, options): OfficeJoinRequest => {
@@ -149,16 +150,16 @@ const roomDocRef = (officeId: string, roomId: string) => doc(roomsCol(officeId),
 const membersCol = (officeId: string) => collection(officeDocRef(officeId), 'members').withConverter(officeMemberConverter);
 const memberDocRef = (officeId: string, userId: string) => doc(membersCol(officeId), userId).withConverter(officeMemberConverter);
 
-const userOfficesCol = (userId: string) => collection(db, 'users', userId, 'memberOfOffices'); 
+const userOfficesCol = (userId: string) => collection(db, 'users', userId, 'memberOfOffices');
 
 const joinRequestsCol = (officeId: string) => collection(officeDocRef(officeId), 'joinRequests').withConverter(officeJoinRequestConverter);
 const joinRequestDocRef = (officeId: string, requestId: string) => doc(joinRequestsCol(officeId), requestId).withConverter(officeJoinRequestConverter);
 
 
 export async function createOffice(
-  currentUserId: string, 
-  currentUserName: string, 
-  currentUserAvatar: string | undefined, 
+  currentUserId: string,
+  currentUserName: string,
+  currentUserAvatar: string | undefined,
   officeName: string,
   sector?: string,
   companyName?: string,
@@ -168,7 +169,7 @@ export async function createOffice(
   if (!currentUserId || !officeName) {
     throw new Error("User ID and office name are required.");
   }
-  
+
   const invitationCode = Math.random().toString(36).substring(2, 8).toUpperCase();
   const newOfficeData: Omit<Office, 'id' | 'createdAt' | 'updatedAt'> = {
     name: officeName,
@@ -179,9 +180,9 @@ export async function createOffice(
     logoUrl: logoUrl,
     bannerUrl: bannerUrl,
   };
-  
+
   const newOfficeDocRef = await addDoc(officesCol(), newOfficeData as Office);
-  
+
   const ownerMemberData: Omit<OfficeMember, 'joinedAt' | 'userId'> = {
     name: currentUserName,
     role: "Owner",
@@ -268,7 +269,7 @@ export async function requestToJoinOfficeByCode(
       type: 'office-join-request',
       title: `Join Request for ${officeData.name}`,
       message: `${requester.name} has requested to join your office.`,
-      link: `/office-designer?officeId=${officeId}`, 
+      link: `/office-designer?officeId=${officeId}`,
       actorName: requester.name,
       entityId: requestRef.id,
       entityType: 'joinRequest',
@@ -290,17 +291,28 @@ export async function requestToJoinOfficeByCode(
   return { success: true, message: `Request to join "${officeData.name}" sent. Awaiting owner approval.`, officeId, officeName: officeData.name };
 }
 
-
-export async function getPendingJoinRequestsForOffice(officeId: string): Promise<OfficeJoinRequest[]> {
+export function onPendingJoinRequestsUpdate(
+  officeId: string,
+  callback: (requests: OfficeJoinRequest[]) => void
+): Unsubscribe {
+  if (!officeId) {
+    console.error("Office ID is required for listening to join requests.");
+    return () => {};
+  }
   const q = query(joinRequestsCol(officeId), where("status", "==", "pending"), orderBy("requestedAt", "asc"));
-  const snapshot = await getDocs(q);
-  return snapshot.docs.map(doc => doc.data());
+  return onSnapshot(q, (snapshot) => {
+    const requests = snapshot.docs.map(doc => doc.data());
+    callback(requests);
+  }, (error) => {
+    console.error(`Error listening to join requests for office ${officeId}:`, error);
+    callback([]);
+  });
 }
 
 export async function approveJoinRequest(
   officeId: string,
   requestId: string,
-  approverUserId: string, 
+  approverUserId: string,
   approverName: string,
   roleToAssign: MemberRole = "Member"
 ): Promise<void> {
@@ -340,7 +352,7 @@ export async function approveJoinRequest(
     type: 'office-join-approved',
     title: `Request Approved for ${requestData.officeName}`,
     message: `Your request to join "${requestData.officeName}" has been approved by ${approverName}.`,
-    link: `/chat?officeGeneral=${officeId}`, 
+    link: `/chat?officeGeneral=${officeId}`,
     actorName: approverName,
     entityId: officeId,
     entityType: 'office',
@@ -354,7 +366,7 @@ export async function approveJoinRequest(
     iconName: 'CheckSquare',
     actorId: approverUserId,
     actorName: approverName,
-    entityId: requestData.requesterId, 
+    entityId: requestData.requesterId,
     entityType: 'member',
   });
 }
@@ -362,7 +374,7 @@ export async function approveJoinRequest(
 export async function rejectJoinRequest(
   officeId: string,
   requestId: string,
-  rejectorUserId: string, 
+  rejectorUserId: string,
   rejectorName: string
 ): Promise<void> {
   const requestRef = joinRequestDocRef(officeId, requestId);
@@ -383,7 +395,7 @@ export async function rejectJoinRequest(
     type: 'office-join-rejected',
     title: `Request Rejected for ${requestData.officeName}`,
     message: `Your request to join "${requestData.officeName}" has been rejected by ${rejectorName}.`,
-    link: `/office-designer`, // Generic link as their request is done
+    link: `/office-designer`,
     actorName: rejectorName,
     entityId: officeId,
     entityType: 'office',
@@ -394,7 +406,7 @@ export async function rejectJoinRequest(
     type: 'office-join-request-rejected',
     title: `Join Request Rejected: ${requestData.requesterName}`,
     description: `${rejectorName} rejected ${requestData.requesterName}'s request to join.`,
-    iconName: 'XSquare', 
+    iconName: 'XSquare',
     actorId: rejectorUserId,
     actorName: rejectorName,
     entityId: requestData.requesterId,
@@ -402,21 +414,50 @@ export async function rejectJoinRequest(
   });
 }
 
-
 export async function getOfficesForUser(userId: string): Promise<Office[]> {
   if (!userId) return [];
   const userOfficeRefsSnapshot = await getDocs(query(userOfficesCol(userId), orderBy("joinedAt", "asc")));
   if (userOfficeRefsSnapshot.empty) return [];
 
   const officeIds = userOfficeRefsSnapshot.docs.map(d => d.data().officeId as string);
-  
+
   if (officeIds.length === 0) return [];
 
-  const officePromises = officeIds.slice(0,30).map(id => getDoc(officeDocRef(id))); 
+  const officePromises = officeIds.slice(0,30).map(id => getDoc(officeDocRef(id)));
   const officeSnapshots = await Promise.all(officePromises);
-  
+
   return officeSnapshots.filter(snap => snap.exists()).map(snap => snap.data()!);
 }
+
+export function onUserOfficesUpdate(
+  userId: string,
+  callback: (offices: Office[]) => void
+): Unsubscribe {
+  if (!userId) {
+    console.error("User ID is required to listen for office updates.");
+    return () => {};
+  }
+  return onSnapshot(query(userOfficesCol(userId), orderBy("joinedAt", "asc")), async (userOfficeRefsSnapshot) => {
+    if (userOfficeRefsSnapshot.empty) {
+      callback([]);
+      return;
+    }
+    const officeIds = userOfficeRefsSnapshot.docs.map(d => d.data().officeId as string);
+    if (officeIds.length === 0) {
+      callback([]);
+      return;
+    }
+    // Fetch details for each office. Consider batching if there are many offices.
+    const officePromises = officeIds.slice(0,30).map(id => getDoc(officeDocRef(id)));
+    const officeSnapshots = await Promise.all(officePromises);
+    const offices = officeSnapshots.filter(snap => snap.exists()).map(snap => snap.data()!);
+    callback(offices);
+  }, (error) => {
+    console.error(`Error listening to user's offices for user ${userId}:`, error);
+    callback([]);
+  });
+}
+
 
 export async function getOfficeDetails(officeId: string): Promise<Office | null> {
     const snap = await getDoc(officeDocRef(officeId));
@@ -424,7 +465,7 @@ export async function getOfficeDetails(officeId: string): Promise<Office | null>
 }
 
 export async function addRoomToOffice(
-  officeId: string, 
+  officeId: string,
   roomData: Omit<Room, 'id' | 'officeId' | 'createdAt' | 'updatedAt'>,
   actorId: string,
   actorName: string
@@ -438,7 +479,7 @@ export async function addRoomToOffice(
     type: "room-new",
     title: `New Room: ${newRoom.name}`,
     description: `Type: ${newRoom.type}, created by ${actorName}`,
-    iconName: roomData.iconName, 
+    iconName: roomData.iconName,
     actorId: actorId,
     actorName: actorName,
     entityId: newRoom.id,
@@ -448,10 +489,23 @@ export async function addRoomToOffice(
   return newRoom;
 }
 
-export async function getRoomsForOffice(officeId: string): Promise<Room[]> {
-  const snapshot = await getDocs(query(roomsCol(officeId), orderBy("createdAt", "asc")));
-  return snapshot.docs.map(d => d.data());
+export function onRoomsUpdate(
+  officeId: string,
+  callback: (rooms: Room[]) => void
+): Unsubscribe {
+  if (!officeId) {
+    console.error("Office ID is required to listen for room updates.");
+    return () => {};
+  }
+  return onSnapshot(query(roomsCol(officeId), orderBy("createdAt", "asc")), (snapshot) => {
+    const rooms = snapshot.docs.map(d => d.data());
+    callback(rooms);
+  }, (error) => {
+    console.error(`Error listening to rooms for office ${officeId}:`, error);
+    callback([]);
+  });
 }
+
 
 export async function getRoomDetails(officeId: string, roomId: string): Promise<Room | null> {
   if (!officeId || !roomId) throw new Error("Office ID and Room ID are required.");
@@ -461,7 +515,7 @@ export async function getRoomDetails(officeId: string, roomId: string): Promise<
 }
 
 export async function deleteRoomFromOffice(
-  officeId: string, 
+  officeId: string,
   roomId: string,
   actorId: string,
   actorName: string
@@ -473,10 +527,10 @@ export async function deleteRoomFromOffice(
   await deleteDoc(roomDocRef(officeId, roomId));
 
   addActivityLog(officeId, {
-    type: "room-new", 
+    type: "room-new",
     title: `Room Deleted: ${roomName}`,
     description: `Deleted by ${actorName}`,
-    iconName: "Trash2", 
+    iconName: "Trash2",
     actorId: actorId,
     actorName: actorName,
     entityId: roomId,
@@ -484,14 +538,26 @@ export async function deleteRoomFromOffice(
   });
 }
 
-export async function getMembersForOffice(officeId: string): Promise<OfficeMember[]> {
-  const snapshot = await getDocs(query(membersCol(officeId), orderBy("joinedAt", "asc")));
-  return snapshot.docs.map(d => d.data());
+export function onMembersUpdate(
+  officeId: string,
+  callback: (members: OfficeMember[]) => void
+): Unsubscribe {
+  if (!officeId) {
+    console.error("Office ID is required to listen for member updates.");
+    return () => {};
+  }
+  return onSnapshot(query(membersCol(officeId), orderBy("joinedAt", "asc")), (snapshot) => {
+    const members = snapshot.docs.map(d => d.data());
+    callback(members);
+  }, (error) => {
+    console.error(`Error listening to members for office ${officeId}:`, error);
+    callback([]);
+  });
 }
 
 export async function updateMemberRoleInOffice(
-  officeId: string, 
-  memberUserId: string, 
+  officeId: string,
+  memberUserId: string,
   newRole: MemberRole,
   actorId: string,
   actorName: string
@@ -501,10 +567,10 @@ export async function updateMemberRoleInOffice(
   const memberName = memberToUpdateSnap.data()?.name || "A member";
   const oldRole = memberToUpdateSnap.data()?.role;
 
-  if (oldRole === newRole) return; 
+  if (oldRole === newRole) return;
 
   await updateDoc(memberDocRef(officeId, memberUserId), { role: newRole });
-  
+
   const userOfficeQuery = query(userOfficesCol(memberUserId), where("officeId", "==", officeId));
   const userOfficeSnap = await getDocs(userOfficeQuery);
   if (!userOfficeSnap.empty) {
@@ -516,7 +582,7 @@ export async function updateMemberRoleInOffice(
       type: "member-role-updated",
       title: `Role Update: ${memberName}`,
       description: `${memberName}'s role changed from ${oldRole} to ${newRole} by ${actorName}`,
-      iconName: "Settings2", 
+      iconName: "Settings2",
       actorId: actorId,
       actorName: actorName,
       entityId: memberUserId,
@@ -525,7 +591,7 @@ export async function updateMemberRoleInOffice(
 }
 
 export async function removeMemberFromOffice(
-  officeId: string, 
+  officeId: string,
   memberUserId: string,
   actorId: string,
   actorName: string
@@ -560,4 +626,18 @@ export async function removeMemberFromOffice(
       entityType: "member",
   });
 }
-    
+
+// Deprecated single-fetch functions (can be removed if onSnapshot versions are sufficient)
+export async function getMembersForOffice(officeId: string): Promise<OfficeMember[]> {
+  const snapshot = await getDocs(query(membersCol(officeId), orderBy("joinedAt", "asc")));
+  return snapshot.docs.map(d => d.data());
+}
+export async function getRoomsForOffice(officeId: string): Promise<Room[]> {
+  const snapshot = await getDocs(query(roomsCol(officeId), orderBy("createdAt", "asc")));
+  return snapshot.docs.map(d => d.data());
+}
+export async function getPendingJoinRequestsForOffice(officeId: string): Promise<OfficeJoinRequest[]> {
+  const q = query(joinRequestsCol(officeId), where("status", "==", "pending"), orderBy("requestedAt", "asc"));
+  const snapshot = await getDocs(q);
+  return snapshot.docs.map(doc => doc.data());
+}

@@ -18,8 +18,8 @@ import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useAuth } from '@/lib/firebase/auth';
 import {
-  getUserNotifications,
-  getUnreadNotificationCount,
+  onUserNotificationsUpdate, // Changed
+  onUnreadNotificationCountUpdate, // Changed
   markNotificationAsRead,
   markAllUserNotificationsAsRead,
   type UserNotification
@@ -28,7 +28,7 @@ import { useToast } from '@/hooks/use-toast';
 import { formatDistanceToNow } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { useRouter } from 'next/navigation';
-
+import type { Unsubscribe } from 'firebase/firestore'; // Added
 
 export function NotificationDropdown() {
   const { user, loading: authLoading } = useAuth();
@@ -36,42 +36,41 @@ export function NotificationDropdown() {
   const router = useRouter();
   const [notifications, setNotifications] = useState<UserNotification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(true); // For initial load
   const [isMenuOpen, setIsMenuOpen] = useState(false);
-
-  const fetchNotificationsData = useCallback(async () => {
-    if (user) {
-      setIsLoading(true);
-      try {
-        const [notifs, count] = await Promise.all([
-          getUserNotifications(user.uid, { count: 10 }),
-          getUnreadNotificationCount(user.uid),
-        ]);
-        setNotifications(notifs);
-        setUnreadCount(count);
-      } catch (error) {
-        console.error("Failed to fetch notifications:", error);
-        toast({ variant: "destructive", title: "Error", description: "Could not load notifications." });
-      } finally {
-        setIsLoading(false);
-      }
-    }
-  }, [user, toast]);
 
   useEffect(() => {
     if (user && !authLoading) {
-      fetchNotificationsData();
-      const intervalId = setInterval(() => {
-        if (isMenuOpen || document.visibilityState === 'visible') { 
-             getUnreadNotificationCount(user.uid).then(setUnreadCount).catch(console.error);
-             if(isMenuOpen) {
-                getUserNotifications(user.uid, { count: 10 }).then(setNotifications).catch(console.error);
-             }
+      setIsLoading(true); // Set loading true when starting listeners
+
+      const unsubscribeNotifications = onUserNotificationsUpdate(
+        user.uid,
+        (notifs) => {
+          setNotifications(notifs);
+          if (isLoading) setIsLoading(false); // Set loading false after first data retrieval
+        },
+        { count: 10 }
+      );
+
+      const unsubscribeCount = onUnreadNotificationCountUpdate(
+        user.uid,
+        (count) => {
+          setUnreadCount(count);
+           if (isLoading && notifications.length === 0) setIsLoading(false); // Also consider loading false if count is fetched
         }
-      }, 30000); 
-      return () => clearInterval(intervalId);
+      );
+
+      return () => {
+        unsubscribeNotifications();
+        unsubscribeCount();
+      };
+    } else if (!user && !authLoading) {
+      // Reset state if user logs out
+      setNotifications([]);
+      setUnreadCount(0);
+      setIsLoading(false);
     }
-  }, [user, authLoading, fetchNotificationsData, isMenuOpen]);
+  }, [user, authLoading, isLoading]); // isLoading in deps to ensure it can be reset
 
 
   const handleNotificationClick = async (notification: UserNotification) => {
@@ -79,8 +78,7 @@ export function NotificationDropdown() {
     if (!notification.isRead) {
       try {
         await markNotificationAsRead(user.uid, notification.id);
-        setNotifications(prev => prev.map(n => n.id === notification.id ? { ...n, isRead: true } : n));
-        setUnreadCount(prev => Math.max(0, prev - 1));
+        // State will update via onSnapshot listeners
       } catch (error) {
         toast({ variant: "destructive", title: "Error", description: "Failed to mark as read." });
       }
@@ -88,21 +86,20 @@ export function NotificationDropdown() {
     if (notification.link) {
       router.push(notification.link);
     }
-    setIsMenuOpen(false); // Close dropdown after click
+    setIsMenuOpen(false);
   };
 
   const handleMarkAllAsRead = async () => {
     if (!user || unreadCount === 0) return;
     try {
       await markAllUserNotificationsAsRead(user.uid);
-      setNotifications(prev => prev.map(n => ({ ...n, isRead: true })));
-      setUnreadCount(0);
+      // State will update via onSnapshot listeners
       toast({ title: "Notifications Cleared", description: "All notifications marked as read." });
     } catch (error) {
       toast({ variant: "destructive", title: "Error", description: "Failed to mark all as read." });
     }
   };
-  
+
   if (authLoading && !user) {
     return <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />;
   }
@@ -182,4 +179,3 @@ const NotificationItemContent = ({ notification }: { notification: UserNotificat
     </p>
   </>
 );
-

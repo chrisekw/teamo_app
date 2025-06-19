@@ -3,7 +3,6 @@ import { db } from '@/lib/firebase/client';
 import {
   collection,
   addDoc,
-  getDocs,
   query,
   orderBy,
   limit,
@@ -11,14 +10,15 @@ import {
   Timestamp,
   type DocumentData,
   type FirestoreDataConverter,
+  onSnapshot, // Added
+  type Unsubscribe // Added
 } from 'firebase/firestore';
 import type { ActivityLogItem, ActivityLogItemFirestoreData, ActivityType } from '@/types';
 
-// Firestore data converter for ActivityLogItem
 const activityLogItemConverter: FirestoreDataConverter<ActivityLogItem, ActivityLogItemFirestoreData> = {
   toFirestore: (activityInput: Omit<ActivityLogItem, 'id' | 'timestamp'>): DocumentData => {
     const data: any = { ...activityInput };
-    data.timestamp = serverTimestamp(); // Always set server timestamp on creation
+    data.timestamp = serverTimestamp();
     return data;
   },
   fromFirestore: (snapshot, options): ActivityLogItem => {
@@ -60,15 +60,23 @@ export async function addActivityLog(
   }
 }
 
-export async function getActivityLogForOffice(officeId: string, limitCount: number = 7): Promise<ActivityLogItem[]> {
-  if (!officeId) return [];
-  try {
-    const activityLogCol = getActivityLogCollection(officeId);
-    const q = query(activityLogCol, orderBy("timestamp", "desc"), limit(limitCount));
-    const snapshot = await getDocs(q);
-    return snapshot.docs.map(doc => doc.data());
-  } catch (error) {
-    console.error("Failed to fetch activity log for office:", error, { officeId });
-    return [];
+export function onActivityLogUpdate(
+  officeId: string,
+  callback: (activities: ActivityLogItem[]) => void,
+  limitCount: number = 7
+): Unsubscribe {
+  if (!officeId) {
+    console.error("Office ID is required to listen for activity log updates.");
+    return () => {};
   }
+  const activityLogCol = getActivityLogCollection(officeId);
+  const q = query(activityLogCol, orderBy("timestamp", "desc"), limit(limitCount));
+
+  return onSnapshot(q, (snapshot) => {
+    const activities = snapshot.docs.map(doc => doc.data());
+    callback(activities);
+  }, (error) => {
+    console.error(`Error listening to activity log for office ${officeId}:`, error);
+    callback([]);
+  });
 }
