@@ -125,13 +125,18 @@ export default function OfficeDesignerPage() {
           setActiveOffice(foundOffice);
         }
         return; 
+      } else if (userOffices.length > 0 && !activeOffice) {
+         // If officeIdFromParams not found in userOffices, default to first if available
+         setActiveOffice(userOffices[0]);
+      } else if (userOffices.length === 0) {
+        setActiveOffice(null); // No offices, ensure activeOffice is null
       }
-    }
-    
-    if (!activeOffice && userOffices.length > 0) {
+    } else if (!activeOffice && userOffices.length > 0) {
        setActiveOffice(userOffices[0]); 
+    } else if (userOffices.length === 0) {
+        setActiveOffice(null); // Explicitly set to null if no offices and no param
     }
-  }, [userOffices, activeOffice, searchParams, authLoading, isLoading]);
+  }, [userOffices, activeOffice, searchParams, authLoading, isLoading, router]);
 
 
   const fetchActiveOfficeDetails = useCallback(async (officeId: string, currentUserId: string) => {
@@ -140,10 +145,13 @@ export default function OfficeDesignerPage() {
       const officeData = await getOfficeDetails(officeId);
       if (!officeData) {
           toast({ variant: "destructive", title: "Error", description: "Office not found." });
-          setActiveOffice(null); // Reset if office not found
-          setUserOffices(prev => prev.filter(o => o.id !== officeId)); // Remove from list
+          setActiveOffice(null); 
+          setUserOffices(prev => prev.filter(o => o.id !== officeId));
           return;
       }
+      // Update activeOffice state with the potentially fresher data from getOfficeDetails
+      setActiveOffice(officeData); 
+
       const [rooms, members, requests] = await Promise.all([
         getRoomsForOffice(officeId),
         getMembersForOffice(officeId),
@@ -152,8 +160,9 @@ export default function OfficeDesignerPage() {
       setActiveOfficeRooms(rooms);
       setActiveOfficeMembers(members);
       setPendingJoinRequests(requests);
-    } catch (error) {
-      toast({ variant: "destructive", title: "Error", description: "Could not fetch office details." });
+    } catch (error: any) {
+      console.error("Detailed error fetching office details:", error);
+      toast({ variant: "destructive", title: "Error", description: `Could not fetch office details. ${error.message || ""}` });
       setActiveOfficeRooms([]); 
       setActiveOfficeMembers([]);
       setPendingJoinRequests([]);
@@ -168,7 +177,6 @@ export default function OfficeDesignerPage() {
       setActiveOfficeMembers([]);
       setPendingJoinRequests([]);
       fetchActiveOfficeDetails(activeOffice.id, user.uid);
-       // Update URL if activeOffice is set and doesn't match param, or param is absent
       const officeIdFromParams = searchParams.get('officeId');
       if (officeIdFromParams !== activeOffice.id) {
         router.replace(`/office-designer?officeId=${activeOffice.id}`, { scroll: false });
@@ -179,11 +187,12 @@ export default function OfficeDesignerPage() {
       setActiveOfficeMembers([]);
       setPendingJoinRequests([]);
       setIsLoadingDetails(false); 
-       if (!searchParams.get('officeId') && userOffices.length === 0) {
-         router.replace('/office-designer', { scroll: false });
+      const officeIdFromParams = searchParams.get('officeId');
+       if (officeIdFromParams) { // If there was an ID in param but activeOffice became null
+         router.replace('/office-designer', { scroll: false }); // Clear param
        }
     }
-  }, [activeOffice, user, fetchActiveOfficeDetails, router, searchParams, userOffices.length]);
+  }, [activeOffice, user, fetchActiveOfficeDetails, router, searchParams]);
 
   const handleSetActiveOffice = async (office: Office | null) => {
     setActiveOffice(office);
@@ -242,7 +251,7 @@ export default function OfficeDesignerPage() {
     }
     setIsSubmitting(true);
     const logoUrlPlaceholder = newOfficeLogoFile ? `https://placehold.co/100x100.png?text=${newOfficeCompanyName.substring(0,3) || 'LOGO'}` : undefined;
-    const bannerUrlPlaceholder = newOfficeBannerFile ? `https://placehold.co/800x200.png?text=${newOfficeName.substring(0,3) || 'BANNER'}` : undefined;
+    const bannerUrlPlaceholder = newOfficeBannerFile ? `https://placehold.co/800x200.png?text=${newOfficeName.substring(0,6) || 'BANNER'}` : undefined;
 
     try {
       const newOffice = await createOffice(
@@ -421,6 +430,7 @@ export default function OfficeDesignerPage() {
         await rejectJoinRequest(activeOffice.id, request.id, user.uid, user.displayName || "User");
         toast({ title: "Request Rejected", description: `${request.requesterName}'s request has been rejected.` });
       }
+      // Re-fetch all details to update lists (members and join requests)
       fetchActiveOfficeDetails(activeOffice.id, user.uid);
     } catch (error: any) {
       toast({ variant: "destructive", title: `Error ${action === 'approve' ? 'Approving' : 'Rejecting'} Request`, description: error.message });
@@ -545,7 +555,8 @@ export default function OfficeDesignerPage() {
   }
   
   if(!activeOffice) {
-    return <div className="container mx-auto p-8 text-center"><Loader2 className="h-12 w-12 animate-spin text-primary"/></div>;
+    // This state can happen if officeId in URL is invalid or user has no offices and hasn't created one yet
+    return <div className="container mx-auto p-8 text-center"><Info className="h-12 w-12 text-primary mx-auto mb-4"/><p>Select an office or create a new one to get started.</p></div>;
   }
 
   const currentUserIsOwner = activeOffice.ownerId === user?.uid;
@@ -579,7 +590,7 @@ export default function OfficeDesignerPage() {
                 </div>
                 <Button onClick={() => handleSetActiveOffice(null)} variant="outline" className="w-full sm:w-auto" disabled={isLoadingDetails || isSubmitting}>Back to Office List</Button>
             </div>
-             {currentUserIsOwner && (
+             {currentUserIsOwner && activeOffice.invitationCode && (
                 <div className="mt-4 pt-4 border-t border-border flex items-center text-sm text-muted-foreground">
                     <span>Invitation Code: <strong className="text-foreground">{activeOffice.invitationCode}</strong></span>
                     <Button variant="ghost" size="sm" onClick={copyInviteCode} className="ml-2 px-1 py-0 h-auto">
@@ -593,7 +604,7 @@ export default function OfficeDesignerPage() {
 
       {isLoadingDetails && <div className="text-center my-8"><Loader2 className="h-10 w-10 animate-spin text-primary"/></div>}
 
-      {!isLoadingDetails && (
+      {!isLoadingDetails && activeOffice && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mt-8">
           <section className="lg:col-span-2 space-y-8">
             {currentUserIsOwner && pendingJoinRequests.length > 0 && (
@@ -628,7 +639,7 @@ export default function OfficeDesignerPage() {
                                         size="sm" 
                                         onClick={() => handleProcessJoinRequest(request, 'approve')} 
                                         disabled={processingRequestId === request.id || isSubmitting}
-                                        className="hover:bg-green-500/90"
+                                        className="hover:bg-green-500/90 bg-green-600 text-white"
                                     >
                                         {processingRequestId === request.id && <Loader2 className="mr-1 h-4 w-4 animate-spin"/>}
                                         <UserCheck className="mr-1 h-4 w-4"/> Approve
