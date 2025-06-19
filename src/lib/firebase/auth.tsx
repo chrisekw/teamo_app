@@ -14,6 +14,7 @@ import { auth } from './client'; // Your Firebase client instance
 import { useRouter } from 'next/navigation';
 import type { z } from 'zod';
 import type { loginSchema, signupSchema } from '@/app/(auth)/schemas'; // Assuming schemas are defined here
+import { getOrCreateUserProfile } from './firestore/userProfile'; // Import the new function
 
 type LoginInput = z.infer<typeof loginSchema>;
 type SignupInput = z.infer<typeof signupSchema>;
@@ -48,20 +49,24 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     setError(null);
     try {
       const userCredential = await createUserWithEmailAndPassword(auth, data.email, data.password);
-      const firebaseUser = userCredential.user; // Use the user object from the credential
+      const firebaseUser = userCredential.user;
 
-      if (firebaseUser && data.name) {
-        await updateProfile(firebaseUser, { displayName: data.name });
-        // After updating profile, reload this specific user object to get the latest data from Firebase.
+      if (firebaseUser) {
+        if (data.name) {
+          await updateProfile(firebaseUser, { displayName: data.name });
+        }
+        // Ensure displayName and photoURL are up-to-date before creating profile
         await firebaseUser.reload(); 
-        // Set the user in context. onAuthStateChanged will also set this, but this makes it available sooner for the current flow.
-        setUser(firebaseUser); 
-      } else if (firebaseUser) {
-        // If no name to update, still set the user state with the newly created user
-        setUser(firebaseUser);
+        
+        // Create or get the user profile in Firestore
+        await getOrCreateUserProfile(firebaseUser.uid, {
+          displayName: firebaseUser.displayName || data.name || 'New User',
+          email: firebaseUser.email || '',
+          avatarUrl: firebaseUser.photoURL || undefined,
+        });
+
+        setUser(auth.currentUser); // Update context user with latest from auth instance
       }
-      // If user creation failed and firebaseUser is null, error would have been thrown.
-      // onAuthStateChanged will eventually ensure the global state is correct.
       router.push('/dashboard');
     } catch (e) {
       setError(e as AuthError);
@@ -90,8 +95,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     setError(null);
     try {
       await firebaseSignOut(auth);
-      setUser(null); // Clear user state immediately
-      router.push('/login'); // Redirect to login after sign out
+      setUser(null); 
+      router.push('/login'); 
     } catch (e) {
       setError(e as AuthError);
     } finally {
@@ -113,4 +118,3 @@ export const useAuth = (): AuthContextType => {
   }
   return context;
 };
-

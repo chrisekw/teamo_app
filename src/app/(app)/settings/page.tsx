@@ -27,9 +27,10 @@ export default function SettingsPage() {
   const [language, setLanguage] = useState("en");
   const [fontSize, setFontSize] = useState("medium");
 
-  const [fullName, setFullName] = useState("Teamo User");
-  const [userEmail, setUserEmail] = useState("user@teamo.app"); // Typically not editable
-  const [userAvatar, setUserAvatar] = useState("https://placehold.co/100x100.png");
+  // Removed user-specific details like fullName, userEmail, userAvatar as they are on /profile
+  // const [fullName, setFullName] = useState("Teamo User");
+  // const [userEmail, setUserEmail] = useState("user@teamo.app");
+  // const [userAvatar, setUserAvatar] = useState("https://placehold.co/100x100.png");
 
   const [emailNotifications, setEmailNotifications] = useState("important");
   const [pushNotifications, setPushNotifications] = useState(true);
@@ -40,21 +41,15 @@ export default function SettingsPage() {
 
   useEffect(() => {
     setMounted(true);
-    // Initialize currentTheme based on the actual theme from useTheme
-    // theme could be light, dark, or undefined if system is active and it resolves to one.
-    // systemTheme will be light or dark based on OS preference.
     if (theme === "system") {
         setCurrentTheme("system");
     } else {
         setCurrentTheme(theme || "system");
     }
-
   }, [theme, systemTheme]);
 
 
   const handleSaveChanges = () => {
-    // In a real app, you'd send this data to a backend.
-    // For now, just show a toast.
     toast({
       title: "Settings Saved",
       description: "Your preferences have been updated.",
@@ -62,13 +57,13 @@ export default function SettingsPage() {
   };
   
   if (!mounted) {
-    return null; // Avoid hydration mismatch by not rendering UI until mounted
+    return null; 
   }
 
   return (
     <div className="container mx-auto p-4 sm:p-6 lg:p-8 space-y-8">
       <div className="flex items-center justify-between">
-        <h1 className="text-3xl font-headline font-bold">Settings</h1>
+        <h1 className="text-3xl font-headline font-bold">Application Settings</h1>
         <Button onClick={handleSaveChanges}>
           <Save className="mr-2 h-4 w-4" /> Save Changes
         </Button>
@@ -134,8 +129,8 @@ export default function SettingsPage() {
         </CardContent>
       </Card>
 
-      {/* Account Section */}
-      <Card className="shadow-lg">
+      {/* Account Section - REMOVED, now on /profile page */}
+      {/* <Card className="shadow-lg">
         <CardHeader>
           <CardTitle className="flex items-center"><UserCircle className="mr-2 h-5 w-5 text-primary" />Account</CardTitle>
           <CardDescription>Manage your personal account details.</CardDescription>
@@ -160,7 +155,7 @@ export default function SettingsPage() {
           </div>
           <Button variant="outline">Change Password</Button>
         </CardContent>
-      </Card>
+      </Card> */}
 
       {/* Notifications Section */}
       <Card className="shadow-lg">
@@ -231,7 +226,7 @@ export default function SettingsPage() {
         </CardContent>
       </Card>
 
-      {/* Other Sections Placeholder - Could be expanded similarly */}
+      {/* Other Sections Placeholder */}
       <Card className="shadow-lg">
          <CardHeader>
           <CardTitle className="flex items-center"><ShieldCheck className="mr-2 h-5 w-5 text-primary" />Privacy & Security</CardTitle>

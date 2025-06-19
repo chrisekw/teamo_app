@@ -13,6 +13,28 @@ export interface NavItem {
   children?: NavItem[];
 }
 
+// --- User Profile Types ---
+export interface UserProfile {
+  id: string; // Should be the same as Firebase Auth UID
+  displayName: string;
+  email: string; // Usually from Auth, stored for convenience
+  avatarUrl?: string;
+  phoneNumber?: string;
+  profession?: string;
+  birthday?: Date;
+  bio?: string;
+  resumeUrl?: string; // URL to the stored resume file
+  createdAt?: Date;
+  updatedAt?: Date;
+}
+
+export type UserProfileFirestoreData = Omit<UserProfile, 'id' | 'birthday' | 'createdAt' | 'updatedAt'> & {
+  birthday?: Timestamp;
+  createdAt?: Timestamp;
+  updatedAt?: Timestamp;
+};
+
+
 // --- Task Management Types ---
 export interface Task {
   id: string;
