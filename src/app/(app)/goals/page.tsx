@@ -4,7 +4,7 @@
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
-import { PlusCircle, Target, Edit3, Trash2, CheckCircle2, Loader2 } from "lucide-react";
+import { PlusCircle, Target, Edit3, Trash2, CheckCircle2, Loader2, CalendarIcon as CalendarLucide, Info, Percent, Hash, Edit } from "lucide-react";
 import { useState, useEffect, useCallback } from "react";
 import {
   Dialog,
@@ -26,7 +26,6 @@ import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover
 import dynamic from 'next/dynamic';
 import { cn } from "@/lib/utils";
 import { format } from "date-fns";
-import { Calendar as CalendarIcon } from "lucide-react";
 import { getOfficesForUser, type Office } from "@/lib/firebase/firestore/offices";
 import { Skeleton } from "@/components/ui/skeleton";
 
@@ -259,38 +258,39 @@ export default function GoalsPage() {
       )}
 
       <Dialog open={isGoalDialogOpen} onOpenChange={(isOpen) => {if (!isSubmitting) setIsGoalDialogOpen(isOpen); if(!isOpen) resetForm();}}>
-        <DialogContent className="sm:max-w-[500px]">
+        <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle className="font-headline">{currentGoalToEdit ? "Edit Goal" : "Add New Goal"}</DialogTitle>
             <DialogDescription>
               {currentGoalToEdit ? "Update the details for this goal." : "Define a new goal for your team."}
             </DialogDescription>
           </DialogHeader>
-          <div className="grid gap-4 py-4 max-h-[70vh] overflow-y-auto pr-2">
-            <div className="grid gap-2">
-              <Label htmlFor="goalName">Goal Name</Label>
+          <div className="space-y-4 py-4 max-h-[70vh] overflow-y-auto pr-2">
+            <div className="space-y-1.5">
+              <Label htmlFor="goalName" className="flex items-center"><Edit className="mr-2 h-4 w-4 text-muted-foreground"/>Goal Name</Label>
               <Input id="goalName" value={goalName} onChange={(e) => setGoalName(e.target.value)} placeholder="e.g., Increase Sales" disabled={isSubmitting}/>
             </div>
-            <div className="grid gap-2">
-              <Label htmlFor="goalDescription">Description</Label>
-              <Textarea id="goalDescription" value={goalDescription} onChange={(e) => setGoalDescription(e.target.value)} placeholder="Briefly describe the goal" disabled={isSubmitting}/>
+            <div className="space-y-1.5">
+              <Label htmlFor="goalDescription" className="flex items-center"><Info className="mr-2 h-4 w-4 text-muted-foreground"/>Description</Label>
+              <Textarea id="goalDescription" value={goalDescription} onChange={(e) => setGoalDescription(e.target.value)} placeholder="Briefly describe the goal" disabled={isSubmitting} rows={3}/>
             </div>
             <div className="grid grid-cols-2 gap-4">
-              <div className="grid gap-2">
-                <Label htmlFor="goalCurrentValue">Current Value</Label>
+              <div className="space-y-1.5">
+                <Label htmlFor="goalCurrentValue" className="flex items-center"><Hash className="mr-2 h-4 w-4 text-muted-foreground"/>Current Value</Label>
                 <Input id="goalCurrentValue" type="number" value={goalCurrentValue} onChange={(e) => setGoalCurrentValue(parseFloat(e.target.value) || 0)} disabled={isSubmitting}/>
               </div>
-              <div className="grid gap-2">
-                <Label htmlFor="goalTargetValue">Target Value</Label>
+              <div className="space-y-1.5">
+                <Label htmlFor="goalTargetValue" className="flex items-center"><Target className="mr-2 h-4 w-4 text-muted-foreground"/>Target Value</Label>
                 <Input id="goalTargetValue" type="number" value={goalTargetValue} onChange={(e) => setGoalTargetValue(parseFloat(e.target.value) || 0)} disabled={isSubmitting}/>
               </div>
             </div>
-            <div className="grid gap-2">
-              <Label htmlFor="goalUnit">Unit (add '(Lower is better)' if applicable)</Label>
+            <div className="space-y-1.5">
+              <Label htmlFor="goalUnit" className="flex items-center"><Percent className="mr-2 h-4 w-4 text-muted-foreground"/>Unit</Label>
               <Input id="goalUnit" value={goalUnit} onChange={(e) => setGoalUnit(e.target.value)} placeholder="e.g., %, USD, Tasks, Bugs (Lower is better)" disabled={isSubmitting}/>
+              <p className="text-xs text-muted-foreground">Add '(Lower is better)' to the unit if applicable, e.g., 'Bugs (Lower is better)'.</p>
             </div>
-            <div className="grid gap-2">
-                <Label>Set Current Value ({goalCurrentValue} {goalUnit.replace("(Lower is better)","").trim()})</Label>
+            <div className="space-y-1.5">
+                <Label className="flex items-center">Set Current Value ({goalCurrentValue} {goalUnit.replace("(Lower is better)","").trim()})</Label>
                 <Slider
                     value={[goalCurrentValue]}
                     max={goalTargetValue > 0 ? goalTargetValue * (goalUnit.toLowerCase().includes("lower is better") ? 2 : 1.2) : 100}
@@ -300,16 +300,17 @@ export default function GoalsPage() {
                     disabled={isSubmitting}
                 />
             </div>
-            <div className="grid gap-2">
-              <Label htmlFor="goalDeadline">Deadline (Optional)</Label>
+            <div className="space-y-1.5">
+              <Label htmlFor="goalDeadline" className="flex items-center"><CalendarLucide className="mr-2 h-4 w-4 text-muted-foreground"/>Deadline (Optional)</Label>
                <Popover>
                 <PopoverTrigger asChild>
                   <Button
+                    id="goalDeadline"
                     variant={"outline"}
                     className={cn("w-full justify-start text-left font-normal", !goalDeadline && "text-muted-foreground")}
                     disabled={isSubmitting}
                   >
-                    <CalendarIcon className="mr-2 h-4 w-4" />
+                    <CalendarLucide className="mr-2 h-4 w-4" />
                     {goalDeadline ? format(goalDeadline, "PPP") : <span>Pick a date</span>}
                   </Button>
                 </PopoverTrigger>
@@ -331,3 +332,5 @@ export default function GoalsPage() {
     </div>
   );
 }
+
+    

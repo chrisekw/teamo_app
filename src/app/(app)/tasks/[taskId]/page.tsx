@@ -14,7 +14,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
-import { Calendar as CalendarIcon, ArrowLeft, Save, Trash2, ListChecks, Loader2 } from "lucide-react";
+import { Calendar as CalendarIcon, ArrowLeft, Save, Trash2, ListChecks, Loader2, Edit, Info, User, Clock, BarChart, AlertTriangle, Star } from "lucide-react";
 import type { Task } from "@/types";
 import { getTaskByIdForUser, updateTaskForUser, deleteTaskForUser, statusColors } from "@/lib/firebase/firestore/tasks";
 import { useAuth } from "@/lib/firebase/auth";
@@ -41,7 +41,7 @@ export default function TaskDetailPage() {
   const [currentTask, setCurrentTask] = useState<Task | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [userOffices, setUserOffices] = useState<Office[]>([]); // For activity log context
+  const [userOffices, setUserOffices] = useState<Office[]>([]);
 
   // Form states
   const [taskName, setTaskName] = useState("");
@@ -160,7 +160,7 @@ export default function TaskDetailPage() {
     );
   }
   
-  if (!currentTask) return null; // Should not happen if isLoading is false and no redirect occurred
+  if (!currentTask) return null;
 
   return (
     <div className="container mx-auto p-4 sm:p-6 lg:p-8">
@@ -179,26 +179,27 @@ export default function TaskDetailPage() {
             <CardTitle className="font-headline text-2xl sm:text-3xl">Edit Task: {currentTask.name}</CardTitle>
             <CardDescription>Modify the details of this task below.</CardDescription>
           </CardHeader>
-          <CardContent className="grid gap-6 py-6 max-h-[calc(100vh-250px)] overflow-y-auto pr-2 sm:pr-3">
-            <div className="grid gap-2">
-              <Label htmlFor="taskName">Task Name</Label>
+          <CardContent className="space-y-6 py-6 max-h-[calc(100vh-250px)] overflow-y-auto pr-2 sm:pr-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="taskName" className="flex items-center"><Edit className="mr-2 h-4 w-4 text-muted-foreground"/>Task Name</Label>
               <Input id="taskName" value={taskName} onChange={(e) => setTaskName(e.target.value)} disabled={isSubmitting} />
             </div>
-            <div className="grid gap-2">
-              <Label htmlFor="description">Description</Label>
+            <div className="space-y-1.5">
+              <Label htmlFor="description" className="flex items-center"><Info className="mr-2 h-4 w-4 text-muted-foreground"/>Description</Label>
               <Textarea id="description" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Detailed description of the task" rows={4} disabled={isSubmitting}/>
             </div>
             
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div className="grid gap-2">
-                <Label htmlFor="assignedTo">Assigned To</Label>
+              <div className="space-y-1.5">
+                <Label htmlFor="assignedTo" className="flex items-center"><User className="mr-2 h-4 w-4 text-muted-foreground"/>Assigned To</Label>
                 <Input id="assignedTo" value={assignedTo} onChange={(e) => setAssignedTo(e.target.value)} disabled={isSubmitting}/>
               </div>
-              <div className="grid gap-2">
-                <Label htmlFor="dueDate">Due Date</Label>
+              <div className="space-y-1.5">
+                <Label htmlFor="dueDate" className="flex items-center"><Clock className="mr-2 h-4 w-4 text-muted-foreground"/>Due Date</Label>
                 <Popover>
                   <PopoverTrigger asChild>
                     <Button
+                      id="dueDate"
                       variant={"outline"}
                       className={cn("w-full justify-start text-left font-normal", !dueDate && "text-muted-foreground")}
                       disabled={isSubmitting}
@@ -215,8 +216,8 @@ export default function TaskDetailPage() {
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div className="grid gap-2">
-                <Label htmlFor="status">Status</Label>
+              <div className="space-y-1.5">
+                <Label htmlFor="status" className="flex items-center"><BarChart className="mr-2 h-4 w-4 text-muted-foreground"/>Status</Label>
                 <Select value={status} onValueChange={(value) => setStatus(value as Task["status"])} disabled={isSubmitting}>
                   <SelectTrigger id="status"><SelectValue /></SelectTrigger>
                   <SelectContent>
@@ -227,8 +228,8 @@ export default function TaskDetailPage() {
                   </SelectContent>
                 </Select>
               </div>
-              <div className="grid gap-2">
-                <Label htmlFor="priority">Priority</Label>
+              <div className="space-y-1.5">
+                <Label htmlFor="priority" className="flex items-center"><AlertTriangle className="mr-2 h-4 w-4 text-muted-foreground"/>Priority</Label>
                 <Select value={priority} onValueChange={(value) => setPriority(value as Task["priority"])} disabled={isSubmitting}>
                   <SelectTrigger id="priority"><SelectValue /></SelectTrigger>
                   <SelectContent>
@@ -240,9 +241,9 @@ export default function TaskDetailPage() {
               </div>
             </div>
 
-            <div className="grid gap-2">
+            <div className="space-y-1.5">
               <div className="flex justify-between items-center mb-1">
-                <Label htmlFor="progress">Progress</Label>
+                <Label htmlFor="progress" className="flex items-center"><Star className="mr-2 h-4 w-4 text-muted-foreground"/>Progress</Label>
                 <Badge className={cn(statusColors[status], "text-white")}>{progress}%</Badge>
               </div>
               <Input 
@@ -291,3 +292,5 @@ export default function TaskDetailPage() {
     </div>
   );
 }
+
+    

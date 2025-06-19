@@ -10,7 +10,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { PlusCircle, Trash2, Users, Briefcase, Coffee, Zap, Building, KeyRound, UserPlus, Copy, Settings2, ShieldCheck, UserCircle as UserIconLucide, Loader2, Edit, Info, Image as ImageIcon, MoreHorizontal, ExternalLink, UserCheck, UserX, CheckSquare, XSquare, Video } from "lucide-react";
+import { PlusCircle, Trash2, Users, Briefcase, Coffee, Zap, Building, KeyRound, UserPlus, Copy, Settings2, ShieldCheck, UserCircle as UserIconLucide, Loader2, Edit, Info, Image as ImageIcon, MoreHorizontal, ExternalLink, UserCheck, UserX, CheckSquare, XSquare, Video, Tag, Layers, ImageUp } from "lucide-react";
 import Image from "next/image";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -561,28 +561,27 @@ export default function OfficeDesignerPage() {
         </div>
       )}
 
-      {/* Create Office Dialog */}
       <Dialog open={isCreateOfficeDialogOpen} onOpenChange={(isOpen) => { if (!isSubmitting) setIsCreateOfficeDialogOpen(isOpen); if(!isOpen) resetCreateOfficeForm(); }}>
           <DialogContent className="sm:max-w-md">
             <DialogHeader>
               <DialogTitle className="font-headline">Create New Virtual Office</DialogTitle>
               <DialogDescription>Set up your office details below.</DialogDescription>
             </DialogHeader>
-            <div className="grid gap-4 py-4 max-h-[70vh] overflow-y-auto pr-2">
-              <div className="space-y-1">
-                <Label htmlFor="newOfficeName">Office Name*</Label>
+            <div className="space-y-4 py-4 max-h-[70vh] overflow-y-auto pr-2">
+              <div className="space-y-1.5">
+                <Label htmlFor="newOfficeName" className="flex items-center"><Edit className="mr-2 h-4 w-4 text-muted-foreground"/>Office Name*</Label>
                 <Input id="newOfficeName" value={newOfficeName} onChange={(e) => setNewOfficeName(e.target.value)} placeholder="e.g., Team Alpha HQ" disabled={isSubmitting}/>
               </div>
-              <div className="space-y-1">
-                <Label htmlFor="newOfficeCompanyName">Company/Brand Name</Label>
+              <div className="space-y-1.5">
+                <Label htmlFor="newOfficeCompanyName" className="flex items-center"><Building className="mr-2 h-4 w-4 text-muted-foreground"/>Company/Brand Name</Label>
                 <Input id="newOfficeCompanyName" value={newOfficeCompanyName} onChange={(e) => setNewOfficeCompanyName(e.target.value)} placeholder="e.g., Alpha Corp" disabled={isSubmitting}/>
               </div>
-              <div className="space-y-1">
-                <Label htmlFor="newOfficeSector">Sector</Label>
+              <div className="space-y-1.5">
+                <Label htmlFor="newOfficeSector" className="flex items-center"><Tag className="mr-2 h-4 w-4 text-muted-foreground"/>Sector</Label>
                 <Input id="newOfficeSector" value={newOfficeSector} onChange={(e) => setNewOfficeSector(e.target.value)} placeholder="e.g., Technology, Healthcare" disabled={isSubmitting}/>
               </div>
-              <div className="space-y-1">
-                <Label htmlFor="newOfficeLogo">Office Logo</Label>
+              <div className="space-y-1.5">
+                <Label htmlFor="newOfficeLogo" className="flex items-center"><ImageIcon className="mr-2 h-4 w-4 text-muted-foreground"/>Office Logo</Label>
                 <Input id="newOfficeLogo" type="file" accept="image/*" onChange={handleLogoFileChange} className="file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-primary file:text-primary-foreground hover:file:bg-primary/90" disabled={isSubmitting}/>
                 {logoPreview && (
                   <div className="mt-2">
@@ -590,8 +589,8 @@ export default function OfficeDesignerPage() {
                   </div>
                 )}
               </div>
-              <div className="space-y-1">
-                <Label htmlFor="newOfficeBanner">Office Banner</Label>
+              <div className="space-y-1.5">
+                <Label htmlFor="newOfficeBanner" className="flex items-center"><ImageUp className="mr-2 h-4 w-4 text-muted-foreground"/>Office Banner</Label>
                 <Input id="newOfficeBanner" type="file" accept="image/*" onChange={handleBannerFileChange} className="file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-primary file:text-primary-foreground hover:file:bg-primary/90" disabled={isSubmitting}/>
                 {bannerPreview && (
                   <div className="mt-2 aspect-[4/1] w-full relative">
@@ -609,16 +608,17 @@ export default function OfficeDesignerPage() {
           </DialogContent>
         </Dialog>
 
-        {/* Join Office Dialog */}
         <Dialog open={isJoinOfficeDialogOpen} onOpenChange={(isOpen) => { if (!isSubmitting) setIsJoinOfficeDialogOpen(isOpen); if(!isOpen) setJoinOfficeCode(""); }}>
           <DialogContent className="sm:max-w-[425px]">
             <DialogHeader>
               <DialogTitle className="font-headline">Join Existing Office</DialogTitle>
               <DialogDescription>Enter the invitation code to request access.</DialogDescription>
             </DialogHeader>
-            <div className="grid gap-4 py-4">
-              <Label htmlFor="joinOfficeCode">Invitation Code</Label>
-              <Input id="joinOfficeCode" value={joinOfficeCode} onChange={(e) => setJoinOfficeCode(e.target.value)} placeholder="e.g., XYZ-789" disabled={isSubmitting}/>
+            <div className="space-y-4 py-4">
+              <div className="space-y-1.5">
+                <Label htmlFor="joinOfficeCode" className="flex items-center"><KeyRound className="mr-2 h-4 w-4 text-muted-foreground"/>Invitation Code</Label>
+                <Input id="joinOfficeCode" value={joinOfficeCode} onChange={(e) => setJoinOfficeCode(e.target.value)} placeholder="e.g., XYZ-789" disabled={isSubmitting}/>
+              </div>
             </div>
             <DialogFooter>
               <Button variant="outline" onClick={() => setIsJoinOfficeDialogOpen(false)} disabled={isSubmitting}>Cancel</Button>
@@ -841,11 +841,11 @@ export default function OfficeDesignerPage() {
             <DialogTitle className="font-headline">Add New Room</DialogTitle>
             <DialogDescription>Select a room type and give it a name.</DialogDescription>
           </DialogHeader>
-          <div className="grid gap-4 py-4">
-            <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="roomType" className="text-right">Type</Label>
+          <div className="space-y-4 py-4">
+            <div className="space-y-1.5">
+              <Label htmlFor="roomType" className="flex items-center"><Layers className="mr-2 h-4 w-4 text-muted-foreground"/>Type</Label>
               <Select onValueChange={(value) => setSelectedRoomType(value as RoomType)} value={selectedRoomType} disabled={isSubmitting}>
-                <SelectTrigger className="col-span-3">
+                <SelectTrigger id="roomType">
                   <SelectValue placeholder="Select room type" />
                 </SelectTrigger>
                 <SelectContent>
@@ -855,13 +855,12 @@ export default function OfficeDesignerPage() {
                 </SelectContent>
               </Select>
             </div>
-            <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="roomName" className="text-right">Name</Label>
+            <div className="space-y-1.5">
+              <Label htmlFor="roomName" className="flex items-center"><Edit className="mr-2 h-4 w-4 text-muted-foreground"/>Name</Label>
               <Input
                 id="roomName"
                 value={newRoomName}
                 onChange={(e) => setNewRoomName(e.target.value)}
-                className="col-span-3"
                 placeholder={selectedRoomType ? roomTypeDetails[selectedRoomType].defaultName : "Room Name"}
                 disabled={isSubmitting}
               />
@@ -883,18 +882,20 @@ export default function OfficeDesignerPage() {
               <DialogTitle className="font-headline">Manage {managingMember.name}</DialogTitle>
               <DialogDescription>Change their role in the office.</DialogDescription>
             </DialogHeader>
-            <div className="grid gap-4 py-4">
-              <Label htmlFor="memberRole">Role</Label>
-              <Select value={selectedRole} onValueChange={(value) => setSelectedRole(value as MemberRole)} disabled={isSubmitting || managingMember.role === "Owner"}>
-                <SelectTrigger id="memberRole">
-                  <SelectValue placeholder="Select role" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="Admin">Admin</SelectItem>
-                  <SelectItem value="Member">Member</SelectItem>
-                   {managingMember.role === "Owner" && <SelectItem value="Owner" disabled>Owner (Cannot change)</SelectItem>}
-                </SelectContent>
-              </Select>
+            <div className="space-y-4 py-4">
+              <div className="space-y-1.5">
+                <Label htmlFor="memberRole" className="flex items-center"><ShieldCheck className="mr-2 h-4 w-4 text-muted-foreground"/>Role</Label>
+                <Select value={selectedRole} onValueChange={(value) => setSelectedRole(value as MemberRole)} disabled={isSubmitting || managingMember.role === "Owner"}>
+                  <SelectTrigger id="memberRole">
+                    <SelectValue placeholder="Select role" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Admin">Admin</SelectItem>
+                    <SelectItem value="Member">Member</SelectItem>
+                    {managingMember.role === "Owner" && <SelectItem value="Owner" disabled>Owner (Cannot change)</SelectItem>}
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
             <DialogFooter>
               <Button variant="outline" onClick={() => {setIsManageMemberDialogOpen(false); setManagingMember(null);}} disabled={isSubmitting}>Cancel</Button>
@@ -942,6 +943,8 @@ export default function OfficeDesignerPage() {
     </div>
   );
 }
+    
+
     
 
     
