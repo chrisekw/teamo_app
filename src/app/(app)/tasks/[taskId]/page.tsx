@@ -11,6 +11,7 @@ export default function OldTaskDetailPageRedirect() {
   const router = useRouter();
 
   useEffect(() => {
+    // Redirect to the main tasks page as a sensible default
     router.replace('/tasks');
   }, [router]);
 
