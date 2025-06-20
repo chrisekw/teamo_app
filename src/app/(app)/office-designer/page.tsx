@@ -10,7 +10,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { PlusCircle, Trash2, Users, Briefcase, Coffee, Zap, Building, KeyRound, UserPlus, Copy, Settings2, ShieldCheck, UserCircle as UserIconLucide, Loader2, Edit, Info, Image as ImageIcon, MoreHorizontal, ExternalLink, UserCheck, UserX, CheckSquare, XSquare, Video, Tag, Layers, ImageUp, Award } from "lucide-react";
+import { PlusCircle, Trash2, Users, Briefcase, Coffee, Zap, Building, KeyRound, UserPlus, Copy, Settings2, ShieldCheck, UserCircle as UserIconLucide, Loader2, Edit, Info, Image as ImageIconLucide, MoreHorizontal, ExternalLink, UserCheck, UserX, CheckSquare, XSquare, Video, Tag, Layers, ImageUp, Award } from "lucide-react"; // Renamed ImageIcon to ImageIconLucide
 import Image from "next/image";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -29,7 +29,7 @@ import {
   onRoomsUpdate, 
   deleteRoomFromOffice,
   onMembersUpdate, 
-  updateMemberDetailsInOffice, // Changed from updateMemberRoleInOffice
+  updateMemberDetailsInOffice, 
   removeMemberFromOffice,
   requestToJoinOfficeByCode,
   onPendingJoinRequestsUpdate, 
@@ -88,6 +88,9 @@ export default function OfficeDesignerPage() {
   const [joinOfficeCode, setJoinOfficeCode] = useState("");
   const [selectedRoomType, setSelectedRoomType] = useState<RoomType | undefined>();
   const [newRoomName, setNewRoomName] = useState("");
+  const [newRoomCoverImageFile, setNewRoomCoverImageFile] = useState<File | null>(null);
+  const [newRoomCoverImagePreview, setNewRoomCoverImagePreview] = useState<string | null>(null);
+
   const [managingMember, setManagingMember] = useState<OfficeMember | null>(null);
   const [selectedSystemRole, setSelectedSystemRole] = useState<MemberRole>("Member");
   const [selectedWorkRole, setSelectedWorkRole] = useState<string>("");
@@ -220,6 +223,13 @@ export default function OfficeDesignerPage() {
     setNewOfficeBannerFile(null);
     setBannerPreview(null);
   };
+  
+  const resetAddRoomForm = () => {
+    setNewRoomName("");
+    setSelectedRoomType(undefined);
+    setNewRoomCoverImageFile(null);
+    setNewRoomCoverImagePreview(null);
+  };
 
   const handleLogoFileChange = (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -250,6 +260,22 @@ export default function OfficeDesignerPage() {
       setBannerPreview(null);
     }
   };
+  
+  const handleRoomCoverImageFileChange = (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file) {
+      setNewRoomCoverImageFile(file);
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setNewRoomCoverImagePreview(reader.result as string);
+      };
+      reader.readAsDataURL(file);
+    } else {
+      setNewRoomCoverImageFile(null);
+      setNewRoomCoverImagePreview(null);
+    }
+  };
+
 
   const handleCreateOffice = async () => {
     if (!user) return;
@@ -258,8 +284,18 @@ export default function OfficeDesignerPage() {
       return;
     }
     setIsSubmitting(true);
-    const logoUrlPlaceholder = newOfficeLogoFile ? `https://placehold.co/100x100.png?text=${newOfficeCompanyName.substring(0,3) || 'LOGO'}` : undefined;
-    const bannerUrlPlaceholder = newOfficeBannerFile ? `https://placehold.co/800x200.png?text=${encodeURIComponent(newOfficeName.substring(0,10) || 'BANNER')}` : undefined;
+    
+    let logoUrlForCreate: string | undefined = undefined;
+    if (newOfficeLogoFile) {
+      // Simulate upload: In a real app, upload newOfficeLogoFile to Firebase Storage and get downloadURL
+      logoUrlForCreate = `https://placehold.co/100x100.png?text=LOGO&hint=${encodeURIComponent(newOfficeLogoFile.name.substring(0,10))}`;
+    }
+
+    let bannerUrlForCreate: string | undefined = undefined;
+    if (newOfficeBannerFile) {
+      // Simulate upload for banner
+      bannerUrlForCreate = `https://placehold.co/800x200.png?text=BANNER&hint=${encodeURIComponent(newOfficeBannerFile.name.substring(0,10))}`;
+    }
 
     try {
       const newOffice = await createOffice(
@@ -269,8 +305,8 @@ export default function OfficeDesignerPage() {
         newOfficeName,
         newOfficeSector || undefined,
         newOfficeCompanyName || undefined,
-        logoUrlPlaceholder, 
-        bannerUrlPlaceholder 
+        logoUrlForCreate, 
+        bannerUrlForCreate 
       );
       handleSetActiveOffice(newOffice);
       resetCreateOfficeForm();
@@ -321,15 +357,21 @@ export default function OfficeDesignerPage() {
     const roomName = newRoomName.trim() === "" ? `${details.defaultName} ${activeOfficeRooms.filter(r => r.type === selectedRoomType).length + 1}` : newRoomName;
 
     setIsSubmitting(true);
+    let coverImageUrlForCreate: string | undefined = undefined;
+    if (newRoomCoverImageFile) {
+      // Simulate upload for room cover image
+      coverImageUrlForCreate = `https://placehold.co/400x225.png?text=ROOM&hint=${encodeURIComponent(newRoomCoverImageFile.name.substring(0,10))}`;
+    }
+
     try {
       const newRoomData: Omit<Room, 'id' | 'officeId' | 'createdAt' | 'updatedAt'> = {
         name: roomName,
         type: selectedRoomType,
         iconName: details.iconName,
+        coverImageUrl: coverImageUrlForCreate,
       };
       const addedRoom = await addRoomToOffice(activeOffice.id, newRoomData, user.uid, user.displayName || "User");
-      setNewRoomName("");
-      setSelectedRoomType(undefined);
+      resetAddRoomForm();
       setIsAddRoomDialogOpen(false);
       toast({ title: "Room Added!", description: `"${addedRoom.name}" has been added to ${activeOffice.name}.`});
     } catch (error: any) {
@@ -579,7 +621,7 @@ export default function OfficeDesignerPage() {
                 <Input id="newOfficeSector" value={newOfficeSector} onChange={(e) => setNewOfficeSector(e.target.value)} placeholder="e.g., Technology, Healthcare" disabled={isSubmitting}/>
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="newOfficeLogo" className="flex items-center"><ImageIcon className="mr-2 h-4 w-4 text-muted-foreground"/>Office Logo</Label>
+                <Label htmlFor="newOfficeLogo" className="flex items-center"><ImageIconLucide className="mr-2 h-4 w-4 text-muted-foreground"/>Office Logo</Label>
                 <Input id="newOfficeLogo" type="file" accept="image/*" onChange={handleLogoFileChange} className="file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-primary file:text-primary-foreground hover:file:bg-primary/90" disabled={isSubmitting}/>
                 {logoPreview && (
                   <div className="mt-2">
@@ -712,7 +754,7 @@ export default function OfficeDesignerPage() {
                     <div className="flex justify-between items-center mb-4">
                         <h2 className="text-2xl font-headline font-semibold">Office Rooms ({activeOfficeRooms.length})</h2>
                         {currentUserIsOwner && (
-                        <Button onClick={() => setIsAddRoomDialogOpen(true)} disabled={isSubmitting} variant="outline" size="sm">
+                        <Button onClick={() => {resetAddRoomForm(); setIsAddRoomDialogOpen(true);}} disabled={isSubmitting} variant="outline" size="sm">
                             <PlusCircle className="mr-2 h-4 w-4" /> Add Room
                         </Button>
                         )}
@@ -750,11 +792,11 @@ export default function OfficeDesignerPage() {
                                 <CardContent className="flex-grow">
                                 <div className="aspect-video bg-muted rounded-md overflow-hidden relative">
                                     <Image
-                                    src={`https://placehold.co/400x225.png`}
+                                    src={room.coverImageUrl || `https://placehold.co/400x225.png?text=${encodeURIComponent(room.name.substring(0,10))}`}
                                     alt={room.name}
                                     layout="fill"
                                     objectFit="cover"
-                                    data-ai-hint={roomTypeDetails[room.type]?.imageHint || "office room interior"}
+                                    data-ai-hint={room.coverImageUrl ? roomTypeDetails[room.type]?.imageHint || "office room interior" : "default room image"}
                                     />
                                 </div>
                                 </CardContent>
@@ -791,7 +833,7 @@ export default function OfficeDesignerPage() {
                         ) : (
                             activeOfficeMembers.map((member) => {
                             const RoleIcon = roleIcons[member.role] || UserIconLucide;
-                            const canManageMember = currentUserIsOwner; // Owner can manage all members
+                            const canManageMember = currentUserIsOwner; 
                             return (
                             <div key={member.userId} className="flex items-center space-x-3 p-2.5 rounded-md hover:bg-muted/50 transition-colors">
                                 <Avatar className="h-10 w-10">
@@ -838,13 +880,13 @@ export default function OfficeDesignerPage() {
         </>
       )}
 
-      <Dialog open={isAddRoomDialogOpen} onOpenChange={(isOpen) => { if (!isSubmitting) setIsAddRoomDialogOpen(isOpen); if(!isOpen) { setNewRoomName(""); setSelectedRoomType(undefined);}}}>
+      <Dialog open={isAddRoomDialogOpen} onOpenChange={(isOpen) => { if (!isSubmitting) setIsAddRoomDialogOpen(isOpen); if(!isOpen) resetAddRoomForm();}}>
         <DialogContent className="sm:max-w-[425px]">
           <DialogHeader>
             <DialogTitle className="font-headline">Add New Room</DialogTitle>
             <DialogDescription>Select a room type and give it a name.</DialogDescription>
           </DialogHeader>
-          <div className="space-y-4 py-4">
+          <div className="space-y-4 py-4 max-h-[70vh] overflow-y-auto pr-2">
             <div className="space-y-1.5">
               <Label htmlFor="roomType" className="flex items-center"><Layers className="mr-2 h-4 w-4 text-muted-foreground"/>Type</Label>
               <Select onValueChange={(value) => setSelectedRoomType(value as RoomType)} value={selectedRoomType} disabled={isSubmitting}>
@@ -867,6 +909,15 @@ export default function OfficeDesignerPage() {
                 placeholder={selectedRoomType ? roomTypeDetails[selectedRoomType].defaultName : "Room Name"}
                 disabled={isSubmitting}
               />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="newRoomCoverImage" className="flex items-center"><ImageIconLucide className="mr-2 h-4 w-4 text-muted-foreground"/>Room Cover Image (Optional)</Label>
+              <Input id="newRoomCoverImage" type="file" accept="image/*" onChange={handleRoomCoverImageFileChange} className="file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-primary file:text-primary-foreground hover:file:bg-primary/90" disabled={isSubmitting}/>
+              {newRoomCoverImagePreview && (
+                <div className="mt-2 aspect-video w-full relative">
+                  <Image src={newRoomCoverImagePreview} alt="Room cover preview" layout="fill" className="rounded-md object-cover" data-ai-hint="room image interior"/>
+                </div>
+              )}
             </div>
           </div>
           <DialogFooter>
@@ -951,3 +1002,4 @@ export default function OfficeDesignerPage() {
     </div>
   );
 }
+

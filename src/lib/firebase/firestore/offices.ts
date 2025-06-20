@@ -64,6 +64,7 @@ const roomConverter: FirestoreDataConverter<Room, RoomFirestoreData> = {
     delete data.officeId;
     if (!roomInput.id) data.createdAt = serverTimestamp();
     data.updatedAt = serverTimestamp();
+    if (roomInput.coverImageUrl === undefined) delete data.coverImageUrl;
     return data;
   },
   fromFirestore: (snapshot, options): Room => {
@@ -74,6 +75,7 @@ const roomConverter: FirestoreDataConverter<Room, RoomFirestoreData> = {
       name: data.name,
       type: data.type as RoomType,
       iconName: data.iconName,
+      coverImageUrl: data.coverImageUrl,
       createdAt: data.createdAt instanceof Timestamp ? data.createdAt.toDate() : new Date(),
       updatedAt: data.updatedAt instanceof Timestamp ? data.updatedAt.toDate() : new Date(),
     };
@@ -519,7 +521,7 @@ export async function addRoomToOffice(
   addActivityLog(officeId, {
     type: "room-new",
     title: `New Room: ${newRoom.name}`,
-    description: `Type: ${newRoom.type}, created by ${actorName}`,
+    description: `Type: ${newRoom.type}, created by ${actorName}${newRoom.coverImageUrl ? '. Cover image added.' : ''}`,
     iconName: roomData.iconName,
     actorId: actorId,
     actorName: actorName,
@@ -568,7 +570,7 @@ export async function deleteRoomFromOffice(
   await deleteDoc(roomDocRef(officeId, roomId));
 
   addActivityLog(officeId, {
-    type: "room-new", 
+    type: "room-new", // TODO: Consider a "room-deleted" type
     title: `Room Deleted: ${roomName}`,
     description: `Deleted by ${actorName}`,
     iconName: "Trash2", 
@@ -599,7 +601,7 @@ export function onMembersUpdate(
 export async function updateMemberDetailsInOffice(
   officeId: string,
   memberUserId: string,
-  details: { role?: MemberRole; workRole?: string | null },
+  details: { role?: MemberRole; workRole?: string | null }, // workRole can be null to remove it
   actorId: string,
   actorName: string
 ): Promise<void> {
@@ -614,7 +616,7 @@ export async function updateMemberDetailsInOffice(
   let changesDescription: string[] = [];
 
   if (details.hasOwnProperty('role') && details.role !== oldDetails?.role) {
-    const officeData = await getOfficeDetails(officeId); // Fetch office details to check owner
+    const officeData = await getOfficeDetails(officeId);
     if (officeData && officeData.ownerId === memberUserId && details.role !== "Owner") {
       throw new Error("The office owner's system role cannot be changed from Owner.");
     }
@@ -622,15 +624,16 @@ export async function updateMemberDetailsInOffice(
     changesDescription.push(`system role to ${details.role}`);
   }
 
+  // Handle workRole update, including removal if passed as null or empty string
   if (details.hasOwnProperty('workRole')) {
-    if (details.workRole === null || details.workRole.trim() === "") {
-      if (oldDetails?.workRole) { // Only update if there was a workRole before
-        updatePayload.workRole = deleteField() as unknown as string; // Type assertion for deleteField
-        changesDescription.push(`work role removed (was "${oldDetails.workRole}")`);
+    const newWorkRole = details.workRole === null || details.workRole.trim() === "" ? null : details.workRole.trim();
+    if (newWorkRole !== (oldDetails?.workRole || null)) { // Compare with null if oldDetails.workRole is undefined
+      updatePayload.workRole = newWorkRole === null ? deleteField() as unknown as string : newWorkRole;
+      if (newWorkRole === null) {
+        changesDescription.push(`work role removed (was "${oldDetails?.workRole || 'N/A'}")`);
+      } else {
+        changesDescription.push(`work role to "${newWorkRole}"`);
       }
-    } else if (details.workRole.trim() !== oldDetails?.workRole) {
-      updatePayload.workRole = details.workRole.trim();
-      changesDescription.push(`work role to "${details.workRole.trim()}"`);
     }
   }
   
@@ -641,6 +644,7 @@ export async function updateMemberDetailsInOffice(
 
   await updateDoc(memberToUpdateRef, updatePayload);
 
+  // If system role was changed, update the denormalized role in user's memberOfOffices
   if (updatePayload.role && oldDetails?.role !== updatePayload.role) {
     const userOfficeMemberRef = doc(userOfficesCol(memberUserId), officeId);
     const userOfficeMemberSnap = await getDoc(userOfficeMemberRef);
@@ -651,7 +655,7 @@ export async function updateMemberDetailsInOffice(
 
   if (changesDescription.length > 0) {
     addActivityLog(officeId, {
-        type: "member-role-updated", // Consider a more generic "member-details-updated" if more fields become editable
+        type: "member-role-updated", 
         title: `Details Updated: ${memberName}`,
         description: `${actorName} updated ${memberName}'s ${changesDescription.join(' and ')}.`,
         iconName: "Settings2",
@@ -681,11 +685,10 @@ export async function removeMemberFromOffice(
     const batch = writeBatch(db);
     batch.delete(memberDocRef(officeId, memberUserId));
 
-    const userOfficeQuery = query(userOfficesCol(memberUserId), where("officeId", "==", officeId));
-    const userOfficeSnap = await getDocs(userOfficeQuery);
-    if (!userOfficeSnap.empty) {
-        batch.delete(userOfficeSnap.docs[0].ref);
-    }
+    // Also remove the office reference from the user's "memberOfOffices" subcollection
+    const userOfficeMemberRef = doc(userOfficesCol(memberUserId), officeId);
+    batch.delete(userOfficeMemberRef);
+    
     await batch.commit();
 
     addActivityLog(officeId, {

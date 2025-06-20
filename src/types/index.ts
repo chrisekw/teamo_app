@@ -130,12 +130,14 @@ export interface Room {
   name: string;
   type: RoomType;
   iconName: string; // Store the Lucide icon name as a string
+  coverImageUrl?: string; // Added for room cover image
   officeId: string;
   createdAt?: Date;
   updatedAt?: Date;
 }
 
 export type RoomFirestoreData = Omit<Room, 'id' | 'officeId' | 'createdAt' | 'updatedAt'> & {
+  coverImageUrl?: string; // Added for room cover image
   createdAt?: Timestamp;
   updatedAt?: Timestamp;
 };
