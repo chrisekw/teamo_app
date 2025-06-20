@@ -62,44 +62,36 @@ export default function TasksPage() {
   const [newDescription, setNewDescription] = useState("");
   const [newPriority, setNewPriority] = useState<Task["priority"]>("Medium");
   const [newDueDate, setNewDueDate] = useState<Date | undefined>();
-  const [newAssignedTo, setNewAssignedTo] = useState<string[]>([]); // Changed to string array
+  const [newAssigneeIds, setNewAssigneeIds] = useState<string[]>([]); 
   
   const [isSubmittingTask, setIsSubmittingTask] = useState(false);
 
-  const fetchUserOffices = useCallback(async () => {
+  const fetchUserOfficesAndMembers = useCallback(async () => {
     if (user) {
       const offices = await getOfficesForUser(user.uid);
       setUserOffices(offices);
-    }
-  }, [user]);
-
-  useEffect(() => {
-    if (!authLoading && user) {
-      fetchUserOffices();
-    }
-  }, [authLoading, user, fetchUserOffices]);
-
-  useEffect(() => {
-    const fetchMembers = async () => {
-      if (userOffices.length > 0 && user) {
+      if (offices.length > 0) {
         setIsLoadingOfficeMembers(true);
         try {
-          const members = await getMembersForOffice(userOffices[0].id); // Assuming first office is primary
-          setCurrentOfficeMembers(members.filter(m => m.userId !== user.uid)); // Exclude current user
+          const members = await getMembersForOffice(offices[0].id); // Assuming first office
+          setCurrentOfficeMembers(members); // No longer filtering out current user here
         } catch (error) {
           console.error("Failed to fetch office members:", error);
-          toast({ variant: "destructive", title: "Error", description: "Could not load office members for selection." });
+          toast({ variant: "destructive", title: "Error", description: "Could not load office members."});
         } finally {
           setIsLoadingOfficeMembers(false);
         }
       } else {
         setCurrentOfficeMembers([]);
       }
-    };
-    if (user && userOffices.length > 0) {
-      fetchMembers();
     }
-  }, [user, userOffices, toast]);
+  }, [user, toast]);
+
+  useEffect(() => {
+    if (!authLoading && user) {
+      fetchUserOfficesAndMembers();
+    }
+  }, [authLoading, user, fetchUserOfficesAndMembers]);
 
 
   const fetchTasks = useCallback(async () => {
@@ -129,7 +121,7 @@ export default function TasksPage() {
     setNewDescription("");
     setNewPriority("Medium");
     setNewDueDate(undefined);
-    setNewAssignedTo([]); // Reset to empty array
+    setNewAssigneeIds([]); 
   };
 
   const handleCreateTask = async () => {
@@ -143,9 +135,16 @@ export default function TasksPage() {
     }
 
     setIsSubmittingTask(true);
+
+    const selectedAssigneeNames = newAssigneeIds
+        .map(id => currentOfficeMembers.find(m => m.userId === id)?.name)
+        .filter(Boolean) as string[];
+    const assigneesDisplay = selectedAssigneeNames.join(', ') || "Unassigned";
+
     const taskData: Omit<Task, 'id' | 'createdAt' | 'updatedAt' | 'userId'> = {
       name: newTaskName,
-      assignedTo: newAssignedTo.length > 0 ? newAssignedTo.join(', ') : "Unassigned",
+      assigneeIds: newAssigneeIds,
+      assigneesDisplay: assigneesDisplay,
       dueDate: newDueDate, 
       status: "To Do", 
       priority: newPriority,
@@ -182,6 +181,16 @@ export default function TasksPage() {
     }
     return (a.dueDate?.getTime() || Infinity) - (b.dueDate?.getTime() || Infinity) ; 
   });
+
+  const getSelectedAssigneeNamesForDialog = () => {
+    if (newAssigneeIds.length === 0) return "Select Assignee(s)";
+    const names = newAssigneeIds
+        .map(id => currentOfficeMembers.find(member => member.userId === id)?.name)
+        .filter(Boolean) as string[];
+    if (names.length > 2) return `${names.slice(0,2).join(', ')} +${names.length - 2} more`;
+    return names.join(', ') || "Select Assignee(s)";
+  };
+
 
   if (authLoading || isLoadingTasks) {
     return <div className="container mx-auto p-8 text-center"><Loader2 className="h-12 w-12 animate-spin text-primary" /></div>;
@@ -222,7 +231,7 @@ export default function TasksPage() {
                   <CardDescription>Due: {task.dueDate ? format(task.dueDate, "PPP") : "No due date"}</CardDescription>
                 </CardHeader>
                 <CardContent className="flex-grow space-y-3">
-                  <div className="text-sm text-muted-foreground">Assigned to: {task.assignedTo}</div>
+                  <div className="text-sm text-muted-foreground">Assigned to: {task.assigneesDisplay || "Unassigned"}</div>
                   <div className="flex items-center justify-between">
                       <Badge className={cn(statusColors[task.status], "text-white")}>{task.status}</Badge>
                       <Badge variant={task.priority === "High" ? "destructive" : task.priority === "Medium" ? "secondary" : "outline"}>
@@ -310,16 +319,12 @@ export default function TasksPage() {
             </div>
 
             <div className="space-y-1.5">
-                <Label htmlFor="newAssignedTo" className="flex items-center text-sm font-medium text-muted-foreground"><UsersIcon className="mr-2 h-4 w-4 text-muted-foreground"/>Assignee(s)</Label>
+                <Label htmlFor="newAssigneeIds" className="flex items-center text-sm font-medium text-muted-foreground"><UsersIcon className="mr-2 h-4 w-4 text-muted-foreground"/>Assignee(s)</Label>
                 <DropdownMenu>
                     <DropdownMenuTrigger asChild>
-                    <Button variant="outline" className="w-full justify-start text-left font-normal h-auto min-h-10 py-2" disabled={isSubmittingTask || isLoadingOfficeMembers}>
+                    <Button variant="outline" id="newAssigneeIds" className="w-full justify-start text-left font-normal h-auto min-h-10 py-2" disabled={isSubmittingTask || isLoadingOfficeMembers}>
                         {isLoadingOfficeMembers ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                        {newAssignedTo.length === 0 && !isLoadingOfficeMembers
-                        ? "Select Assignee(s)"
-                        : newAssignedTo.length > 2 
-                            ? `${newAssignedTo.slice(0,2).join(', ')} +${newAssignedTo.length - 2} more`
-                            : newAssignedTo.join(', ')}
+                        {getSelectedAssigneeNamesForDialog()}
                         
                     </Button>
                     </DropdownMenuTrigger>
@@ -328,12 +333,12 @@ export default function TasksPage() {
                     <DropdownMenuSeparator />
                     {currentOfficeMembers.length > 0 && (
                         <DropdownMenuCheckboxItem
-                        checked={newAssignedTo.length === currentOfficeMembers.length && currentOfficeMembers.length > 0}
+                        checked={newAssigneeIds.length === currentOfficeMembers.length && currentOfficeMembers.length > 0}
                         onCheckedChange={(checked) => {
                             if (checked) {
-                            setNewAssignedTo(currentOfficeMembers.map(m => m.name));
+                            setNewAssigneeIds(currentOfficeMembers.map(m => m.userId));
                             } else {
-                            setNewAssignedTo([]);
+                            setNewAssigneeIds([]);
                             }
                         }}
                         disabled={isLoadingOfficeMembers}
@@ -345,18 +350,18 @@ export default function TasksPage() {
                     {isLoadingOfficeMembers ? (
                         <div className="flex justify-center p-2"><Loader2 className="h-5 w-5 animate-spin" /></div>
                     ) : currentOfficeMembers.length === 0 ? (
-                        <div className="p-2 text-sm text-muted-foreground text-center">No other members in your primary office to assign.</div>
+                        <div className="p-2 text-sm text-muted-foreground text-center">No members in your primary office to assign.</div>
                     ) : (
                         <div className="max-h-48 overflow-y-auto">
                         {currentOfficeMembers.map((member) => (
                         <DropdownMenuCheckboxItem
                             key={member.userId}
-                            checked={newAssignedTo.includes(member.name)}
+                            checked={newAssigneeIds.includes(member.userId)}
                             onCheckedChange={(checked) => {
-                            setNewAssignedTo((prev) =>
+                            setNewAssigneeIds((prev) =>
                                 checked
-                                ? [...prev, member.name]
-                                : prev.filter((name) => name !== member.name)
+                                ? [...prev, member.userId]
+                                : prev.filter((id) => id !== member.userId)
                             );
                             }}
                         >

@@ -14,16 +14,26 @@ import { Textarea } from "@/components/ui/textarea";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
-import { Calendar as CalendarIcon, ArrowLeft, Save, Trash2, ListChecks, Loader2, Edit, Info, User, Clock, BarChart, AlertTriangle, Star, Briefcase } from "lucide-react";
-import type { Task } from "@/types";
+import { Calendar as CalendarIcon, ArrowLeft, Save, Trash2, ListChecks, Loader2, Edit, Info, User, Clock, BarChart, AlertTriangle, Star, Briefcase, Users as UsersIcon } from "lucide-react";
+import type { Task, OfficeMember } from "@/types";
 import { getTaskByIdForUser, updateTaskForUser, deleteTaskForUser, statusColors } from "@/lib/firebase/firestore/tasks";
 import { useAuth } from "@/lib/firebase/auth";
 import { useToast } from "@/hooks/use-toast";
 import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
-import { getOfficesForUser, type Office } from "@/lib/firebase/firestore/offices";
+import { getOfficesForUser, getMembersForOffice, type Office } from "@/lib/firebase/firestore/offices";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+
 
 const DynamicCalendar = dynamic(() => import('@/components/ui/calendar').then(mod => mod.Calendar), {
   ssr: false,
@@ -42,10 +52,13 @@ export default function TaskDetailPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [userOffices, setUserOffices] = useState<Office[]>([]);
+  const [currentOfficeMembers, setCurrentOfficeMembers] = useState<OfficeMember[]>([]);
+  const [isLoadingOfficeMembers, setIsLoadingOfficeMembers] = useState(false);
+
 
   // Form states
   const [taskName, setTaskName] = useState("");
-  const [assignedTo, setAssignedTo] = useState("");
+  const [assigneeIds, setAssigneeIds] = useState<string[]>([]);
   const [dueDate, setDueDate] = useState<Date | undefined>();
   const [status, setStatus] = useState<Task["status"]>("To Do");
   const [priority, setPriority] = useState<Task["priority"]>("Medium");
@@ -57,6 +70,19 @@ export default function TaskDetailPage() {
     if (user) {
       const offices = await getOfficesForUser(user.uid);
       setUserOffices(offices);
+      if (offices.length > 0) {
+        setIsLoadingOfficeMembers(true);
+        try {
+          const members = await getMembersForOffice(offices[0].id);
+          setCurrentOfficeMembers(members); 
+        } catch (error) {
+          console.error("Failed to fetch office members:", error);
+        } finally {
+          setIsLoadingOfficeMembers(false);
+        }
+      } else {
+        setCurrentOfficeMembers([]);
+      }
     }
   }, [user]);
 
@@ -74,14 +100,14 @@ export default function TaskDetailPage() {
         if (taskData) {
           setCurrentTask(taskData);
           setTaskName(taskData.name);
-          setAssignedTo(taskData.assignedTo);
+          setAssigneeIds(taskData.assigneeIds || []);
           setDueDate(taskData.dueDate);
           setStatus(taskData.status);
           setPriority(taskData.priority);
           setDescription(taskData.description || "");
           setProgress(taskData.progress);
         } else {
-           toast({ variant: "destructive", title: "Not Found", description: "Task not found or you don't have access." });
+           // Removed toast from here, page will show "Task Not Found" message
            router.push("/tasks"); 
         }
       } catch (error) {
@@ -104,9 +130,17 @@ export default function TaskDetailPage() {
     if (!currentTask || !user) return;
 
     setIsSubmitting(true);
+
+    const selectedAssigneeNames = assigneeIds
+      .map(id => currentOfficeMembers.find(m => m.userId === id)?.name)
+      .filter(Boolean) as string[];
+    const assigneesDisplay = selectedAssigneeNames.join(', ') || "Unassigned";
+
+
     const updatedTaskData: Partial<Omit<Task, 'id' | 'createdAt' | 'updatedAt' | 'userId'>> = {
       name: taskName,
-      assignedTo,
+      assigneeIds: assigneeIds,
+      assigneesDisplay: assigneesDisplay,
       dueDate: dueDate, 
       status,
       priority,
@@ -144,6 +178,16 @@ export default function TaskDetailPage() {
     }
     setIsDeleteDialogOpen(false);
   };
+  
+  const getSelectedAssigneeNames = () => {
+    if (assigneeIds.length === 0) return "Select Assignee(s)";
+    const names = assigneeIds
+      .map(id => currentOfficeMembers.find(member => member.userId === id)?.name)
+      .filter(Boolean) as string[];
+    if (names.length > 2) return `${names.slice(0,2).join(', ')} +${names.length - 2} more`;
+    return names.join(', ') || "Select Assignee(s)";
+  };
+
 
   if (authLoading || isLoading) { 
     return <div className="container mx-auto p-8 text-center"><Loader2 className="h-12 w-12 animate-spin text-primary"/></div>;
@@ -193,8 +237,64 @@ export default function TaskDetailPage() {
             
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div className="space-y-1.5">
-                <Label htmlFor="assignedTo" className="flex items-center text-sm font-medium text-muted-foreground"><User className="mr-2 h-4 w-4 text-muted-foreground"/>Assigned To</Label>
-                <Input id="assignedTo" value={assignedTo} onChange={(e) => setAssignedTo(e.target.value)} disabled={isSubmitting}/>
+                 <Label htmlFor="assigneeIds" className="flex items-center text-sm font-medium text-muted-foreground"><UsersIcon className="mr-2 h-4 w-4 text-muted-foreground"/>Assignee(s)</Label>
+                 <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                    <Button variant="outline" id="assigneeIds" className="w-full justify-start text-left font-normal h-auto min-h-10 py-2" disabled={isSubmitting || isLoadingOfficeMembers}>
+                        {isLoadingOfficeMembers ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                        {getSelectedAssigneeNames()}
+                    </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent className="w-[calc(var(--radix-popover-trigger-width))]">
+                    <DropdownMenuLabel>Select Team Members</DropdownMenuLabel>
+                    <DropdownMenuSeparator />
+                    {currentOfficeMembers.length > 0 && (
+                        <DropdownMenuCheckboxItem
+                        checked={assigneeIds.length === currentOfficeMembers.length && currentOfficeMembers.length > 0}
+                        onCheckedChange={(checked) => {
+                            if (checked) {
+                            setAssigneeIds(currentOfficeMembers.map(m => m.userId));
+                            } else {
+                            setAssigneeIds([]);
+                            }
+                        }}
+                        disabled={isLoadingOfficeMembers}
+                        >
+                        Select All ({currentOfficeMembers.length})
+                        </DropdownMenuCheckboxItem>
+                    )}
+                    <DropdownMenuSeparator />
+                    {isLoadingOfficeMembers ? (
+                        <div className="flex justify-center p-2"><Loader2 className="h-5 w-5 animate-spin" /></div>
+                    ) : currentOfficeMembers.length === 0 ? (
+                        <div className="p-2 text-sm text-muted-foreground text-center">No other members in your primary office.</div>
+                    ) : (
+                        <div className="max-h-48 overflow-y-auto">
+                        {currentOfficeMembers.map((member) => (
+                        <DropdownMenuCheckboxItem
+                            key={member.userId}
+                            checked={assigneeIds.includes(member.userId)}
+                            onCheckedChange={(checked) => {
+                            setAssigneeIds((prev) =>
+                                checked
+                                ? [...prev, member.userId]
+                                : prev.filter((id) => id !== member.userId)
+                            );
+                            }}
+                        >
+                            <div className="flex items-center">
+                            <Avatar className="h-6 w-6 mr-2">
+                                <AvatarImage src={member.avatarUrl || `https://placehold.co/40x40.png?text=${member.name.substring(0,1)}`} alt={member.name} data-ai-hint="person avatar"/>
+                                <AvatarFallback>{member.name.substring(0,1)}</AvatarFallback>
+                            </Avatar>
+                            {member.name}
+                            </div>
+                        </DropdownMenuCheckboxItem>
+                        ))}
+                        </div>
+                    )}
+                    </DropdownMenuContent>
+                </DropdownMenu>
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="dueDate" className="flex items-center text-sm font-medium text-muted-foreground"><Clock className="mr-2 h-4 w-4 text-muted-foreground"/>Due Date</Label>
@@ -211,7 +311,7 @@ export default function TaskDetailPage() {
                     </Button>
                   </PopoverTrigger>
                   <PopoverContent className="w-auto p-0">
-                    <DynamicCalendar mode="single" selected={dueDate} onSelect={setDueDate} initialFocus />
+                    <DynamicCalendar mode="single" selected={dueDate} onSelect={setDueDate} initialFocus disabled={isSubmitting}/>
                   </PopoverContent>
                 </Popover>
               </div>

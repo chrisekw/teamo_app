@@ -17,7 +17,7 @@ import {
 } from 'firebase/firestore';
 import type { Goal, GoalFirestoreData } from '@/types';
 import { addActivityLog } from './activity';
-import { getMembersForOffice } from './offices'; // Assuming this function exists and works
+import { getMembersForOffice } from './offices'; 
 import { addUserNotification } from './notifications';
 
 const goalConverter: FirestoreDataConverter<Goal, GoalFirestoreData> = {
@@ -29,10 +29,20 @@ const goalConverter: FirestoreDataConverter<Goal, GoalFirestoreData> = {
     if (goalInput.deadline && goalInput.deadline instanceof Date) {
       data.deadline = Timestamp.fromDate(goalInput.deadline);
     }
-    if (goalInput.participants && Array.isArray(goalInput.participants)) {
-      data.participants = goalInput.participants;
-    } else if (goalInput.hasOwnProperty('participants') && goalInput.participants === undefined) {
-      delete data.participants;
+    if (goalInput.hasOwnProperty('deadline') && goalInput.deadline === undefined) {
+      delete data.deadline;
+    }
+    
+    if (goalInput.participantIds && Array.isArray(goalInput.participantIds)) {
+      data.participantIds = goalInput.participantIds;
+    } else {
+      delete data.participantIds;
+    }
+
+    if (typeof goalInput.participantsDisplay === 'string') {
+        data.participantsDisplay = goalInput.participantsDisplay;
+    } else {
+        delete data.participantsDisplay;
     }
     
     if (!goalInput.id) { 
@@ -52,10 +62,11 @@ const goalConverter: FirestoreDataConverter<Goal, GoalFirestoreData> = {
       currentValue: data.currentValue,
       unit: data.unit,
       deadline: data.deadline instanceof Timestamp ? data.deadline.toDate() : undefined,
-      participants: data.participants || [],
+      participantIds: data.participantIds || [],
+      participantsDisplay: data.participantsDisplay || "No participants",
       createdAt: data.createdAt instanceof Timestamp ? data.createdAt.toDate() : new Date(),
       updatedAt: data.updatedAt instanceof Timestamp ? data.updatedAt.toDate() : new Date(),
-      userId: snapshot.ref.parent.parent!.id, // Assuming goals are under /users/{userId}/goals
+      userId: snapshot.ref.parent.parent!.id, 
     };
   }
 };
@@ -85,7 +96,7 @@ export async function addGoalForUser(
 ): Promise<Goal> {
   if (!actorUserId) throw new Error("Actor User ID is required to add a goal.");
   const goalsCol = getGoalsCollection(actorUserId);
-  const docRef = await addDoc(goalsCol, { ...goalData, userId: actorUserId } as Goal); // Add userId for context
+  const docRef = await addDoc(goalsCol, { ...goalData, userId: actorUserId } as Goal); 
   
   const newDocSnap = await getDoc(docRef);
   if (!newDocSnap.exists()) {
@@ -97,7 +108,7 @@ export async function addGoalForUser(
     addActivityLog(officeId, {
       type: "goal-new",
       title: `New Goal Set: ${newGoal.name}`,
-      description: `Target: ${newGoal.targetValue} ${newGoal.unit}. Set by ${actorName}.`,
+      description: `Target: ${newGoal.targetValue} ${newGoal.unit}. Set by ${actorName}. Participants: ${newGoal.participantsDisplay || 'None'}`,
       iconName: "Target",
       actorId: actorUserId,
       actorName,
@@ -105,24 +116,25 @@ export async function addGoalForUser(
       entityType: "goal",
     });
 
-    try {
-      const members = await getMembersForOffice(officeId);
-      for (const member of members) {
-        if (member.userId !== actorUserId) { 
-          await addUserNotification(member.userId, {
-            type: "goal-new",
-            title: `New Goal in ${officeName || 'Office'}: ${newGoal.name}`,
-            message: `${actorName} set a new goal: "${newGoal.name}". Target: ${newGoal.targetValue} ${newGoal.unit}. ${newGoal.participants && newGoal.participants.length > 0 ? 'Participants: ' + newGoal.participants.join(', ') : ''}`,
-            link: `/goals`, // Link to general goals page or specific goal if applicable
-            officeId: officeId,
-            actorName: actorName,
-            entityId: newGoal.id,
-            entityType: "goal"
-          });
+    if (newGoal.participantIds && newGoal.participantIds.length > 0) {
+        for (const participantId of newGoal.participantIds) {
+            if (participantId !== actorUserId) {
+                try {
+                    await addUserNotification(participantId, {
+                        type: "goal-new",
+                        title: `New Goal in ${officeName || 'Office'}: ${newGoal.name}`,
+                        message: `${actorName} set a new goal: "${newGoal.name}". You are a participant.`,
+                        link: `/goals`, 
+                        officeId: officeId,
+                        actorName: actorName,
+                        entityId: newGoal.id,
+                        entityType: "goal"
+                    });
+                } catch (error) {
+                    console.error(`Failed to send goal creation notification to participant ${participantId}:`, error);
+                }
+            }
         }
-      }
-    } catch (error) {
-      console.error("Failed to send goal creation notifications for office members:", error);
     }
   }
   return newGoal;
@@ -147,11 +159,6 @@ export async function updateGoalForUser(
   } else if (goalData.hasOwnProperty('deadline') && goalData.deadline === undefined) {
     // Handled by converter or could use deleteField()
   }
-  if (goalData.participants && Array.isArray(goalData.participants)) {
-    updatePayload.participants = goalData.participants;
-  } else if (goalData.hasOwnProperty('participants') && goalData.participants === undefined) {
-    delete updatePayload.participants;
-  }
   
   await updateDoc(goalDocRef, updatePayload);
 
@@ -171,6 +178,8 @@ export async function updateGoalForUser(
         activityTitle = `Goal Achieved: ${originalGoal.name}`;
         iconName = "CheckSquare";
       }
+    } else if (goalData.participantsDisplay && goalData.participantsDisplay !== originalGoal.participantsDisplay) {
+        activityDescription = `Participants for goal "${originalGoal.name}" updated to: ${goalData.participantsDisplay || 'None'}. By ${actorName}.`;
     }
     
     addActivityLog(officeId, {
@@ -184,25 +193,27 @@ export async function updateGoalForUser(
       entityType: "goal",
     });
 
-    // Notify office members about the update
-    try {
-      const members = await getMembersForOffice(officeId);
-      for (const member of members) {
-        if (member.userId !== userId) { // Don't notify the actor
-          await addUserNotification(member.userId, {
-            type: "goal-updated",
-            title: `Goal Update in ${officeName || 'Office'}: ${originalGoal.name}`,
-            message: activityDescription,
-            link: `/goals`,
-            officeId: officeId,
-            actorName: actorName,
-            entityId: goalId,
-            entityType: "goal"
-          });
+    const involvedUserIds = new Set<string>();
+    if (originalGoal.participantIds) originalGoal.participantIds.forEach(id => involvedUserIds.add(id));
+    if (goalData.participantIds) goalData.participantIds.forEach(id => involvedUserIds.add(id));
+
+    for (const notifiedUserId of involvedUserIds) {
+      if (notifiedUserId !== userId) { 
+        try {
+            await addUserNotification(notifiedUserId, {
+                type: "goal-updated",
+                title: `Goal Update in ${officeName || 'Office'}: ${originalGoal.name}`,
+                message: activityDescription,
+                link: `/goals`,
+                officeId: officeId,
+                actorName: actorName,
+                entityId: goalId,
+                entityType: "goal"
+            });
+        } catch (error) {
+            console.error(`Failed to send goal update notification to ${notifiedUserId}:`, error);
         }
       }
-    } catch (error) {
-      console.error("Failed to send goal update notifications:", error);
     }
   }
 }
@@ -211,7 +222,6 @@ export async function deleteGoalForUser(userId: string, goalId: string): Promise
   if (!userId || !goalId) throw new Error("User ID and Goal ID are required for delete.");
   const goalDocRef = getGoalDoc(userId, goalId);
   await deleteDoc(goalDocRef);
-  // Consider adding an activity log for deletion if officeId is available
 }
 
     

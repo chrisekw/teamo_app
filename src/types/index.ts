@@ -40,7 +40,8 @@ export type UserProfileFirestoreData = Omit<UserProfile, 'id' | 'birthday' | 'cr
 export interface Task {
   id: string;
   name: string;
-  assignedTo: string; // Can be a user name, email, or comma-separated list for now
+  assigneeIds?: string[];
+  assigneesDisplay?: string; // Comma-separated names for display
   dueDate?: Date;
   status: "To Do" | "In Progress" | "Done" | "Blocked";
   priority: "Low" | "Medium" | "High";
@@ -67,7 +68,8 @@ export interface Goal {
   currentValue: number;
   unit: string;
   deadline?: Date;
-  participants?: string[]; // Names or IDs of involved users/groups
+  participantIds?: string[];
+  participantsDisplay?: string; // Comma-separated names for display
   createdAt?: Date;
   updatedAt?: Date;
   userId?: string; // The user who "owns" or created this goal
@@ -75,7 +77,6 @@ export interface Goal {
 
 export type GoalFirestoreData = Omit<Goal, 'id' | 'deadline' | 'createdAt' | 'updatedAt' | 'userId'> & {
   deadline?: Timestamp;
-  participants?: string[];
   createdAt?: Timestamp;
   updatedAt?: Timestamp;
 };
@@ -87,7 +88,8 @@ export interface Meeting {
   dateTime: Date; // Start date and time
   endDateTime: Date; // End date and time
   isRecurring?: boolean;
-  participants: string[]; // Names or IDs of invited users/groups
+  participantIds?: string[];
+  participantsDisplay?: string; // Comma-separated names for display
   description?: string;
   createdAt?: Date;
   updatedAt?: Date;

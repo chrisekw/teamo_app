@@ -7,7 +7,7 @@ import { Dialog, DialogTrigger, DialogContent, DialogHeader, DialogTitle, Dialog
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { PlusCircle, Video, Users, Clock, Loader2, Trash2, CalendarDays, Briefcase, Repeat, Edit } from "lucide-react";
+import { PlusCircle, Video, Users as UsersIcon, Clock, Loader2, Trash2, CalendarDays, Briefcase, Repeat, Edit } from "lucide-react";
 import { useState, useEffect, useRef, useCallback } from "react";
 import Image from "next/image";
 import dynamic from 'next/dynamic';
@@ -88,7 +88,7 @@ export default function MeetingsPage() {
   const [newMeetingEndDate, setNewMeetingEndDate] = useState<Date | undefined>(new Date());
   const [newMeetingEndTime, setNewMeetingEndTime] = useState(format(new Date(Date.now() + 60 * 60 * 1000), "HH:mm"));
   const [newMeetingIsRecurring, setNewMeetingIsRecurring] = useState(false);
-  const [newMeetingParticipants, setNewMeetingParticipants] = useState<string[]>([]);
+  const [newMeetingParticipantIds, setNewMeetingParticipantIds] = useState<string[]>([]);
   const [currentOfficeMembers, setCurrentOfficeMembers] = useState<OfficeMember[]>([]);
   const [isLoadingOfficeMembers, setIsLoadingOfficeMembers] = useState(false);
 
@@ -99,27 +99,15 @@ export default function MeetingsPage() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
 
-  const fetchUserOffices = useCallback(async () => {
+  const fetchUserOfficesAndMembers = useCallback(async () => {
     if (user) {
       const offices = await getOfficesForUser(user.uid);
       setUserOffices(offices);
-    }
-  }, [user]);
-
-  useEffect(() => {
-    if (!authLoading && user) {
-      fetchUserOffices();
-    }
-  }, [authLoading, user, fetchUserOffices]);
-
-  useEffect(() => {
-    const fetchOfficeMembers = async () => {
-      if (userOffices.length > 0 && user) {
+      if (offices.length > 0) {
         setIsLoadingOfficeMembers(true);
         try {
-          // Assuming first office is the primary one for member selection
-          const members = await getMembersForOffice(userOffices[0].id); 
-          setCurrentOfficeMembers(members.filter(m => m.userId !== user.uid)); // Exclude current user
+          const members = await getMembersForOffice(offices[0].id); 
+          setCurrentOfficeMembers(members);
         } catch (error) {
           console.error("Failed to fetch office members:", error);
           toast({ variant: "destructive", title: "Error", description: "Could not load office members for selection." });
@@ -129,12 +117,14 @@ export default function MeetingsPage() {
       } else {
         setCurrentOfficeMembers([]);
       }
-    };
-
-    if (user && userOffices.length > 0) {
-      fetchOfficeMembers();
     }
-  }, [user, userOffices, toast]);
+  }, [user, toast]);
+
+  useEffect(() => {
+    if (!authLoading && user) {
+      fetchUserOfficesAndMembers();
+    }
+  }, [authLoading, user, fetchUserOfficesAndMembers]);
 
 
   const fetchMeetings = useCallback(async () => {
@@ -193,8 +183,11 @@ export default function MeetingsPage() {
         const reminderKey = `${reminderSentKeyPrefix}${meeting.id}`;
 
         if (timeDiffMinutes <= 5 && timeDiffMinutes >= -1) {
-          if (!sessionStorage.getItem(reminderKey)) {
-            console.log(`Meeting "${meeting.title}" is due. Sending reminder.`);
+          // Check if current user is a participant or the creator
+          const isParticipantOrCreator = (meeting.participantIds && meeting.participantIds.includes(user.uid)) || meeting.userId === user.uid;
+
+          if (isParticipantOrCreator && !sessionStorage.getItem(reminderKey)) {
+            console.log(`Meeting "${meeting.title}" is due for user ${user.uid}. Sending reminder.`);
             try {
               await addUserNotification(user.uid, {
                 type: "meeting-new",
@@ -216,7 +209,7 @@ export default function MeetingsPage() {
     };
     
     checkAndSendReminders();
-    const intervalId = setInterval(checkAndSendReminders, 30 * 1000); // Check every 30 seconds
+    const intervalId = setInterval(checkAndSendReminders, 30 * 1000); 
     return () => clearInterval(intervalId);
 
   }, [meetings, user, toast, isLoadingMeetings]);
@@ -225,13 +218,12 @@ export default function MeetingsPage() {
   useEffect(() => {
     const getCameraPermission = async () => {
       if (!selectedMeetingForPreview) {
-        // Clean up if no meeting is selected
         if (localStreamRef.current) {
           localStreamRef.current.getTracks().forEach(track => track.stop());
           localStreamRef.current = null;
         }
         if (videoRef.current) videoRef.current.srcObject = null;
-        setHasCameraPermission(undefined); // Reset permission state
+        setHasCameraPermission(undefined); 
         return;
       }
 
@@ -259,14 +251,14 @@ export default function MeetingsPage() {
 
     getCameraPermission();
 
-    return () => { // Cleanup function
+    return () => { 
       if (localStreamRef.current) {
         localStreamRef.current.getTracks().forEach(track => track.stop());
         localStreamRef.current = null;
       }
       if (videoRef.current) videoRef.current.srcObject = null;
     };
-  }, [selectedMeetingForPreview, toast]); // Re-run when selectedMeeting changes
+  }, [selectedMeetingForPreview, toast]); 
 
   const resetScheduleForm = () => {
     setNewMeetingTitle("");
@@ -276,7 +268,7 @@ export default function MeetingsPage() {
     setNewMeetingEndDate(new Date());
     setNewMeetingEndTime(format(new Date(Date.now() + 60 * 60 * 1000), "HH:mm"));
     setNewMeetingIsRecurring(false);
-    setNewMeetingParticipants([]);
+    setNewMeetingParticipantIds([]);
   };
 
   const combineDateTime = (date: Date, time: string): Date => {
@@ -306,12 +298,19 @@ export default function MeetingsPage() {
         return;
     }
 
+    const selectedParticipantNames = newMeetingParticipantIds
+      .map(id => currentOfficeMembers.find(m => m.userId === id)?.name)
+      .filter(Boolean) as string[];
+    const participantsDisplay = selectedParticipantNames.join(', ') || "No specific participants";
+
+
     const meetingData: Omit<Meeting, 'id' | 'createdAt' | 'updatedAt' | 'userId'> = {
       title: newMeetingTitle,
       dateTime: startDateTime,
       endDateTime: endDateTime,
       isRecurring: newMeetingIsRecurring,
-      participants: newMeetingParticipants,
+      participantIds: newMeetingParticipantIds,
+      participantsDisplay: participantsDisplay,
       description: newMeetingDescription || undefined,
     };
     const actorName = user.displayName || user.email || "User";
@@ -340,7 +339,7 @@ export default function MeetingsPage() {
         fetchMeetings();
         if (selectedMeetingForPreview?.id === meetingToDelete.id) {
             setSelectedMeetingForPreview(null);
-            router.replace(pathname, { scroll: false }); // Clear meetingId from URL
+            router.replace(pathname, { scroll: false }); 
         }
     } catch (error) {
         console.error("Failed to delete meeting:", error);
@@ -354,7 +353,7 @@ export default function MeetingsPage() {
 
   const handleLeaveMeeting = () => {
     setSelectedMeetingForPreview(null);
-    router.replace(pathname, { scroll: false }); // Clear meetingId from URL
+    router.replace(pathname, { scroll: false }); 
   };
   
   const calculateDuration = (start: Date, end: Date): string => {
@@ -364,6 +363,15 @@ export default function MeetingsPage() {
     const hours = Math.floor(diffMins / 60);
     const mins = diffMins % 60;
     return `${hours}h ${mins}m`;
+  };
+
+  const getSelectedParticipantNamesForDialog = () => {
+    if (newMeetingParticipantIds.length === 0) return "Select Participants";
+    const names = newMeetingParticipantIds
+        .map(id => currentOfficeMembers.find(member => member.userId === id)?.name)
+        .filter(Boolean) as string[];
+    if (names.length > 2) return `${names.slice(0,2).join(', ')} +${names.length - 2} more`;
+    return names.join(', ') || "Select Participants";
   };
 
   if (authLoading || isLoadingMeetings && meetings.length === 0) {
@@ -434,17 +442,12 @@ export default function MeetingsPage() {
                 </div>
 
                  <div className="space-y-1.5">
-                    <Label htmlFor="participants" className="flex items-center text-sm font-medium text-muted-foreground"><Users className="mr-2 h-4 w-4 text-muted-foreground"/>Participants</Label>
+                    <Label htmlFor="participants" className="flex items-center text-sm font-medium text-muted-foreground"><UsersIcon className="mr-2 h-4 w-4 text-muted-foreground"/>Participants</Label>
                     <DropdownMenu>
                         <DropdownMenuTrigger asChild>
-                        <Button variant="outline" className="w-full justify-start text-left font-normal h-auto min-h-10 py-2" disabled={isSubmitting || isLoadingOfficeMembers}>
+                        <Button variant="outline" id="participants" className="w-full justify-start text-left font-normal h-auto min-h-10 py-2" disabled={isSubmitting || isLoadingOfficeMembers}>
                             {isLoadingOfficeMembers ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                            {newMeetingParticipants.length === 0 && !isLoadingOfficeMembers
-                            ? "Select Participants"
-                            : newMeetingParticipants.length > 2 
-                                ? `${newMeetingParticipants.slice(0,2).join(', ')} +${newMeetingParticipants.length - 2} more`
-                                : newMeetingParticipants.join(', ')}
-                            
+                            {getSelectedParticipantNamesForDialog()}
                         </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent className="w-[calc(var(--radix-dialog-content-width)-2rem)] sm:w-[calc(var(--radix-dialog-content-width)-3rem)] max-w-md">
@@ -452,12 +455,12 @@ export default function MeetingsPage() {
                         <DropdownMenuSeparator />
                         {currentOfficeMembers.length > 0 && (
                             <DropdownMenuCheckboxItem
-                            checked={newMeetingParticipants.length === currentOfficeMembers.length && currentOfficeMembers.length > 0}
+                            checked={newMeetingParticipantIds.length === currentOfficeMembers.length && currentOfficeMembers.length > 0}
                             onCheckedChange={(checked) => {
                                 if (checked) {
-                                setNewMeetingParticipants(currentOfficeMembers.map(m => m.name));
+                                setNewMeetingParticipantIds(currentOfficeMembers.map(m => m.userId));
                                 } else {
-                                setNewMeetingParticipants([]);
+                                setNewMeetingParticipantIds([]);
                                 }
                             }}
                             disabled={isLoadingOfficeMembers}
@@ -469,18 +472,18 @@ export default function MeetingsPage() {
                         {isLoadingOfficeMembers ? (
                             <div className="flex justify-center p-2"><Loader2 className="h-5 w-5 animate-spin" /></div>
                         ) : currentOfficeMembers.length === 0 ? (
-                            <div className="p-2 text-sm text-muted-foreground text-center">No other members in your primary office.</div>
+                            <div className="p-2 text-sm text-muted-foreground text-center">No members in your primary office.</div>
                         ) : (
                             <div className="max-h-48 overflow-y-auto">
                             {currentOfficeMembers.map((member) => (
                             <DropdownMenuCheckboxItem
                                 key={member.userId}
-                                checked={newMeetingParticipants.includes(member.name)}
+                                checked={newMeetingParticipantIds.includes(member.userId)}
                                 onCheckedChange={(checked) => {
-                                setNewMeetingParticipants((prev) =>
+                                setNewMeetingParticipantIds((prev) =>
                                     checked
-                                    ? [...prev, member.name]
-                                    : prev.filter((name) => name !== member.name)
+                                    ? [...prev, member.userId]
+                                    : prev.filter((id) => id !== member.userId)
                                 );
                                 }}
                             >
@@ -576,7 +579,7 @@ export default function MeetingsPage() {
                     </div>
                     <CardDescription className="flex flex-col sm:flex-row sm:items-center sm:space-x-4 text-sm pt-1">
                       <span className="flex items-center mb-1 sm:mb-0"><Clock className="mr-1 h-4 w-4" /> {meeting.dateTime.toLocaleDateString()} at {meeting.dateTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} ({calculateDuration(meeting.dateTime, meeting.endDateTime)})</span>
-                      {meeting.participants.length > 0 && <span className="flex items-center"><Users className="mr-1 h-4 w-4" /> {meeting.participants.join(', ')}</span>}
+                      {meeting.participantsDisplay && <span className="flex items-center"><UsersIcon className="mr-1 h-4 w-4" /> {meeting.participantsDisplay}</span>}
                     </CardDescription>
                   </CardHeader>
                   {meeting.description && (
@@ -618,4 +621,3 @@ export default function MeetingsPage() {
 }
 
     
-

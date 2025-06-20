@@ -40,10 +40,16 @@ const meetingConverter: FirestoreDataConverter<Meeting, MeetingFirestoreData> = 
     
     if (meetingInput.isRecurring === undefined) delete data.isRecurring;
     if (meetingInput.description === undefined) delete data.description;
-    if (meetingInput.participants && Array.isArray(meetingInput.participants)) {
-        data.participants = meetingInput.participants;
+    
+    if (meetingInput.participantIds && Array.isArray(meetingInput.participantIds)) {
+        data.participantIds = meetingInput.participantIds;
     } else {
-        data.participants = []; // Default to empty array if not provided or invalid
+        delete data.participantIds; 
+    }
+    if (typeof meetingInput.participantsDisplay === 'string') {
+        data.participantsDisplay = meetingInput.participantsDisplay;
+    } else {
+        delete data.participantsDisplay;
     }
 
 
@@ -57,7 +63,8 @@ const meetingConverter: FirestoreDataConverter<Meeting, MeetingFirestoreData> = 
       dateTime: data.dateTime instanceof Timestamp ? data.dateTime.toDate() : new Date(),
       endDateTime: data.endDateTime instanceof Timestamp ? data.endDateTime.toDate() : new Date(),
       isRecurring: data.isRecurring || false,
-      participants: data.participants || [],
+      participantIds: data.participantIds || [],
+      participantsDisplay: data.participantsDisplay || "No participants listed",
       description: data.description || "",
       createdAt: data.createdAt instanceof Timestamp ? data.createdAt.toDate() : new Date(),
       updatedAt: data.updatedAt instanceof Timestamp ? data.updatedAt.toDate() : new Date(),
@@ -91,7 +98,7 @@ export async function addMeetingForUser(
 ): Promise<Meeting> {
   if (!actorUserId) throw new Error("Actor User ID is required to add a meeting.");
   const meetingsCol = getMeetingsCollection(actorUserId);
-  const docRef = await addDoc(meetingsCol, { ...meetingData, userId: actorUserId } as Meeting); // Add userId context
+  const docRef = await addDoc(meetingsCol, { ...meetingData, userId: actorUserId } as Meeting); 
   
   const newDocSnap = await getDoc(docRef);
   if (!newDocSnap.exists()) {
@@ -111,28 +118,26 @@ export async function addMeetingForUser(
       entityType: "meeting",
     });
 
-    try {
-      const members = await getMembersForOffice(officeId);
-      const participantsList = newMeeting.participants && newMeeting.participants.length > 0 
-        ? `Participants: ${newMeeting.participants.join(', ')}.`
-        : 'No specific participants listed.';
-
-      for (const member of members) {
-        if (member.userId !== actorUserId) { 
-          await addUserNotification(member.userId, {
-            type: "meeting-new",
-            title: `New Meeting in ${officeName || 'Office'}: ${newMeeting.title}`,
-            message: `${actorName} scheduled "${newMeeting.title}" for ${newMeeting.dateTime.toLocaleDateString()} at ${newMeeting.dateTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}. ${participantsList}`,
-            link: `/meetings?meetingId=${newMeeting.id}`,
-            officeId: officeId,
-            actorName: actorName,
-            entityId: newMeeting.id,
-            entityType: "meeting"
-          });
+    if (newMeeting.participantIds && newMeeting.participantIds.length > 0) {
+      const participantsDisplay = newMeeting.participantsDisplay || "participants";
+      for (const participantId of newMeeting.participantIds) {
+        if (participantId !== actorUserId) { 
+          try {
+            await addUserNotification(participantId, {
+              type: "meeting-new",
+              title: `New Meeting in ${officeName || 'Office'}: ${newMeeting.title}`,
+              message: `${actorName} scheduled "${newMeeting.title}" for ${newMeeting.dateTime.toLocaleDateString()} at ${newMeeting.dateTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}. You are invited.`,
+              link: `/meetings?meetingId=${newMeeting.id}`,
+              officeId: officeId,
+              actorName: actorName,
+              entityId: newMeeting.id,
+              entityType: "meeting"
+            });
+          } catch (error) {
+             console.error(`Failed to send meeting notification to participant ${participantId}:`, error);
+          }
         }
       }
-    } catch (error) {
-      console.error("Failed to send meeting scheduling notifications for office members:", error);
     }
   }
   return newMeeting;
@@ -161,12 +166,10 @@ export async function updateMeetingForUser(
   await updateDoc(meetingDocRef, updatePayload);
 
   if (officeId && originalMeeting) {
-    // For simplicity, any update triggers a generic meeting update notification and activity log.
-    // More detailed diffing could be added if needed.
     const updateDescription = `${actorName} updated the meeting: "${originalMeeting.title}".`;
     
     addActivityLog(officeId, {
-      type: "meeting-new", // Using "meeting-new" as a general type for creation/update activity
+      type: "meeting-new", 
       title: `Meeting Update: ${originalMeeting.title}`,
       description: updateDescription,
       iconName: "CalendarDays", 
@@ -176,24 +179,27 @@ export async function updateMeetingForUser(
       entityType: "meeting",
     });
 
-    try {
-      const members = await getMembersForOffice(officeId);
-      for (const member of members) {
-        if (member.userId !== userId) {
-          await addUserNotification(member.userId, {
-            type: "meeting-updated",
-            title: `Meeting Update in ${officeName || 'Office'}: ${originalMeeting.title}`,
-            message: updateDescription,
-            link: `/meetings?meetingId=${meetingId}`,
-            officeId: officeId,
-            actorName: actorName,
-            entityId: meetingId,
-            entityType: "meeting"
-          });
+    const involvedUserIds = new Set<string>();
+    if (originalMeeting.participantIds) originalMeeting.participantIds.forEach(id => involvedUserIds.add(id));
+    if (meetingData.participantIds) meetingData.participantIds.forEach(id => involvedUserIds.add(id));
+    
+    for (const notifiedUserId of involvedUserIds) {
+        if (notifiedUserId !== userId) {
+            try {
+                await addUserNotification(notifiedUserId, {
+                    type: "meeting-updated",
+                    title: `Meeting Update in ${officeName || 'Office'}: ${originalMeeting.title}`,
+                    message: updateDescription,
+                    link: `/meetings?meetingId=${meetingId}`,
+                    officeId: officeId,
+                    actorName: actorName,
+                    entityId: meetingId,
+                    entityType: "meeting"
+                });
+            } catch (error) {
+                console.error(`Failed to send meeting update notification to ${notifiedUserId}:`, error);
+            }
         }
-      }
-    } catch (error) {
-      console.error("Failed to send meeting update notifications:", error);
     }
   }
 }
@@ -202,7 +208,6 @@ export async function deleteMeetingForUser(userId: string, meetingId: string): P
   if (!userId || !meetingId) throw new Error("User ID and Meeting ID are required for delete.");
   const meetingDocRef = getMeetingDoc(userId, meetingId);
   await deleteDoc(meetingDocRef);
-  // Consider adding activity log for deletion if officeId is available
 }
 
     

@@ -22,6 +22,20 @@ const taskConverter: FirestoreDataConverter<Task, TaskFirestoreData> = {
         data.createdAt = serverTimestamp();
     }
     data.updatedAt = serverTimestamp();
+
+    // Ensure assigneeIds and assigneesDisplay are handled correctly
+    if (taskInput.assigneeIds && Array.isArray(taskInput.assigneeIds)) {
+      data.assigneeIds = taskInput.assigneeIds;
+    } else {
+      delete data.assigneeIds; // Remove if not provided or invalid
+    }
+    if (typeof taskInput.assigneesDisplay === 'string') {
+      data.assigneesDisplay = taskInput.assigneesDisplay;
+    } else {
+      delete data.assigneesDisplay; // Remove if not a string
+    }
+
+
     return data;
   },
   fromFirestore: (snapshot, options): Task => {
@@ -29,7 +43,8 @@ const taskConverter: FirestoreDataConverter<Task, TaskFirestoreData> = {
     return {
       id: snapshot.id,
       name: data.name,
-      assignedTo: data.assignedTo,
+      assigneeIds: data.assigneeIds || [],
+      assigneesDisplay: data.assigneesDisplay || "Unassigned",
       dueDate: data.dueDate instanceof Timestamp ? data.dueDate.toDate() : undefined,
       status: data.status,
       priority: data.priority,
@@ -74,7 +89,7 @@ export async function addTaskForUser(
 ): Promise<Task> {
   if (!actorUserId) throw new Error("Actor User ID is required to add a task.");
   const tasksCol = getTasksCollection(actorUserId);
-  const docRef = await addDoc(tasksCol, { ...taskData, userId: actorUserId } as Task); // Add userId for context
+  const docRef = await addDoc(tasksCol, { ...taskData, userId: actorUserId } as Task); 
   
   const newDocSnap = await getDoc(docRef);
   if (!newDocSnap.exists()) {
@@ -86,7 +101,7 @@ export async function addTaskForUser(
     addActivityLog(officeId, {
       type: "task-new",
       title: `New Task: ${newTask.name}`,
-      description: `Assigned to: ${newTask.assignedTo || 'Unassigned'}. Created by ${actorName}.`,
+      description: `Assigned to: ${newTask.assigneesDisplay || 'Unassigned'}. Created by ${actorName}.`,
       iconName: "ListChecks",
       actorId: actorUserId,
       actorName: actorName,
@@ -94,24 +109,25 @@ export async function addTaskForUser(
       entityType: "task",
     });
 
-    try {
-      const members = await getMembersForOffice(officeId);
-      for (const member of members) {
-        if (member.userId !== actorUserId) { 
-          await addUserNotification(member.userId, {
-            type: "task-new",
-            title: `New Task in ${officeName || 'Office'}: ${newTask.name}`,
-            message: `${actorName} created task: "${newTask.name}". Assigned to: ${newTask.assignedTo || 'Unassigned'}.`,
-            link: `/tasks/${newTask.id}`, 
-            officeId: officeId,
-            actorName: actorName,
-            entityId: newTask.id,
-            entityType: "task"
-          });
+    if (newTask.assigneeIds && newTask.assigneeIds.length > 0) {
+      for (const assigneeId of newTask.assigneeIds) {
+        if (assigneeId !== actorUserId) { 
+          try {
+            await addUserNotification(assigneeId, {
+              type: "task-new",
+              title: `New Task in ${officeName || 'Office'}: ${newTask.name}`,
+              message: `${actorName} assigned you a new task: "${newTask.name}".`,
+              link: `/tasks/${newTask.id}`, 
+              officeId: officeId,
+              actorName: actorName,
+              entityId: newTask.id,
+              entityType: "task"
+            });
+          } catch (error) {
+            console.error(`Failed to send task creation notification to assignee ${assigneeId}:`, error);
+          }
         }
       }
-    } catch (error) {
-      console.error("Failed to send task creation notifications for office members:", error);
     }
   }
 
@@ -153,13 +169,12 @@ export async function updateTaskForUser(
         activityTitle = `Task Completed: ${originalTask.name}`;
         iconName = "CheckSquare";
       }
-    } else if (taskData.assignedTo && taskData.assignedTo !== originalTask.assignedTo) {
-        activityDescription = `Task "${originalTask.name}" reassigned to ${taskData.assignedTo} by ${actorName}.`;
+    } else if (taskData.assigneesDisplay && taskData.assigneesDisplay !== originalTask.assigneesDisplay) {
+        activityDescription = `Task "${originalTask.name}" assignment changed to ${taskData.assigneesDisplay} by ${actorName}.`;
     } else if (taskData.name && taskData.name !== originalTask.name) {
         activityDescription = `Task name changed from "${originalTask.name}" to "${taskData.name}" by ${actorName}.`;
     }
-    // Add more specific descriptions for other fields if needed
-
+    
     addActivityLog(officeId, {
       type: activityType,
       title: activityTitle,
@@ -171,25 +186,27 @@ export async function updateTaskForUser(
       entityType: "task",
     });
     
-    // Notify office members about the update
-    try {
-        const members = await getMembersForOffice(officeId);
-        for (const member of members) {
-            if (member.userId !== userId) { // Don't notify the actor
-                await addUserNotification(member.userId, {
-                    type: "task-updated",
-                    title: `Task Update in ${officeName || 'Office'}: ${originalTask.name}`,
-                    message: activityDescription,
-                    link: `/tasks/${taskId}`,
-                    officeId: officeId,
-                    actorName: actorName,
-                    entityId: taskId,
-                    entityType: "task"
-                });
-            }
+    const involvedUserIds = new Set<string>();
+    if (originalTask.assigneeIds) originalTask.assigneeIds.forEach(id => involvedUserIds.add(id));
+    if (taskData.assigneeIds) taskData.assigneeIds.forEach(id => involvedUserIds.add(id));
+
+    for (const notifiedUserId of involvedUserIds) {
+      if (notifiedUserId !== userId) { // Don't notify the actor
+        try {
+            await addUserNotification(notifiedUserId, {
+                type: "task-updated",
+                title: `Task Update in ${officeName || 'Office'}: ${originalTask.name}`,
+                message: activityDescription,
+                link: `/tasks/${taskId}`,
+                officeId: officeId,
+                actorName: actorName,
+                entityId: taskId,
+                entityType: "task"
+            });
+        } catch (error) {
+            console.error(`Failed to send task update notification to ${notifiedUserId}:`, error);
         }
-    } catch (error) {
-        console.error("Failed to send task update notifications:", error);
+      }
     }
   }
 }
