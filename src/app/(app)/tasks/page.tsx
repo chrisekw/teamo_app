@@ -37,6 +37,7 @@ import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
   DropdownMenuContent,
+  DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
@@ -498,4 +499,3 @@ export default function TasksPage() {
     </div>
   );
 }
-
