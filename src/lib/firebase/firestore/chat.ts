@@ -102,7 +102,7 @@ const chatThreadConverter: FirestoreDataConverter<ChatThread, ChatThreadFirestor
 const chatThreadsColRef = () => collection(db, 'chatThreads').withConverter(chatThreadConverter);
 const chatThreadDocRef = (threadId: string) => doc(db, 'chatThreads', threadId).withConverter(chatThreadConverter);
 
-const messagesColRef = (threadId: string) => collection(chatThreadDocRef(threadId).path, 'messages').withConverter(chatMessageConverter);
+const messagesColRef = (threadId: string) => collection(chatThreadDocRef(threadId), 'messages').withConverter(chatMessageConverter);
 
 
 // --- Service Functions ---
@@ -122,13 +122,13 @@ export async function getOrCreateDmThread(user1: ChatUser, user2: ChatUser): Pro
     const participantInfoForFirestore: ChatThread['participantInfo'] = {};
 
     const p1Info: Partial<Pick<ChatUser, 'name' | 'avatarUrl'>> = { name: user1.name };
-    if (user1.avatarUrl !== undefined) {
+    if (user1.avatarUrl !== undefined && user1.avatarUrl !== null) { // Ensure avatarUrl is not undefined/null
       p1Info.avatarUrl = user1.avatarUrl;
     }
     participantInfoForFirestore[user1.id] = p1Info as Pick<ChatUser, 'name' | 'avatarUrl'>;
 
     const p2Info: Partial<Pick<ChatUser, 'name' | 'avatarUrl'>> = { name: user2.name };
-    if (user2.avatarUrl !== undefined) {
+    if (user2.avatarUrl !== undefined && user2.avatarUrl !== null) { // Ensure avatarUrl is not undefined/null
       p2Info.avatarUrl = user2.avatarUrl;
     }
     participantInfoForFirestore[user2.id] = p2Info as Pick<ChatUser, 'name' | 'avatarUrl'>;
@@ -338,3 +338,4 @@ export function onGeneralOfficeMessagesUpdate(
     callback([]);
   });
 }
+
