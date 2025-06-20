@@ -9,14 +9,13 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { PlusCircle, Video, Users as UsersIcon, Clock, Loader2, Trash2, CalendarDays, Briefcase, Repeat, Edit } from "lucide-react";
 import { useState, useEffect, useRef, useCallback } from "react";
-import Image from "next/image";
 import dynamic from 'next/dynamic';
 import { useToast } from "@/hooks/use-toast";
-import type { Meeting, OfficeMember } from "@/types";
+import type { Meeting, OfficeMember, Office } from "@/types";
 import { useAuth } from "@/lib/firebase/auth";
-import { addMeetingForUser, getMeetingsForUser, deleteMeetingForUser } from "@/lib/firebase/firestore/meetings";
+import { addMeetingToOffice, getMeetingsForOfficeVisibleToUser, deleteMeetingFromOffice, getMeetingByIdFromOffice } from "@/lib/firebase/firestore/meetings";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
-import { getOfficesForUser, type Office, getMembersForOffice } from "@/lib/firebase/firestore/offices";
+import { getOfficesForUser, getMembersForOffice } from "@/lib/firebase/firestore/offices";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useSearchParams, useRouter, usePathname } from 'next/navigation';
 import { addUserNotification } from "@/lib/firebase/firestore/notifications";
@@ -78,7 +77,12 @@ export default function MeetingsPage() {
   const [isScheduleDialogOpen, setIsScheduleDialogOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [meetingToDelete, setMeetingToDelete] = useState<Meeting | null>(null);
+  
   const [userOffices, setUserOffices] = useState<Office[]>([]);
+  const [activeOffice, setActiveOffice] = useState<Office | null>(null);
+  const [currentOfficeMembers, setCurrentOfficeMembers] = useState<OfficeMember[]>([]);
+  const [isLoadingOfficeData, setIsLoadingOfficeData] = useState(true);
+
 
   // Form state for new meeting
   const [newMeetingTitle, setNewMeetingTitle] = useState("");
@@ -89,8 +93,6 @@ export default function MeetingsPage() {
   const [newMeetingEndTime, setNewMeetingEndTime] = useState(format(new Date(Date.now() + 60 * 60 * 1000), "HH:mm"));
   const [newMeetingIsRecurring, setNewMeetingIsRecurring] = useState(false);
   const [newMeetingParticipantIds, setNewMeetingParticipantIds] = useState<string[]>([]);
-  const [currentOfficeMembers, setCurrentOfficeMembers] = useState<OfficeMember[]>([]);
-  const [isLoadingOfficeMembers, setIsLoadingOfficeMembers] = useState(false);
 
 
   const [selectedMeetingForPreview, setSelectedMeetingForPreview] = useState<Meeting | null>(null);
@@ -99,79 +101,121 @@ export default function MeetingsPage() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
 
-  const fetchUserOfficesAndMembers = useCallback(async () => {
+  const fetchOfficeData = useCallback(async () => {
     if (user) {
-      const offices = await getOfficesForUser(user.uid);
-      setUserOffices(offices);
-      if (offices.length > 0) {
-        setIsLoadingOfficeMembers(true);
-        try {
-          const members = await getMembersForOffice(offices[0].id); 
+      setIsLoadingOfficeData(true);
+      try {
+        const offices = await getOfficesForUser(user.uid);
+        setUserOffices(offices);
+        if (offices.length > 0) {
+          setActiveOffice(offices[0]); 
+          const members = await getMembersForOffice(offices[0].id);
           setCurrentOfficeMembers(members);
-        } catch (error) {
-          console.error("Failed to fetch office members:", error);
-          toast({ variant: "destructive", title: "Error", description: "Could not load office members for selection." });
-        } finally {
-          setIsLoadingOfficeMembers(false);
+        } else {
+          setActiveOffice(null);
+          setCurrentOfficeMembers([]);
         }
-      } else {
-        setCurrentOfficeMembers([]);
+      } catch (error) {
+        console.error("Failed to fetch office data:", error);
+        toast({ variant: "destructive", title: "Error", description: "Could not load office data."});
+      } finally {
+        setIsLoadingOfficeData(false);
       }
     }
   }, [user, toast]);
 
   useEffect(() => {
     if (!authLoading && user) {
-      fetchUserOfficesAndMembers();
+      fetchOfficeData();
     }
-  }, [authLoading, user, fetchUserOfficesAndMembers]);
+  }, [authLoading, user, fetchOfficeData]);
 
 
-  const fetchMeetings = useCallback(async () => {
-    if (user) {
+  const fetchMeetingsForActiveOffice = useCallback(async () => {
+    if (user && activeOffice) {
       setIsLoadingMeetings(true);
       try {
-        const userMeetings = await getMeetingsForUser(user.uid);
+        const userMeetings = await getMeetingsForOfficeVisibleToUser(activeOffice.id, user.uid);
         setMeetings(userMeetings.sort((a,b) => a.dateTime.getTime() - b.dateTime.getTime()));
       } catch (error) {
         console.error("Failed to fetch meetings:", error);
         toast({ variant: "destructive", title: "Error", description: "Could not fetch meetings." });
+        setMeetings([]);
       } finally {
         setIsLoadingMeetings(false);
       }
+    } else if (!activeOffice) {
+        setMeetings([]);
+        setIsLoadingMeetings(false);
     }
-  }, [user, toast]);
+  }, [user, activeOffice, toast]);
 
   useEffect(() => {
-    if (!authLoading && user) {
-      fetchMeetings();
+    if (!authLoading && user && activeOffice) {
+      fetchMeetingsForActiveOffice();
+    } else if (!activeOffice && !isLoadingOfficeData) {
+      setMeetings([]);
+      setIsLoadingMeetings(false);
     }
-  }, [authLoading, user, fetchMeetings]);
+  }, [authLoading, user, activeOffice, fetchMeetingsForActiveOffice, isLoadingOfficeData]);
 
-  const handleJoinMeetingClick = useCallback((meeting: Meeting) => {
-    if (selectedMeetingForPreview?.id === meeting.id) { 
-      if(!selectedMeetingForPreview) setSelectedMeetingForPreview(meeting);
-    } else {
-      setSelectedMeetingForPreview(meeting);
+  const handleJoinMeetingClick = useCallback(async (meeting: Meeting) => {
+    if (!activeOffice) {
+        toast({ variant: "destructive", title: "Error", description: "No active office selected." });
+        return;
     }
-    router.replace(`${pathname}?meetingId=${meeting.id}`, { scroll: false });
-  }, [selectedMeetingForPreview, router, pathname]);
+    setSelectedMeetingForPreview(meeting);
+    router.replace(`${pathname}?meetingId=${meeting.id}&officeId=${activeOffice.id}`, { scroll: false });
+  }, [activeOffice, router, pathname, toast]);
 
   useEffect(() => {
     const meetingIdFromUrl = searchParams.get('meetingId');
-    if (meetingIdFromUrl && meetings.length > 0 && !selectedMeetingForPreview) {
-      const meetingToSelect = meetings.find(m => m.id === meetingIdFromUrl);
-      if (meetingToSelect) {
-         if (selectedMeetingForPreview?.id !== meetingToSelect.id) {
-            handleJoinMeetingClick(meetingToSelect);
-         }
+    const officeIdFromUrl = searchParams.get('officeId');
+
+    const loadMeetingFromUrl = async () => {
+      if (meetingIdFromUrl && officeIdFromUrl && user) {
+        setIsJoiningMeeting(true); // Indicate loading the specific meeting
+        try {
+          const meetingToSelect = await getMeetingByIdFromOffice(officeIdFromUrl, meetingIdFromUrl);
+          if (meetingToSelect) {
+            // Check if this user should be able to view this meeting
+            const isParticipantOrCreator = meetingToSelect.creatorUserId === user.uid || (meetingToSelect.participantIds && meetingToSelect.participantIds.includes(user.uid));
+            if (isParticipantOrCreator) {
+              if (activeOffice?.id !== officeIdFromUrl) {
+                const targetOffice = userOffices.find(o => o.id === officeIdFromUrl);
+                if (targetOffice) setActiveOffice(targetOffice); // Switch active office if necessary
+              }
+              setSelectedMeetingForPreview(meetingToSelect);
+            } else {
+              toast({ variant: "destructive", title: "Access Denied", description: "You are not a participant in this meeting." });
+              router.replace(pathname, { scroll: false });
+            }
+          } else {
+            toast({ variant: "destructive", title: "Meeting Not Found", description: "The meeting link is invalid or the meeting was deleted." });
+            router.replace(pathname, { scroll: false });
+          }
+        } catch (error) {
+          console.error("Error loading meeting from URL:", error);
+          toast({ variant: "destructive", title: "Error", description: "Could not load meeting details from link." });
+          router.replace(pathname, { scroll: false });
+        } finally {
+          setIsJoiningMeeting(false);
+        }
       }
+    };
+    
+    if (meetingIdFromUrl && officeIdFromUrl && user && !selectedMeetingForPreview) {
+        loadMeetingFromUrl();
+    } else if (!meetingIdFromUrl && selectedMeetingForPreview) {
+        // If URL is cleared but meeting is selected, clear selection (user navigated away from join view)
+        setSelectedMeetingForPreview(null);
     }
-  }, [searchParams, meetings, selectedMeetingForPreview, handleJoinMeetingClick]);
+
+  }, [searchParams, user, meetings, selectedMeetingForPreview, activeOffice, userOffices, router, pathname, toast]);
 
 
   useEffect(() => {
-    if (!user || meetings.length === 0 || isLoadingMeetings) return;
+    if (!user || meetings.length === 0 || isLoadingMeetings || isLoadingOfficeData) return;
 
     const now = new Date();
     const reminderSentKeyPrefix = `meetingReminderSent_`;
@@ -183,20 +227,19 @@ export default function MeetingsPage() {
         const reminderKey = `${reminderSentKeyPrefix}${meeting.id}`;
 
         if (timeDiffMinutes <= 5 && timeDiffMinutes >= -1) {
-          // Check if current user is a participant or the creator
-          const isParticipantOrCreator = (meeting.participantIds && meeting.participantIds.includes(user.uid)) || meeting.userId === user.uid;
+          const isParticipantOrCreator = meeting.creatorUserId === user.uid || (meeting.participantIds && meeting.participantIds.includes(user.uid));
 
-          if (isParticipantOrCreator && !sessionStorage.getItem(reminderKey)) {
-            console.log(`Meeting "${meeting.title}" is due for user ${user.uid}. Sending reminder.`);
+          if (isParticipantOrCreator && !sessionStorage.getItem(reminderKey) && meeting.officeId === activeOffice?.id) {
             try {
               await addUserNotification(user.uid, {
                 type: "meeting-new",
                 title: `Meeting Starting: ${meeting.title}`,
-                message: `Your meeting "${meeting.title}" is starting now or in the next few minutes. Click to join.`,
-                link: `/meetings?meetingId=${meeting.id}`,
+                message: `Your meeting "${meeting.title}" in ${activeOffice?.name || 'your office'} is starting now or in the next few minutes. Click to join.`,
+                link: `/meetings?meetingId=${meeting.id}&officeId=${meeting.officeId}`,
                 actorName: "System Reminder",
                 entityId: meeting.id,
                 entityType: "meeting",
+                officeId: meeting.officeId,
               });
               sessionStorage.setItem(reminderKey, 'true');
               toast({ title: "Meeting Reminder", description: `Reminder for "${meeting.title}" triggered.` });
@@ -212,7 +255,7 @@ export default function MeetingsPage() {
     const intervalId = setInterval(checkAndSendReminders, 30 * 1000); 
     return () => clearInterval(intervalId);
 
-  }, [meetings, user, toast, isLoadingMeetings]);
+  }, [meetings, user, toast, isLoadingMeetings, isLoadingOfficeData, activeOffice]);
 
 
   useEffect(() => {
@@ -279,8 +322,8 @@ export default function MeetingsPage() {
   };
 
   const handleScheduleMeeting = async () => {
-    if (!user || !newMeetingStartDate || !newMeetingEndDate) {
-      toast({ variant: "destructive", title: "Error", description: "You must be logged in and select start/end dates." });
+    if (!user || !newMeetingStartDate || !newMeetingEndDate || !activeOffice) {
+      toast({ variant: "destructive", title: "Error", description: "You must be logged in, select dates, and have an active office." });
       return;
     }
     if (!newMeetingTitle.trim() || !newMeetingStartTime || !newMeetingEndTime) {
@@ -298,28 +341,27 @@ export default function MeetingsPage() {
         return;
     }
 
-    const selectedParticipantNames = newMeetingParticipantIds
-      .map(id => currentOfficeMembers.find(m => m.userId === id)?.name)
-      .filter(Boolean) as string[];
-    const participantsDisplay = selectedParticipantNames.join(', ') || "No specific participants";
+    const selectedParticipantDetails = newMeetingParticipantIds
+      .map(id => currentOfficeMembers.find(m => m.userId === id))
+      .filter(Boolean) as OfficeMember[]; // Ensure only actual members
+    
+    const participantsDisplay = selectedParticipantDetails.map(m => m.name).join(', ') || "No specific participants";
 
-
-    const meetingData: Omit<Meeting, 'id' | 'createdAt' | 'updatedAt' | 'userId'> = {
+    const meetingData: Omit<Meeting, 'id' | 'createdAt' | 'updatedAt' | 'officeId' | 'creatorUserId'> = {
       title: newMeetingTitle,
       dateTime: startDateTime,
       endDateTime: endDateTime,
       isRecurring: newMeetingIsRecurring,
-      participantIds: newMeetingParticipantIds,
-      participantsDisplay: participantsDisplay,
+      participantIds: newMeetingParticipantIds, // Store IDs
+      participantsDisplay: participantsDisplay, // Store display names
       description: newMeetingDescription || undefined,
     };
     const actorName = user.displayName || user.email || "User";
-    const officeForMeeting = userOffices.length > 0 ? userOffices[0] : undefined;
 
     try {
-        await addMeetingForUser(user.uid, meetingData, actorName, officeForMeeting?.id, officeForMeeting?.name);
+        await addMeetingToOffice(activeOffice.id, user.uid, meetingData, actorName, activeOffice.name);
         toast({ title: "Meeting Scheduled", description: `"${meetingData.title}" has been scheduled.` });
-        fetchMeetings();
+        fetchMeetingsForActiveOffice();
         setIsScheduleDialogOpen(false);
         resetScheduleForm();
     } catch (error) {
@@ -331,12 +373,13 @@ export default function MeetingsPage() {
   };
 
   const handleDeleteMeeting = async () => {
-    if (!user || !meetingToDelete) return;
+    if (!user || !meetingToDelete || !activeOffice) return;
     setIsSubmitting(true);
+    const actorName = user.displayName || user.email || "User";
     try {
-        await deleteMeetingForUser(user.uid, meetingToDelete.id);
+        await deleteMeetingFromOffice(activeOffice.id, meetingToDelete.id, user.uid, actorName);
         toast({ title: "Meeting Deleted", description: `"${meetingToDelete.title}" has been removed.`});
-        fetchMeetings();
+        fetchMeetingsForActiveOffice();
         if (selectedMeetingForPreview?.id === meetingToDelete.id) {
             setSelectedMeetingForPreview(null);
             router.replace(pathname, { scroll: false }); 
@@ -374,24 +417,26 @@ export default function MeetingsPage() {
     return names.join(', ') || "Select Participants";
   };
 
-  if (authLoading || isLoadingMeetings && meetings.length === 0) {
+  if (authLoading || isLoadingOfficeData) {
      return <div className="container mx-auto p-8 text-center"><Loader2 className="h-12 w-12 animate-spin text-primary" /></div>;
   }
 
   return (
     <div className="container mx-auto p-4 sm:p-6 lg:p-8">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-8">
-        <h1 className="text-3xl font-headline font-bold mb-4 sm:mb-0">Video Meetings</h1>
+        <h1 className="text-3xl font-headline font-bold mb-4 sm:mb-0">
+            Video Meetings {activeOffice ? `for ${activeOffice.name}` : ''}
+        </h1>
         {!selectedMeetingForPreview && (
           <Dialog open={isScheduleDialogOpen} onOpenChange={(isOpen) => { if (!isSubmitting) setIsScheduleDialogOpen(isOpen); if(!isOpen) resetScheduleForm();}}>
             <DialogTrigger asChild>
-              <Button disabled={isSubmitting}>
+              <Button disabled={isSubmitting || !activeOffice}>
                 <PlusCircle className="mr-2 h-4 w-4" /> Schedule New Meeting
               </Button>
             </DialogTrigger>
             <DialogContent className="sm:max-w-md">
               <DialogHeader>
-                <DialogTitle className="font-headline text-xl">Schedule New Meeting</DialogTitle>
+                <DialogTitle className="font-headline text-xl">Schedule New Meeting {activeOffice ? `for ${activeOffice.name}`: ''}</DialogTitle>
               </DialogHeader>
               <div className="space-y-4 py-4 max-h-[75vh] overflow-y-auto pr-2">
                 <div className="space-y-1.5">
@@ -445,8 +490,8 @@ export default function MeetingsPage() {
                     <Label htmlFor="participants" className="flex items-center text-sm font-medium text-muted-foreground"><UsersIcon className="mr-2 h-4 w-4 text-muted-foreground"/>Participants</Label>
                     <DropdownMenu>
                         <DropdownMenuTrigger asChild>
-                        <Button variant="outline" id="participants" className="w-full justify-start text-left font-normal h-auto min-h-10 py-2" disabled={isSubmitting || isLoadingOfficeMembers}>
-                            {isLoadingOfficeMembers ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                        <Button variant="outline" id="participants" className="w-full justify-start text-left font-normal h-auto min-h-10 py-2" disabled={isSubmitting || isLoadingOfficeData || currentOfficeMembers.length === 0}>
+                            {isLoadingOfficeData && currentOfficeMembers.length === 0 ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
                             {getSelectedParticipantNamesForDialog()}
                         </Button>
                         </DropdownMenuTrigger>
@@ -463,16 +508,16 @@ export default function MeetingsPage() {
                                 setNewMeetingParticipantIds([]);
                                 }
                             }}
-                            disabled={isLoadingOfficeMembers}
+                            disabled={isLoadingOfficeData}
                             >
                             Select All ({currentOfficeMembers.length})
                             </DropdownMenuCheckboxItem>
                         )}
                         <DropdownMenuSeparator />
-                        {isLoadingOfficeMembers ? (
+                        {isLoadingOfficeData && currentOfficeMembers.length === 0 ? (
                             <div className="flex justify-center p-2"><Loader2 className="h-5 w-5 animate-spin" /></div>
                         ) : currentOfficeMembers.length === 0 ? (
-                            <div className="p-2 text-sm text-muted-foreground text-center">No members in your primary office.</div>
+                            <div className="p-2 text-sm text-muted-foreground text-center">No members in this office to assign.</div>
                         ) : (
                             <div className="max-h-48 overflow-y-auto">
                             {currentOfficeMembers.map((member) => (
@@ -511,7 +556,7 @@ export default function MeetingsPage() {
               </div>
               <DialogFooter className="sm:justify-between">
                 <Button variant="outline" onClick={() => setIsScheduleDialogOpen(false)} disabled={isSubmitting}>Cancel</Button>
-                <Button onClick={handleScheduleMeeting} disabled={isSubmitting}>
+                <Button onClick={handleScheduleMeeting} disabled={isSubmitting || !activeOffice}>
                     {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                     Schedule Meeting
                 </Button>
@@ -526,23 +571,29 @@ export default function MeetingsPage() {
           <h2 className="text-2xl font-headline font-semibold mb-4">
             All Scheduled Meetings
           </h2>
-          {isLoadingMeetings && meetings.length === 0 && (
-             <div className="space-y-4">
-                {[...Array(3)].map((_, i) => (
-                  <Card key={i} className="shadow-lg">
-                    <CardHeader><Skeleton className="h-6 w-3/4" /><Skeleton className="h-4 w-1/2 mt-1" /></CardHeader>
-                    <CardContent><Skeleton className="h-4 w-full" /></CardContent>
-                    <CardFooter><Skeleton className="h-10 w-28" /></CardFooter>
-                  </Card>
-                ))}
-            </div>
-          )}
-          {!isLoadingMeetings && meetings.length === 0 ? (
+          {isLoadingMeetings && <div className="text-center"><Loader2 className="h-8 w-8 animate-spin text-primary"/></div>}
+          
+          {!isLoadingMeetings && !activeOffice && (
+                <Card className="shadow-lg">
+                    <CardContent className="text-center py-10 text-muted-foreground">
+                        <Briefcase className="mx-auto h-12 w-12 mb-3 text-gray-400" />
+                        Please create or select an office to manage meetings.
+                        <Button asChild variant="link" className="block mx-auto mt-2">
+                            <Link href="/office-designer">Go to Office Designer</Link>
+                        </Button>
+                    </CardContent>
+                </Card>
+            )}
+
+          {!isLoadingMeetings && activeOffice && meetings.length === 0 ? (
             <div className="text-center py-10 bg-muted/50 rounded-md flex flex-col items-center justify-center">
-              <p className="text-muted-foreground">No meetings scheduled yet.</p>
+               <Video className="mx-auto h-12 w-12 text-muted-foreground mb-3"/>
+              <p className="text-muted-foreground">No meetings scheduled yet for {activeOffice.name}.</p>
               <p className="text-sm text-muted-foreground">Schedule a new meeting to get started.</p>
             </div>
-          ) : (
+          ) : null}
+
+          {!isLoadingMeetings && activeOffice && meetings.length > 0 && (
             <div className="space-y-4">
               {meetings.map((meeting) => (
                 <Card key={meeting.id} className="shadow-lg hover:shadow-xl transition-shadow duration-300">
@@ -621,3 +672,4 @@ export default function MeetingsPage() {
 }
 
     
+

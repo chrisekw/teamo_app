@@ -38,8 +38,8 @@ export type UserProfileFirestoreData = Omit<UserProfile, 'id' | 'birthday' | 'cr
 // --- Task Management Types ---
 export interface Task {
   id: string;
-  officeId: string; // Added
-  creatorUserId: string; // Renamed from userId
+  officeId: string; 
+  creatorUserId: string; 
   name: string;
   assigneeIds?: string[];
   assigneesDisplay?: string; 
@@ -62,7 +62,8 @@ export type TaskFirestoreData = Omit<Task, 'id' | 'dueDate' | 'createdAt' | 'upd
 // --- Goal Tracker Types ---
 export interface Goal {
   id: string;
-  creatorUserId: string; // Renamed from userId
+  officeId?: string; // Office association for goals
+  creatorUserId: string;
   name: string;
   description: string;
   targetValue: number;
@@ -73,22 +74,19 @@ export interface Goal {
   participantsDisplay?: string; 
   createdAt?: Date;
   updatedAt?: Date;
-  officeId?: string; // Added - to be implemented for Goals later
 }
 
-export type GoalFirestoreData = Omit<Goal, 'id' | 'deadline' | 'createdAt' | 'updatedAt' | 'creatorUserId'> & {
+export type GoalFirestoreData = Omit<Goal, 'id' | 'deadline' | 'createdAt' | 'updatedAt'> & {
   deadline?: Timestamp;
   createdAt?: Timestamp;
   updatedAt?: Timestamp;
-  creatorUserId: string;
-  officeId?: string;
 };
 
 // --- Meetings Types ---
 export interface Meeting {
   id: string;
-  officeId: string; // Added
-  creatorUserId: string; // Renamed from userId
+  officeId: string; 
+  creatorUserId: string; 
   title: string;
   dateTime: Date; 
   endDateTime: Date; 
@@ -185,9 +183,9 @@ export type OfficeJoinRequestFirestoreData = Omit<OfficeJoinRequest, 'id' | 'req
 
 // --- Activity Log Types ---
 export type ActivityType =
-  | "task-new" | "task-status-update" | "task-completed"
+  | "task-new" | "task-status-update" | "task-completed" | "task-deleted"
   | "goal-new" | "goal-progress-update" | "goal-achieved"
-  | "meeting-new"
+  | "meeting-new" | "meeting-updated" | "meeting-deleted"
   | "office-created" | "member-join" | "room-new"
   | "office-join-request-sent" | "office-join-request-approved" | "office-join-request-rejected"
   | "member-role-updated" | "member-removed";
@@ -286,3 +284,4 @@ export interface UserNotification {
 export type UserNotificationFirestoreData = Omit<UserNotification, 'id' | 'timestamp' | 'userId'> & {
   timestamp: Timestamp;
 };
+
