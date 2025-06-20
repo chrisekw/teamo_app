@@ -1,0 +1,148 @@
+
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isUserOfficeMember(officeId) {
+      return isAuthenticated() && exists(/databases/$(database)/documents/offices/$(officeId)/members/$(request.auth.uid));
+    }
+
+    // Office-related collections
+    match /offices/{officeId} {
+      allow read: if isUserOfficeMember(officeId);
+      // Define create, update, delete rules for offices as needed
+      // Example: allow create: if isAuthenticated();
+      // Example: allow update, delete: if isAuthenticated() && request.auth.uid == resource.data.ownerId;
+
+
+      match /tasks/{taskId} {
+        // GET: User can get a specific task if they are the creator or an assignee.
+        allow get: if isUserOfficeMember(officeId) &&
+                      (request.auth.uid == resource.data.creatorUserId || request.auth.uid in resource.data.assigneeIds);
+        
+        // LIST: User can query the tasks collection if they are a member of the office.
+        // The client-side query is responsible for filtering to only show relevant tasks.
+        allow list: if isUserOfficeMember(officeId); 
+
+        allow create: if isUserOfficeMember(officeId) &&
+                         request.auth.uid == request.resource.data.creatorUserId &&
+                         request.resource.data.officeId == officeId;
+
+        allow update: if isUserOfficeMember(officeId) &&
+                         (request.auth.uid == resource.data.creatorUserId || request.auth.uid in resource.data.assigneeIds) &&
+                         request.resource.data.officeId == officeId &&
+                         request.resource.data.creatorUserId == resource.data.creatorUserId;
+
+        allow delete: if isUserOfficeMember(officeId) &&
+                         request.auth.uid == resource.data.creatorUserId;
+      }
+
+      match /meetings/{meetingId} {
+        // GET: User can get a specific meeting if they are the creator or a participant.
+        allow get: if isUserOfficeMember(officeId) && 
+                      (request.auth.uid == resource.data.creatorUserId || request.auth.uid in resource.data.participantIds);
+        
+        // LIST: User can query the meetings collection if they are a member of the office.
+        // The client-side query is responsible for filtering to only show relevant meetings.
+        allow list: if isUserOfficeMember(officeId); 
+
+        allow create: if isUserOfficeMember(officeId) && 
+                         request.auth.uid == request.resource.data.creatorUserId &&
+                         request.resource.data.officeId == officeId;
+
+        allow update: if isUserOfficeMember(officeId) && 
+                         (request.auth.uid == resource.data.creatorUserId || request.auth.uid in resource.data.participantIds) &&
+                         request.resource.data.officeId == officeId && 
+                         request.resource.data.creatorUserId == resource.data.creatorUserId;
+
+        allow delete: if isUserOfficeMember(officeId) && 
+                         request.auth.uid == resource.data.creatorUserId;
+      }
+      
+      match /members/{memberId} {
+        allow read: if isUserOfficeMember(officeId);
+        allow create, update: if isUserOfficeMember(officeId) && request.auth.uid == get(/databases/$(database)/documents/offices/$(officeId)).data.ownerId;
+        allow delete: if isUserOfficeMember(officeId) && 
+                         request.auth.uid == get(/databases/$(database)/documents/offices/$(officeId)).data.ownerId &&
+                         memberId != request.auth.uid;
+      }
+
+      match /rooms/{roomId} {
+        allow read, list: if isUserOfficeMember(officeId);
+        allow create, update, delete: if isUserOfficeMember(officeId) && 
+                                         request.auth.uid == get(/databases/$(database)/documents/offices/$(officeId)).data.ownerId;
+      }
+
+      match /chatThreads/{threadId} {
+        allow get: if isAuthenticated() &&
+                      (request.auth.uid == threadId.split("_")[0] || request.auth.uid == threadId.split("_")[1]);
+        allow list: if isAuthenticated() && request.query.limit <= 30; 
+        allow update: if isAuthenticated() && request.auth.uid in resource.data.participantIds;
+        allow create: if isAuthenticated() &&
+                        request.auth.uid in request.resource.data.participantIds &&
+                        threadId.split("_")[0] in request.resource.data.participantIds &&
+                        threadId.split("_")[1] in request.resource.data.participantIds &&
+                        request.resource.data.participantIds.size() == 2 &&
+                        request.resource.data.participantInfo.keys().hasAll(request.resource.data.participantIds);
+
+        match /messages/{messageId} {
+          allow read: if isAuthenticated() &&
+                      (request.auth.uid == threadId.split("_")[0] || request.auth.uid == threadId.split("_")[1]);
+          allow create: if isAuthenticated() &&
+                          (request.auth.uid == threadId.split("_")[0] || request.auth.uid == threadId.split("_")[1]) &&
+                          request.resource.data.senderId == request.auth.uid;
+          allow update, delete: if false;
+        }
+      }
+      
+      match /generalMessages/{messageId} {
+        allow read, list: if isUserOfficeMember(officeId);
+        allow create: if isUserOfficeMember(officeId) && request.resource.data.senderId == request.auth.uid;
+        allow update, delete: if false;
+      }
+
+      match /activityLog/{activityId} {
+        allow read, list: if isUserOfficeMember(officeId);
+        allow create: if false;
+        allow update, delete: if false;
+      }
+
+      match /joinRequests/{requestId} {
+        allow read, list, update: if isUserOfficeMember(officeId) && 
+                                     request.auth.uid == get(/databases/$(database)/documents/offices/$(officeId)).data.ownerId;
+        allow create: if isAuthenticated(); 
+        allow delete: if false;
+      }
+    }
+
+    // User-specific top-level collections
+    match /users/{userId} {
+      allow read, update, delete: if request.auth.uid == userId;
+      allow create: if request.auth.uid == userId && !exists(/databases/$(database)/documents/users/$(userId));
+
+
+      match /userProfiles/{profileId} {
+         allow read, update, create: if request.auth.uid == userId && request.auth.uid == profileId;
+      }
+
+      match /goals/{goalId} {
+        allow read, list, create, update, delete: if request.auth.uid == userId;
+      }
+
+      match /notifications/{notificationId} {
+        allow read, list, create, update, delete: if request.auth.uid == userId;
+      }
+
+      match /memberOfOffices/{officeDocId} {
+         allow read, list: if request.auth.uid == userId;
+         allow create, update, delete: if false; 
+      }
+    }
+  }
+}
