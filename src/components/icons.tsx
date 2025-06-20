@@ -31,8 +31,8 @@ export const Logo = (props: React.SVGProps<SVGSVGElement>) => (
 
 // Exported component for the full logo (ICON + TEXT)
 // Accepts a textToDisplay prop for animation
-export const TeamoTextLogo = (props: React.SVGProps<SVGSVGElement> & { textToDisplay?: string }) => (
-  <svg viewBox="0 0 150 40" xmlns="http://www.w3.org/2000/svg" {...props}>
+export const TeamoTextLogo = ({ textToDisplay, ...rest }: React.SVGProps<SVGSVGElement> & { textToDisplay?: string }) => (
+  <svg viewBox="0 0 150 40" xmlns="http://www.w3.org/2000/svg" {...rest}>
     <g transform="translate(0, 4) scale(0.5)">
       <IconElement />
     </g>
@@ -45,7 +45,7 @@ export const TeamoTextLogo = (props: React.SVGProps<SVGSVGElement> & { textToDis
       fill={APP_LOGO_BLUE}
       textAnchor="start" // Explicitly set text-anchor
     >
-      {props.textToDisplay === undefined ? "Teamo" : props.textToDisplay}
+      {textToDisplay === undefined ? "Teamo" : textToDisplay}
     </text>
   </svg>
 );
