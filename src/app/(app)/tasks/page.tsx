@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
-import { PlusCircle, ListChecks, Filter, Loader2, User, Briefcase } from "lucide-react";
+import { PlusCircle, ListChecks, Filter, Loader2, User, Briefcase, Edit, Info, Clock, AlertTriangle } from "lucide-react"; // Added Edit, Info, Clock, AlertTriangle
 import { useState, useEffect, useCallback } from "react";
 import {
   Dialog,
@@ -115,11 +115,11 @@ export default function TasksPage() {
     const taskData: Omit<Task, 'id' | 'createdAt' | 'updatedAt' | 'userId'> = {
       name: newTaskName,
       assignedTo: newAssignedTo || "Unassigned",
-      dueDate: newDueDate, // Can be undefined
-      status: "To Do", // Default status
+      dueDate: newDueDate, 
+      status: "To Do", 
       priority: newPriority,
       description: newDescription,
-      progress: 0, // Default progress
+      progress: 0, 
       department: newTaskDepartment || undefined,
     };
     
@@ -150,7 +150,7 @@ export default function TasksPage() {
     if (statusOrder[a.status] !== statusOrder[b.status]) {
       return statusOrder[a.status] - statusOrder[b.status];
     }
-    return (a.dueDate?.getTime() || Infinity) - (b.dueDate?.getTime() || Infinity) ; // Handle undefined due dates
+    return (a.dueDate?.getTime() || Infinity) - (b.dueDate?.getTime() || Infinity) ; 
   });
 
   if (authLoading || isLoadingTasks) {
@@ -224,18 +224,18 @@ export default function TasksPage() {
           <DialogHeader>
             <DialogTitle className="font-headline text-xl">Create New Task</DialogTitle>
           </DialogHeader>
-          <div className="grid gap-5 py-4 max-h-[75vh] overflow-y-auto pr-2">
+          <div className="space-y-4 py-4 max-h-[75vh] overflow-y-auto pr-2">
             <div className="space-y-1.5">
-              <Label htmlFor="newTaskName">Task Title</Label>
+              <Label htmlFor="newTaskName" className="flex items-center text-sm font-medium text-muted-foreground"><Edit className="mr-2 h-4 w-4 text-muted-foreground"/>Task Title</Label>
               <Input id="newTaskName" value={newTaskName} onChange={(e) => setNewTaskName(e.target.value)} placeholder="Enter task title" disabled={isSubmittingTask}/>
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="newDescription">Description (Optional)</Label>
+              <Label htmlFor="newDescription" className="flex items-center text-sm font-medium text-muted-foreground"><Info className="mr-2 h-4 w-4 text-muted-foreground"/>Description (Optional)</Label>
               <Textarea id="newDescription" value={newDescription} onChange={(e) => setNewDescription(e.target.value)} placeholder="Enter task description" rows={3} disabled={isSubmittingTask}/>
             </div>
             
             <div className="space-y-1.5">
-                <Label>Priority</Label>
+                <Label className="flex items-center text-sm font-medium text-muted-foreground"><AlertTriangle className="mr-2 h-4 w-4 text-muted-foreground"/>Priority</Label>
                 <div className="flex space-x-1 border border-input rounded-md p-0.5">
                     {(["Low", "Medium", "High"] as Task["priority"][]).map((p) => (
                         <Button
@@ -253,18 +253,18 @@ export default function TasksPage() {
             </div>
 
             <div className="space-y-1.5">
-                <Label htmlFor="newDueDate">Due Date (Optional)</Label>
+                <Label htmlFor="newDueDate" className="flex items-center text-sm font-medium text-muted-foreground"><Clock className="mr-2 h-4 w-4 text-muted-foreground"/>Due Date (Optional)</Label>
                 <Popover>
                     <PopoverTrigger asChild>
                     <Button
                         variant={"outline"}
                         className={cn(
-                        "w-full justify-start text-left font-normal h-11 pl-3 pr-2", // Adjusted padding for icon
+                        "w-full justify-start text-left font-normal h-10",
                         !newDueDate && "text-muted-foreground"
                         )}
                         disabled={isSubmittingTask}
                     >
-                        <CalendarIcon className="mr-2 h-4 w-4 text-muted-foreground" />
+                        <CalendarIcon className="mr-2 h-4 w-4" />
                         {newDueDate ? format(newDueDate, "PPP") : <span>Select Due Date</span>}
                     </Button>
                     </PopoverTrigger>
@@ -281,25 +281,19 @@ export default function TasksPage() {
             </div>
 
             <div className="space-y-1.5">
-                <Label htmlFor="newAssignedTo">Assignee</Label>
-                <div className="relative">
-                    <User className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                    <Input id="newAssignedTo" value={newAssignedTo} onChange={(e) => setNewAssignedTo(e.target.value)} placeholder="Select Assignee" className="pl-9 h-11" disabled={isSubmittingTask}/>
-                </div>
+                <Label htmlFor="newAssignedTo" className="flex items-center text-sm font-medium text-muted-foreground"><User className="mr-2 h-4 w-4 text-muted-foreground"/>Assignee</Label>
+                <Input id="newAssignedTo" value={newAssignedTo} onChange={(e) => setNewAssignedTo(e.target.value)} placeholder="Select Assignee" disabled={isSubmittingTask}/>
             </div>
 
             <div className="space-y-1.5">
-                <Label htmlFor="newTaskDepartment">Department</Label>
-                 <div className="relative">
-                    <Briefcase className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                    <Input id="newTaskDepartment" value={newTaskDepartment} onChange={(e) => setNewTaskDepartment(e.target.value)} placeholder="Select Department" className="pl-9 h-11" disabled={isSubmittingTask}/>
-                </div>
+                <Label htmlFor="newTaskDepartment" className="flex items-center text-sm font-medium text-muted-foreground"><Briefcase className="mr-2 h-4 w-4 text-muted-foreground"/>Department</Label>
+                <Input id="newTaskDepartment" value={newTaskDepartment} onChange={(e) => setNewTaskDepartment(e.target.value)} placeholder="Select Department" disabled={isSubmittingTask}/>
             </div>
 
           </div>
           <DialogFooter className="sm:justify-between pt-2">
-            <Button variant="outline" className="w-full sm:w-auto h-11" onClick={() => setIsCreateTaskDialogOpen(false)} disabled={isSubmittingTask}>Cancel</Button>
-            <Button onClick={handleCreateTask} className="w-full sm:w-auto h-11" disabled={isSubmittingTask}>
+            <Button variant="outline" className="w-full sm:w-auto h-10" onClick={() => setIsCreateTaskDialogOpen(false)} disabled={isSubmittingTask}>Cancel</Button>
+            <Button onClick={handleCreateTask} className="w-full sm:w-auto h-10" disabled={isSubmittingTask}>
                 {isSubmittingTask && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                 Create Task
             </Button>

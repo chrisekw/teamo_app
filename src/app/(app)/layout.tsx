@@ -28,7 +28,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const isMobile = useIsMobile();
   const { user, loading } = useAuth();
   const router = useRouter();
-  const [aiFabMode, setAiFabMode] = useState<'expanded' | 'collapsed'>('expanded');
+  const [aiFabMode, setAiFabMode] = useState<'expanded' | 'collapsed'>('collapsed'); // Default to collapsed
 
   useEffect(() => {
     if (!loading && !user) {
@@ -109,7 +109,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           <>
             <BottomNav />
             {aiFabMode === 'expanded' ? (
-              <div className="fixed bottom-20 right-4 z-50 flex items-end space-x-1">
+              <div className="fixed bottom-24 right-6 z-50 flex items-end space-x-1"> {/* Adjusted position */}
                 <Link
                   href="/ai-assistant"
                   className={cn(
@@ -134,7 +134,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             ) : ( // Collapsed mode
               <Button
                 className={cn(
-                  "fixed bottom-20 right-4 z-50 p-0",
+                  "fixed bottom-24 right-6 z-50 p-0", // Adjusted position
                   "bg-secondary text-secondary-foreground rounded-full shadow-lg",
                   "w-10 h-10 flex items-center justify-center", 
                   "hover:bg-secondary/80 transition-colors"

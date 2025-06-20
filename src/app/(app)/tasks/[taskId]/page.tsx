@@ -181,21 +181,21 @@ export default function TaskDetailPage() {
           </CardHeader>
           <CardContent className="space-y-6 py-6 max-h-[calc(100vh-250px)] overflow-y-auto pr-2 sm:pr-3">
             <div className="space-y-1.5">
-              <Label htmlFor="taskName" className="flex items-center"><Edit className="mr-2 h-4 w-4 text-muted-foreground"/>Task Name</Label>
+              <Label htmlFor="taskName" className="flex items-center text-sm font-medium text-muted-foreground"><Edit className="mr-2 h-4 w-4 text-muted-foreground"/>Task Name</Label>
               <Input id="taskName" value={taskName} onChange={(e) => setTaskName(e.target.value)} disabled={isSubmitting} />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="description" className="flex items-center"><Info className="mr-2 h-4 w-4 text-muted-foreground"/>Description</Label>
+              <Label htmlFor="description" className="flex items-center text-sm font-medium text-muted-foreground"><Info className="mr-2 h-4 w-4 text-muted-foreground"/>Description</Label>
               <Textarea id="description" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Detailed description of the task" rows={4} disabled={isSubmitting}/>
             </div>
             
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div className="space-y-1.5">
-                <Label htmlFor="assignedTo" className="flex items-center"><User className="mr-2 h-4 w-4 text-muted-foreground"/>Assigned To</Label>
+                <Label htmlFor="assignedTo" className="flex items-center text-sm font-medium text-muted-foreground"><User className="mr-2 h-4 w-4 text-muted-foreground"/>Assigned To</Label>
                 <Input id="assignedTo" value={assignedTo} onChange={(e) => setAssignedTo(e.target.value)} disabled={isSubmitting}/>
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="dueDate" className="flex items-center"><Clock className="mr-2 h-4 w-4 text-muted-foreground"/>Due Date</Label>
+                <Label htmlFor="dueDate" className="flex items-center text-sm font-medium text-muted-foreground"><Clock className="mr-2 h-4 w-4 text-muted-foreground"/>Due Date</Label>
                 <Popover>
                   <PopoverTrigger asChild>
                     <Button
@@ -217,7 +217,7 @@ export default function TaskDetailPage() {
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div className="space-y-1.5">
-                <Label htmlFor="status" className="flex items-center"><BarChart className="mr-2 h-4 w-4 text-muted-foreground"/>Status</Label>
+                <Label htmlFor="status" className="flex items-center text-sm font-medium text-muted-foreground"><BarChart className="mr-2 h-4 w-4 text-muted-foreground"/>Status</Label>
                 <Select value={status} onValueChange={(value) => setStatus(value as Task["status"])} disabled={isSubmitting}>
                   <SelectTrigger id="status"><SelectValue /></SelectTrigger>
                   <SelectContent>
@@ -229,7 +229,7 @@ export default function TaskDetailPage() {
                 </Select>
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="priority" className="flex items-center"><AlertTriangle className="mr-2 h-4 w-4 text-muted-foreground"/>Priority</Label>
+                <Label htmlFor="priority" className="flex items-center text-sm font-medium text-muted-foreground"><AlertTriangle className="mr-2 h-4 w-4 text-muted-foreground"/>Priority</Label>
                 <Select value={priority} onValueChange={(value) => setPriority(value as Task["priority"])} disabled={isSubmitting}>
                   <SelectTrigger id="priority"><SelectValue /></SelectTrigger>
                   <SelectContent>
@@ -243,7 +243,7 @@ export default function TaskDetailPage() {
 
             <div className="space-y-1.5">
               <div className="flex justify-between items-center mb-1">
-                <Label htmlFor="progress" className="flex items-center"><Star className="mr-2 h-4 w-4 text-muted-foreground"/>Progress</Label>
+                <Label htmlFor="progress" className="flex items-center text-sm font-medium text-muted-foreground"><Star className="mr-2 h-4 w-4 text-muted-foreground"/>Progress</Label>
                 <Badge className={cn(statusColors[status], "text-white")}>{progress}%</Badge>
               </div>
               <Input 
@@ -292,5 +292,4 @@ export default function TaskDetailPage() {
     </div>
   );
 }
-
     

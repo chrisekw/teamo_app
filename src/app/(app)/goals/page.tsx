@@ -267,30 +267,30 @@ export default function GoalsPage() {
           </DialogHeader>
           <div className="space-y-4 py-4 max-h-[70vh] overflow-y-auto pr-2">
             <div className="space-y-1.5">
-              <Label htmlFor="goalName" className="flex items-center"><Edit className="mr-2 h-4 w-4 text-muted-foreground"/>Goal Name</Label>
+              <Label htmlFor="goalName" className="flex items-center text-sm font-medium text-muted-foreground"><Edit className="mr-2 h-4 w-4 text-muted-foreground"/>Goal Name</Label>
               <Input id="goalName" value={goalName} onChange={(e) => setGoalName(e.target.value)} placeholder="e.g., Increase Sales" disabled={isSubmitting}/>
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="goalDescription" className="flex items-center"><Info className="mr-2 h-4 w-4 text-muted-foreground"/>Description</Label>
+              <Label htmlFor="goalDescription" className="flex items-center text-sm font-medium text-muted-foreground"><Info className="mr-2 h-4 w-4 text-muted-foreground"/>Description</Label>
               <Textarea id="goalDescription" value={goalDescription} onChange={(e) => setGoalDescription(e.target.value)} placeholder="Briefly describe the goal" disabled={isSubmitting} rows={3}/>
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-1.5">
-                <Label htmlFor="goalCurrentValue" className="flex items-center"><Hash className="mr-2 h-4 w-4 text-muted-foreground"/>Current Value</Label>
+                <Label htmlFor="goalCurrentValue" className="flex items-center text-sm font-medium text-muted-foreground"><Hash className="mr-2 h-4 w-4 text-muted-foreground"/>Current Value</Label>
                 <Input id="goalCurrentValue" type="number" value={goalCurrentValue} onChange={(e) => setGoalCurrentValue(parseFloat(e.target.value) || 0)} disabled={isSubmitting}/>
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="goalTargetValue" className="flex items-center"><Target className="mr-2 h-4 w-4 text-muted-foreground"/>Target Value</Label>
+                <Label htmlFor="goalTargetValue" className="flex items-center text-sm font-medium text-muted-foreground"><Target className="mr-2 h-4 w-4 text-muted-foreground"/>Target Value</Label>
                 <Input id="goalTargetValue" type="number" value={goalTargetValue} onChange={(e) => setGoalTargetValue(parseFloat(e.target.value) || 0)} disabled={isSubmitting}/>
               </div>
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="goalUnit" className="flex items-center"><Percent className="mr-2 h-4 w-4 text-muted-foreground"/>Unit</Label>
+              <Label htmlFor="goalUnit" className="flex items-center text-sm font-medium text-muted-foreground"><Percent className="mr-2 h-4 w-4 text-muted-foreground"/>Unit</Label>
               <Input id="goalUnit" value={goalUnit} onChange={(e) => setGoalUnit(e.target.value)} placeholder="e.g., %, USD, Tasks, Bugs (Lower is better)" disabled={isSubmitting}/>
               <p className="text-xs text-muted-foreground">Add '(Lower is better)' to the unit if applicable, e.g., 'Bugs (Lower is better)'.</p>
             </div>
             <div className="space-y-1.5">
-                <Label className="flex items-center">Set Current Value ({goalCurrentValue} {goalUnit.replace("(Lower is better)","").trim()})</Label>
+                <Label className="flex items-center text-sm font-medium text-muted-foreground">Set Current Value ({goalCurrentValue} {goalUnit.replace("(Lower is better)","").trim()})</Label>
                 <Slider
                     value={[goalCurrentValue]}
                     max={goalTargetValue > 0 ? goalTargetValue * (goalUnit.toLowerCase().includes("lower is better") ? 2 : 1.2) : 100}
@@ -301,7 +301,7 @@ export default function GoalsPage() {
                 />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="goalDeadline" className="flex items-center"><CalendarLucide className="mr-2 h-4 w-4 text-muted-foreground"/>Deadline (Optional)</Label>
+              <Label htmlFor="goalDeadline" className="flex items-center text-sm font-medium text-muted-foreground"><CalendarLucide className="mr-2 h-4 w-4 text-muted-foreground"/>Deadline (Optional)</Label>
                <Popover>
                 <PopoverTrigger asChild>
                   <Button
@@ -332,5 +332,4 @@ export default function GoalsPage() {
     </div>
   );
 }
-
     

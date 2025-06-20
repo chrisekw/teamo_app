@@ -10,7 +10,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { PlusCircle, Trash2, Users, Briefcase, Coffee, Zap, Building, KeyRound, UserPlus, Copy, Settings2, ShieldCheck, UserCircle as UserIconLucide, Loader2, Edit, Info, Image as ImageIconLucide, MoreHorizontal, ExternalLink, UserCheck, UserX, CheckSquare, XSquare, Video, Tag, Layers, ImageUp, Award } from "lucide-react"; // Renamed ImageIcon to ImageIconLucide
+import { PlusCircle, Trash2, Users, Briefcase, Coffee, Zap, Building, KeyRound, UserPlus, Copy, Settings2, ShieldCheck, UserCircle as UserIconLucide, Loader2, Edit, Info, Image as ImageIconLucide, MoreHorizontal, ExternalLink, UserCheck, UserX, CheckSquare, XSquare, Video, Tag, Layers, ImageUp, Award } from "lucide-react";
 import Image from "next/image";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -286,15 +286,13 @@ export default function OfficeDesignerPage() {
     setIsSubmitting(true);
     
     let logoUrlForCreate: string | undefined = undefined;
-    if (newOfficeLogoFile) {
-      // Simulate upload: In a real app, upload newOfficeLogoFile to Firebase Storage and get downloadURL
-      logoUrlForCreate = `https://placehold.co/100x100.png?text=LOGO&hint=${encodeURIComponent(newOfficeLogoFile.name.substring(0,10))}`;
+    if (newOfficeLogoFile && logoPreview) {
+      logoUrlForCreate = `https://placehold.co/100x100.png?text=${newOfficeLogoFile.name.substring(0,3).toUpperCase()}&hint=${encodeURIComponent(newOfficeLogoFile.name)}`;
     }
 
     let bannerUrlForCreate: string | undefined = undefined;
-    if (newOfficeBannerFile) {
-      // Simulate upload for banner
-      bannerUrlForCreate = `https://placehold.co/800x200.png?text=BANNER&hint=${encodeURIComponent(newOfficeBannerFile.name.substring(0,10))}`;
+    if (newOfficeBannerFile && bannerPreview) {
+      bannerUrlForCreate = `https://placehold.co/1200x300.png?text=${newOfficeBannerFile.name.substring(0,10).toUpperCase()}&hint=${encodeURIComponent(newOfficeBannerFile.name)}`;
     }
 
     try {
@@ -358,9 +356,8 @@ export default function OfficeDesignerPage() {
 
     setIsSubmitting(true);
     let coverImageUrlForCreate: string | undefined = undefined;
-    if (newRoomCoverImageFile) {
-      // Simulate upload for room cover image
-      coverImageUrlForCreate = `https://placehold.co/400x225.png?text=ROOM&hint=${encodeURIComponent(newRoomCoverImageFile.name.substring(0,10))}`;
+    if (newRoomCoverImageFile && newRoomCoverImagePreview) {
+       coverImageUrlForCreate = `https://placehold.co/400x225.png?text=${newRoomCoverImageFile.name.substring(0,10).toUpperCase()}&hint=${encodeURIComponent(newRoomCoverImageFile.name)}`;
     }
 
     try {
@@ -404,7 +401,6 @@ export default function OfficeDesignerPage() {
   const handleOpenManageMemberDialog = (member: OfficeMember) => {
     if (member.userId === user?.uid && member.role === "Owner") {
         toast({title: "Information", description: "Owners cannot change their own system role."});
-        // Allow managing own work role
     }
     setManagingMember(member);
     setSelectedSystemRole(member.role);
@@ -441,7 +437,7 @@ export default function OfficeDesignerPage() {
       await updateMemberDetailsInOffice(activeOffice.id, managingMember.userId, detailsToUpdate, user.uid, user.displayName || "User");
       toast({ title: "Member Details Updated", description: `${managingMember.name}'s details have been updated.`});
     } catch (error: any) {
-       toast({ variant: "destructive", title: "Error Updating Details", description: error.message });
+      toast({ variant: "destructive", title: "Error Updating Details", description: (error as Error).message });
     } finally {
       setIsSubmitting(false);
       setIsManageMemberDialogOpen(false);
@@ -520,13 +516,13 @@ export default function OfficeDesignerPage() {
         {userOffices.length > 0 && (
           <Card className="w-full max-w-lg mb-8 shadow-lg">
             <CardHeader>
-              <CardTitle className="font-headline">Your Offices</CardTitle>
+              <CardTitle className="font-headline text-base sm:text-lg">Your Offices</CardTitle>
               <CardDescription>Select an office to manage or create a new one.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-2">
               {userOffices.map(office => (
                 <Button key={office.id} variant="outline" className="w-full justify-start" onClick={() => handleSetActiveOffice(office)}>
-                  <Building className="mr-2 h-4 w-4"/> {office.name}
+                  <Building className="mr-2 h-4 w-4 text-muted-foreground"/> {office.name}
                 </Button>
               ))}
             </CardContent>
@@ -560,13 +556,13 @@ export default function OfficeDesignerPage() {
             {userOffices.length > 0 && (
                 <Card className="w-full max-w-lg mb-8 shadow-lg">
                     <CardHeader>
-                    <CardTitle className="font-headline">Your Offices</CardTitle>
+                    <CardTitle className="font-headline text-base sm:text-lg">Your Offices</CardTitle>
                     <CardDescription>Select an office to manage or create a new one.</CardDescription>
                     </CardHeader>
                     <CardContent className="space-y-2">
                     {userOffices.map(office => (
                         <Button key={office.id} variant="outline" className="w-full justify-start" onClick={() => handleSetActiveOffice(office)}>
-                        <Building className="mr-2 h-4 w-4"/> {office.name}
+                        <Building className="mr-2 h-4 w-4 text-muted-foreground"/> {office.name}
                         </Button>
                     ))}
                     </CardContent>
@@ -591,11 +587,11 @@ export default function OfficeDesignerPage() {
       {activeOffice && (
         <div className="mb-2 rounded-lg overflow-hidden shadow-lg aspect-[16/5] sm:aspect-[16/4] md:aspect-[16/3] relative bg-muted">
           <Image
-            src={activeOffice.bannerUrl || `https://placehold.co/800x300.png?text=${encodeURIComponent(activeOffice.name.substring(0,15) || 'Office Banner')}`}
+            src={activeOffice.bannerUrl || `https://placehold.co/1200x300.png?text=${encodeURIComponent(activeOffice.name.substring(0,15) || 'Office Banner')}`}
             alt={`${activeOffice.name} Banner`}
             layout="fill"
             objectFit="cover"
-            data-ai-hint={activeOffice.bannerUrl ? "office banner background" : "default office banner"}
+            data-ai-hint={activeOffice.bannerUrl && !activeOffice.bannerUrl.startsWith('https://placehold.co') ? "office banner" : "default office banner"}
             priority
           />
         </div>
@@ -609,19 +605,19 @@ export default function OfficeDesignerPage() {
             </DialogHeader>
             <div className="space-y-4 py-4 max-h-[70vh] overflow-y-auto pr-2">
               <div className="space-y-1.5">
-                <Label htmlFor="newOfficeName" className="flex items-center"><Edit className="mr-2 h-4 w-4 text-muted-foreground"/>Office Name*</Label>
+                <Label htmlFor="newOfficeName" className="flex items-center text-sm font-medium text-muted-foreground"><Edit className="mr-2 h-4 w-4 text-muted-foreground"/>Office Name*</Label>
                 <Input id="newOfficeName" value={newOfficeName} onChange={(e) => setNewOfficeName(e.target.value)} placeholder="e.g., Team Alpha HQ" disabled={isSubmitting}/>
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="newOfficeCompanyName" className="flex items-center"><Building className="mr-2 h-4 w-4 text-muted-foreground"/>Company/Brand Name</Label>
+                <Label htmlFor="newOfficeCompanyName" className="flex items-center text-sm font-medium text-muted-foreground"><Building className="mr-2 h-4 w-4 text-muted-foreground"/>Company/Brand Name</Label>
                 <Input id="newOfficeCompanyName" value={newOfficeCompanyName} onChange={(e) => setNewOfficeCompanyName(e.target.value)} placeholder="e.g., Alpha Corp" disabled={isSubmitting}/>
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="newOfficeSector" className="flex items-center"><Tag className="mr-2 h-4 w-4 text-muted-foreground"/>Sector</Label>
+                <Label htmlFor="newOfficeSector" className="flex items-center text-sm font-medium text-muted-foreground"><Tag className="mr-2 h-4 w-4 text-muted-foreground"/>Sector</Label>
                 <Input id="newOfficeSector" value={newOfficeSector} onChange={(e) => setNewOfficeSector(e.target.value)} placeholder="e.g., Technology, Healthcare" disabled={isSubmitting}/>
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="newOfficeLogo" className="flex items-center"><ImageIconLucide className="mr-2 h-4 w-4 text-muted-foreground"/>Office Logo</Label>
+                <Label htmlFor="newOfficeLogo" className="flex items-center text-sm font-medium text-muted-foreground"><ImageIconLucide className="mr-2 h-4 w-4 text-muted-foreground"/>Office Logo</Label>
                 <Input id="newOfficeLogo" type="file" accept="image/*" onChange={handleLogoFileChange} className="file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-primary file:text-primary-foreground hover:file:bg-primary/90" disabled={isSubmitting}/>
                 {logoPreview && (
                   <div className="mt-2">
@@ -630,7 +626,7 @@ export default function OfficeDesignerPage() {
                 )}
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="newOfficeBanner" className="flex items-center"><ImageUp className="mr-2 h-4 w-4 text-muted-foreground"/>Office Banner</Label>
+                <Label htmlFor="newOfficeBanner" className="flex items-center text-sm font-medium text-muted-foreground"><ImageUp className="mr-2 h-4 w-4 text-muted-foreground"/>Office Banner</Label>
                 <Input id="newOfficeBanner" type="file" accept="image/*" onChange={handleBannerFileChange} className="file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-primary file:text-primary-foreground hover:file:bg-primary/90" disabled={isSubmitting}/>
                 {bannerPreview && (
                   <div className="mt-2 aspect-[4/1] w-full relative">
@@ -656,7 +652,7 @@ export default function OfficeDesignerPage() {
             </DialogHeader>
             <div className="space-y-4 py-4">
               <div className="space-y-1.5">
-                <Label htmlFor="joinOfficeCode" className="flex items-center"><KeyRound className="mr-2 h-4 w-4 text-muted-foreground"/>Invitation Code</Label>
+                <Label htmlFor="joinOfficeCode" className="flex items-center text-sm font-medium text-muted-foreground"><KeyRound className="mr-2 h-4 w-4 text-muted-foreground"/>Invitation Code</Label>
                 <Input id="joinOfficeCode" value={joinOfficeCode} onChange={(e) => setJoinOfficeCode(e.target.value)} placeholder="e.g., XYZ-789" disabled={isSubmitting}/>
               </div>
             </div>
@@ -675,7 +671,7 @@ export default function OfficeDesignerPage() {
                 <CardContent className="p-6">
                     <div className="flex flex-col sm:flex-row items-start sm:items-end space-y-4 sm:space-y-0 sm:space-x-6">
                         {activeOffice.logoUrl ? (
-                            <Image src={activeOffice.logoUrl} alt={`${activeOffice.name} Logo`} width={100} height={100} className="rounded-lg object-cover border-4 border-background shadow-md -mt-12 sm:-mt-16" data-ai-hint="company logo" priority/>
+                            <Image src={activeOffice.logoUrl} alt={`${activeOffice.name} Logo`} width={100} height={100} className="rounded-lg object-cover border-4 border-background shadow-md -mt-12 sm:-mt-16" data-ai-hint={activeOffice.logoUrl && !activeOffice.logoUrl.startsWith('https://placehold.co') ? "company logo" : "default company logo"} priority/>
                         ) : (
                             <div className="h-24 w-24 sm:h-28 sm:w-28 bg-muted rounded-lg flex items-center justify-center border-4 border-background shadow-md -mt-12 sm:-mt-16">
                                 <Building className="h-12 w-12 text-muted-foreground"/>
@@ -796,7 +792,7 @@ export default function OfficeDesignerPage() {
                                     alt={room.name}
                                     layout="fill"
                                     objectFit="cover"
-                                    data-ai-hint={room.coverImageUrl ? roomTypeDetails[room.type]?.imageHint || "office room interior" : "default room image"}
+                                    data-ai-hint={room.coverImageUrl && !room.coverImageUrl.startsWith('https://placehold.co') ? roomTypeDetails[room.type]?.imageHint || "office room interior" : "default room image"}
                                     />
                                 </div>
                                 </CardContent>
@@ -861,7 +857,7 @@ export default function OfficeDesignerPage() {
                                         <DropdownMenuItem onClick={() => handleOpenManageMemberDialog(member)} disabled={isSubmitting}>
                                         <Edit className="mr-2 h-4 w-4" /> Manage Member
                                         </DropdownMenuItem>
-                                        {member.role !== "Owner" && ( // Prevent deleting owner
+                                        {member.role !== "Owner" && ( 
                                         <DropdownMenuItem onClick={() => openDeleteMemberDialog(member)} className="text-destructive focus:bg-destructive/10 focus:text-destructive" disabled={isSubmitting}>
                                             <Trash2 className="mr-2 h-4 w-4" /> Remove Member
                                         </DropdownMenuItem>
@@ -888,7 +884,7 @@ export default function OfficeDesignerPage() {
           </DialogHeader>
           <div className="space-y-4 py-4 max-h-[70vh] overflow-y-auto pr-2">
             <div className="space-y-1.5">
-              <Label htmlFor="roomType" className="flex items-center"><Layers className="mr-2 h-4 w-4 text-muted-foreground"/>Type</Label>
+              <Label htmlFor="roomType" className="flex items-center text-sm font-medium text-muted-foreground"><Layers className="mr-2 h-4 w-4 text-muted-foreground"/>Type</Label>
               <Select onValueChange={(value) => setSelectedRoomType(value as RoomType)} value={selectedRoomType} disabled={isSubmitting}>
                 <SelectTrigger id="roomType">
                   <SelectValue placeholder="Select room type" />
@@ -901,7 +897,7 @@ export default function OfficeDesignerPage() {
               </Select>
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="roomName" className="flex items-center"><Edit className="mr-2 h-4 w-4 text-muted-foreground"/>Name</Label>
+              <Label htmlFor="roomName" className="flex items-center text-sm font-medium text-muted-foreground"><Edit className="mr-2 h-4 w-4 text-muted-foreground"/>Name</Label>
               <Input
                 id="roomName"
                 value={newRoomName}
@@ -911,7 +907,7 @@ export default function OfficeDesignerPage() {
               />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="newRoomCoverImage" className="flex items-center"><ImageIconLucide className="mr-2 h-4 w-4 text-muted-foreground"/>Room Cover Image (Optional)</Label>
+              <Label htmlFor="newRoomCoverImage" className="flex items-center text-sm font-medium text-muted-foreground"><ImageIconLucide className="mr-2 h-4 w-4 text-muted-foreground"/>Room Cover Image (Optional)</Label>
               <Input id="newRoomCoverImage" type="file" accept="image/*" onChange={handleRoomCoverImageFileChange} className="file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-primary file:text-primary-foreground hover:file:bg-primary/90" disabled={isSubmitting}/>
               {newRoomCoverImagePreview && (
                 <div className="mt-2 aspect-video w-full relative">
@@ -938,7 +934,7 @@ export default function OfficeDesignerPage() {
             </DialogHeader>
             <div className="space-y-4 py-4 max-h-[70vh] overflow-y-auto pr-2">
               <div className="space-y-1.5">
-                <Label htmlFor="memberSystemRole" className="flex items-center"><ShieldCheck className="mr-2 h-4 w-4 text-muted-foreground"/>System Role</Label>
+                <Label htmlFor="memberSystemRole" className="flex items-center text-sm font-medium text-muted-foreground"><ShieldCheck className="mr-2 h-4 w-4 text-muted-foreground"/>System Role</Label>
                 <Select value={selectedSystemRole} onValueChange={(value) => setSelectedSystemRole(value as MemberRole)} disabled={isSubmitting || managingMember.role === "Owner" && managingMember.userId === user?.uid || managingMember.role === "Owner" && managingMember.userId === activeOffice?.ownerId }>
                   <SelectTrigger id="memberSystemRole">
                     <SelectValue placeholder="Select system role" />
@@ -952,7 +948,7 @@ export default function OfficeDesignerPage() {
                  { (managingMember.role === "Owner" && managingMember.userId === user?.uid || managingMember.role === "Owner" && managingMember.userId === activeOffice?.ownerId ) && <p className="text-xs text-muted-foreground">The office owner's system role cannot be changed.</p> }
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="memberWorkRole" className="flex items-center"><Award className="mr-2 h-4 w-4 text-muted-foreground"/>Work Role (Optional)</Label>
+                <Label htmlFor="memberWorkRole" className="flex items-center text-sm font-medium text-muted-foreground"><Award className="mr-2 h-4 w-4 text-muted-foreground"/>Work Role (Optional)</Label>
                 <Input id="memberWorkRole" value={selectedWorkRole} onChange={(e) => setSelectedWorkRole(e.target.value)} placeholder="e.g., Developer, Designer" disabled={isSubmitting}/>
               </div>
             </div>
@@ -1002,4 +998,3 @@ export default function OfficeDesignerPage() {
     </div>
   );
 }
-

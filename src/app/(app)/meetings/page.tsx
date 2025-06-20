@@ -212,6 +212,7 @@ export default function MeetingsPage() {
           variant: 'destructive',
           title: 'Media Access Denied',
           description: 'Please enable camera and microphone permissions in your browser settings to join the meeting.',
+          duration: 7000,
         });
       } finally {
         setIsJoiningMeeting(false);
@@ -350,17 +351,17 @@ export default function MeetingsPage() {
               </DialogHeader>
               <div className="space-y-4 py-4 max-h-[75vh] overflow-y-auto pr-2">
                 <div className="space-y-1.5">
-                  <Label htmlFor="title" className="flex items-center"><Edit className="mr-2 h-4 w-4 text-muted-foreground"/>Meeting Title</Label>
+                  <Label htmlFor="title" className="flex items-center text-sm font-medium text-muted-foreground"><Edit className="mr-2 h-4 w-4 text-muted-foreground"/>Meeting Title</Label>
                   <Input id="title" value={newMeetingTitle} onChange={(e) => setNewMeetingTitle(e.target.value)} placeholder="Enter meeting title" disabled={isSubmitting}/>
                 </div>
                 <div className="space-y-1.5">
-                  <Label htmlFor="description" className="flex items-center"><Clock className="mr-2 h-4 w-4 text-muted-foreground"/>Description (Optional)</Label>
+                  <Label htmlFor="description" className="flex items-center text-sm font-medium text-muted-foreground"><Clock className="mr-2 h-4 w-4 text-muted-foreground"/>Description (Optional)</Label>
                   <Textarea id="description" value={newMeetingDescription} onChange={(e) => setNewMeetingDescription(e.target.value)} placeholder="Enter meeting description" rows={3} disabled={isSubmitting}/>
                 </div>
                 
                 <div className="grid grid-cols-1 gap-4">
                   <div className="space-y-1.5">
-                    <Label htmlFor="startDate" className="flex items-center"><CalendarDays className="mr-2 h-4 w-4 text-muted-foreground"/>Start Date & Time</Label>
+                    <Label htmlFor="startDate" className="flex items-center text-sm font-medium text-muted-foreground"><CalendarDays className="mr-2 h-4 w-4 text-muted-foreground"/>Start Date & Time</Label>
                     <div className="flex gap-2">
                       <Popover>
                         <PopoverTrigger asChild>
@@ -375,7 +376,7 @@ export default function MeetingsPage() {
                     </div>
                   </div>
                   <div className="space-y-1.5">
-                    <Label htmlFor="endDate" className="flex items-center"><CalendarDays className="mr-2 h-4 w-4 text-muted-foreground"/>End Date & Time</Label>
+                    <Label htmlFor="endDate" className="flex items-center text-sm font-medium text-muted-foreground"><CalendarDays className="mr-2 h-4 w-4 text-muted-foreground"/>End Date & Time</Label>
                      <div className="flex gap-2">
                         <Popover>
                             <PopoverTrigger asChild>
@@ -392,20 +393,20 @@ export default function MeetingsPage() {
                 </div>
                 
                 <div className="flex items-center justify-between pt-2">
-                  <Label htmlFor="isRecurring" className="flex items-center"><Repeat className="mr-2 h-4 w-4 text-muted-foreground"/> Recurring Meeting </Label>
+                  <Label htmlFor="isRecurring" className="flex items-center text-sm font-medium text-muted-foreground"><Repeat className="mr-2 h-4 w-4 text-muted-foreground"/> Recurring Meeting </Label>
                   <Switch id="isRecurring" checked={newMeetingIsRecurring} onCheckedChange={setNewMeetingIsRecurring} disabled={isSubmitting}/>
                 </div>
 
                 <div className="space-y-1.5">
-                  <Label htmlFor="department" className="flex items-center"><Briefcase className="mr-2 h-4 w-4 text-muted-foreground"/>Department (Optional)</Label>
+                  <Label htmlFor="department" className="flex items-center text-sm font-medium text-muted-foreground"><Briefcase className="mr-2 h-4 w-4 text-muted-foreground"/>Department (Optional)</Label>
                     <Input id="department" value={newMeetingDepartment} onChange={(e) => setNewMeetingDepartment(e.target.value)} placeholder="Select Department" disabled={isSubmitting}/>
                 </div>
                 <div className="space-y-1.5">
-                  <Label htmlFor="participants" className="flex items-center"><Users className="mr-2 h-4 w-4 text-muted-foreground"/>Participants</Label>
+                  <Label htmlFor="participants" className="flex items-center text-sm font-medium text-muted-foreground"><Users className="mr-2 h-4 w-4 text-muted-foreground"/>Participants</Label>
                     <Input id="participants" value={newMeetingParticipants} onChange={(e) => setNewMeetingParticipants(e.target.value)} placeholder="e.g. Alice, Bob (comma-separated)" disabled={isSubmitting}/>
                 </div>
                 <div className="space-y-1.5">
-                    <Label className="flex items-center"><Video className="mr-2 h-4 w-4 text-muted-foreground"/>Meeting Type</Label>
+                    <Label className="flex items-center text-sm font-medium text-muted-foreground"><Video className="mr-2 h-4 w-4 text-muted-foreground"/>Meeting Type</Label>
                     <Button variant="outline" className="w-full justify-start bg-primary/10 border-primary text-primary" disabled>
                         <Video className="mr-2 h-4 w-4"/> Video Conference
                     </Button>
@@ -522,5 +523,4 @@ export default function MeetingsPage() {
     </div>
   );
 }
-
     
