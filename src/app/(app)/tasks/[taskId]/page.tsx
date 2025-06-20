@@ -51,7 +51,6 @@ export default function TaskDetailPage() {
   const [priority, setPriority] = useState<Task["priority"]>("Medium");
   const [description, setDescription] = useState("");
   const [progress, setProgress] = useState(0);
-  const [department, setDepartment] = useState(""); // New state for department
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
 
   const fetchUserOfficesForActivityLog = useCallback(async () => {
@@ -81,7 +80,6 @@ export default function TaskDetailPage() {
           setPriority(taskData.priority);
           setDescription(taskData.description || "");
           setProgress(taskData.progress);
-          setDepartment(taskData.department || ""); // Set department
         } else {
            toast({ variant: "destructive", title: "Not Found", description: "Task not found or you don't have access." });
            router.push("/tasks"); 
@@ -109,12 +107,11 @@ export default function TaskDetailPage() {
     const updatedTaskData: Partial<Omit<Task, 'id' | 'createdAt' | 'updatedAt' | 'userId'>> = {
       name: taskName,
       assignedTo,
-      dueDate: dueDate, // Send undefined if not set
+      dueDate: dueDate, 
       status,
       priority,
       description,
       progress,
-      department: department || undefined, // Send undefined if empty
     };
     const actorName = user.displayName || user.email || "User";
     const officeIdForLog = userOffices.length > 0 ? userOffices[0].id : undefined;
@@ -245,10 +242,6 @@ export default function TaskDetailPage() {
                 </Select>
               </div>
             </div>
-             <div className="space-y-1.5">
-                <Label htmlFor="department" className="flex items-center text-sm font-medium text-muted-foreground"><Briefcase className="mr-2 h-4 w-4 text-muted-foreground"/>Department (Optional)</Label>
-                <Input id="department" value={department} onChange={(e) => setDepartment(e.target.value)} placeholder="e.g., Engineering" disabled={isSubmitting}/>
-              </div>
 
             <div className="space-y-1.5">
               <div className="flex justify-between items-center mb-1">

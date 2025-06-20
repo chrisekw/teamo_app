@@ -1,4 +1,5 @@
 
+
 import type { LucideIcon } from 'lucide-react';
 import type { Timestamp } from 'firebase/firestore';
 
@@ -45,7 +46,6 @@ export interface Task {
   priority: "Low" | "Medium" | "High";
   progress: number;
   description?: string;
-  department?: string;
   createdAt?: Date;
   updatedAt?: Date;
   userId?: string; // The user who "owns" or created this task
@@ -53,7 +53,6 @@ export interface Task {
 
 export type TaskFirestoreData = Omit<Task, 'id' | 'dueDate' | 'createdAt' | 'updatedAt' | 'userId'> & {
   dueDate?: Timestamp;
-  department?: string;
   createdAt?: Timestamp;
   updatedAt?: Timestamp;
 };
@@ -88,7 +87,6 @@ export interface Meeting {
   dateTime: Date; // Start date and time
   endDateTime: Date; // End date and time
   isRecurring?: boolean;
-  department?: string;
   participants: string[]; // Names or IDs of invited users/groups
   description?: string;
   createdAt?: Date;

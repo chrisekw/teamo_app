@@ -18,8 +18,6 @@ const taskConverter: FirestoreDataConverter<Task, TaskFirestoreData> = {
       delete data.dueDate;
     }
     
-    if (taskInput.department === undefined) delete data.department;
-    
     if (!taskInput.id) { 
         data.createdAt = serverTimestamp();
     }
@@ -37,7 +35,6 @@ const taskConverter: FirestoreDataConverter<Task, TaskFirestoreData> = {
       priority: data.priority,
       progress: data.progress,
       description: data.description || "",
-      department: data.department,
       createdAt: data.createdAt instanceof Timestamp ? data.createdAt.toDate() : new Date(),
       updatedAt: data.updatedAt instanceof Timestamp ? data.updatedAt.toDate() : new Date(),
       userId: snapshot.ref.parent.parent!.id, // Assuming tasks are under /users/{userId}/tasks
@@ -89,7 +86,7 @@ export async function addTaskForUser(
     addActivityLog(officeId, {
       type: "task-new",
       title: `New Task: ${newTask.name}`,
-      description: `Assigned to: ${newTask.assignedTo || 'Unassigned'}${newTask.department ? ` in ${newTask.department}` : ''}. Created by ${actorName}.`,
+      description: `Assigned to: ${newTask.assignedTo || 'Unassigned'}. Created by ${actorName}.`,
       iconName: "ListChecks",
       actorId: actorUserId,
       actorName: actorName,
@@ -141,10 +138,6 @@ export async function updateTaskForUser(
     updatePayload.dueDate = undefined; 
   }
   
-  if (taskData.hasOwnProperty('department') && taskData.department === undefined) {
-    updatePayload.department = undefined;
-  }
-
   await updateDoc(taskDocRef, updatePayload);
 
   if (officeId && originalTask) {

@@ -52,7 +52,6 @@ export default function TasksPage() {
   const [newPriority, setNewPriority] = useState<Task["priority"]>("Medium");
   const [newDueDate, setNewDueDate] = useState<Date | undefined>();
   const [newAssignedTo, setNewAssignedTo] = useState("");
-  const [newTaskDepartment, setNewTaskDepartment] = useState("");
   
   const [isSubmittingTask, setIsSubmittingTask] = useState(false);
 
@@ -98,7 +97,6 @@ export default function TasksPage() {
     setNewPriority("Medium");
     setNewDueDate(undefined);
     setNewAssignedTo("");
-    setNewTaskDepartment("");
   };
 
   const handleCreateTask = async () => {
@@ -120,7 +118,6 @@ export default function TasksPage() {
       priority: newPriority,
       description: newDescription,
       progress: 0, 
-      department: newTaskDepartment || undefined,
     };
     
     const actorName = user.displayName || user.email || "User";
@@ -193,7 +190,6 @@ export default function TasksPage() {
                 </CardHeader>
                 <CardContent className="flex-grow space-y-3">
                   <div className="text-sm text-muted-foreground">Assigned to: {task.assignedTo}</div>
-                   {task.department && <div className="text-sm text-muted-foreground">Department: {task.department}</div>}
                   <div className="flex items-center justify-between">
                       <Badge className={cn(statusColors[task.status], "text-white")}>{task.status}</Badge>
                       <Badge variant={task.priority === "High" ? "destructive" : task.priority === "Medium" ? "secondary" : "outline"}>
@@ -283,11 +279,6 @@ export default function TasksPage() {
             <div className="space-y-1.5">
                 <Label htmlFor="newAssignedTo" className="flex items-center text-sm font-medium text-muted-foreground"><User className="mr-2 h-4 w-4 text-muted-foreground"/>Assignee</Label>
                 <Input id="newAssignedTo" value={newAssignedTo} onChange={(e) => setNewAssignedTo(e.target.value)} placeholder="Name or email" disabled={isSubmittingTask}/>
-            </div>
-
-            <div className="space-y-1.5">
-                <Label htmlFor="newTaskDepartment" className="flex items-center text-sm font-medium text-muted-foreground"><Briefcase className="mr-2 h-4 w-4 text-muted-foreground"/>Department (Optional)</Label>
-                <Input id="newTaskDepartment" value={newTaskDepartment} onChange={(e) => setNewTaskDepartment(e.target.value)} placeholder="e.g., Engineering" disabled={isSubmittingTask}/>
             </div>
 
           </div>

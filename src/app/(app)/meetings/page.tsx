@@ -78,7 +78,6 @@ export default function MeetingsPage() {
   const [newMeetingEndDate, setNewMeetingEndDate] = useState<Date | undefined>(new Date());
   const [newMeetingEndTime, setNewMeetingEndTime] = useState(format(new Date(Date.now() + 60 * 60 * 1000), "HH:mm")); // Default 1 hour later
   const [newMeetingIsRecurring, setNewMeetingIsRecurring] = useState(false);
-  const [newMeetingDepartment, setNewMeetingDepartment] = useState("");
   const [newMeetingParticipants, setNewMeetingParticipants] = useState(""); // Comma-separated string
 
   const [selectedMeetingForPreview, setSelectedMeetingForPreview] = useState<Meeting | null>(null);
@@ -238,7 +237,6 @@ export default function MeetingsPage() {
     setNewMeetingEndDate(new Date());
     setNewMeetingEndTime(format(new Date(Date.now() + 60 * 60 * 1000), "HH:mm"));
     setNewMeetingIsRecurring(false);
-    setNewMeetingDepartment("");
     setNewMeetingParticipants("");
   };
 
@@ -274,7 +272,6 @@ export default function MeetingsPage() {
       dateTime: startDateTime,
       endDateTime: endDateTime,
       isRecurring: newMeetingIsRecurring,
-      department: newMeetingDepartment || undefined,
       participants: newMeetingParticipants.split(',').map(p => p.trim()).filter(p => p !== ""),
       description: newMeetingDescription || undefined,
     };
@@ -397,10 +394,6 @@ export default function MeetingsPage() {
                   <Switch id="isRecurring" checked={newMeetingIsRecurring} onCheckedChange={setNewMeetingIsRecurring} disabled={isSubmitting}/>
                 </div>
 
-                <div className="space-y-1.5">
-                  <Label htmlFor="department" className="flex items-center text-sm font-medium text-muted-foreground"><Briefcase className="mr-2 h-4 w-4 text-muted-foreground"/>Department (Optional)</Label>
-                    <Input id="department" value={newMeetingDepartment} onChange={(e) => setNewMeetingDepartment(e.target.value)} placeholder="e.g., Engineering" disabled={isSubmitting}/>
-                </div>
                 <div className="space-y-1.5">
                   <Label htmlFor="participants" className="flex items-center text-sm font-medium text-muted-foreground"><Users className="mr-2 h-4 w-4 text-muted-foreground"/>Participants (Optional)</Label>
                     <Textarea id="participants" value={newMeetingParticipants} onChange={(e) => setNewMeetingParticipants(e.target.value)} placeholder="Comma-separated names or emails" disabled={isSubmitting} rows={2}/>

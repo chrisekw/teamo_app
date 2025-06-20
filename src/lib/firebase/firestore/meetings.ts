@@ -39,7 +39,6 @@ const meetingConverter: FirestoreDataConverter<Meeting, MeetingFirestoreData> = 
     data.updatedAt = serverTimestamp();
     
     if (meetingInput.isRecurring === undefined) delete data.isRecurring;
-    if (meetingInput.department === undefined) delete data.department;
     if (meetingInput.description === undefined) delete data.description;
     if (meetingInput.participants && Array.isArray(meetingInput.participants)) {
         data.participants = meetingInput.participants;
@@ -58,7 +57,6 @@ const meetingConverter: FirestoreDataConverter<Meeting, MeetingFirestoreData> = 
       dateTime: data.dateTime instanceof Timestamp ? data.dateTime.toDate() : new Date(),
       endDateTime: data.endDateTime instanceof Timestamp ? data.endDateTime.toDate() : new Date(),
       isRecurring: data.isRecurring || false,
-      department: data.department,
       participants: data.participants || [],
       description: data.description || "",
       createdAt: data.createdAt instanceof Timestamp ? data.createdAt.toDate() : new Date(),
