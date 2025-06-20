@@ -16,14 +16,24 @@ import type { Meeting } from "@/types";
 import { useAuth } from "@/lib/firebase/auth";
 import { addMeetingForUser, getMeetingsForUser, deleteMeetingForUser } from "@/lib/firebase/firestore/meetings";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
-import { getOfficesForUser, type Office } from "@/lib/firebase/firestore/offices";
+import { getOfficesForUser, type Office, getMembersForOffice, type OfficeMember } from "@/lib/firebase/firestore/offices";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useSearchParams, useRouter, usePathname } from 'next/navigation';
 import { addUserNotification } from "@/lib/firebase/firestore/notifications";
 import { Switch } from "@/components/ui/switch";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
-import { format, parse } from "date-fns";
+import { format } from "date-fns";
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+
 
 const ShadCNCalendar = dynamic(() => import('@/components/ui/calendar').then(mod => mod.Calendar), {
   ssr: false,
@@ -76,9 +86,12 @@ export default function MeetingsPage() {
   const [newMeetingStartDate, setNewMeetingStartDate] = useState<Date | undefined>(new Date());
   const [newMeetingStartTime, setNewMeetingStartTime] = useState(format(new Date(), "HH:mm"));
   const [newMeetingEndDate, setNewMeetingEndDate] = useState<Date | undefined>(new Date());
-  const [newMeetingEndTime, setNewMeetingEndTime] = useState(format(new Date(Date.now() + 60 * 60 * 1000), "HH:mm")); // Default 1 hour later
+  const [newMeetingEndTime, setNewMeetingEndTime] = useState(format(new Date(Date.now() + 60 * 60 * 1000), "HH:mm"));
   const [newMeetingIsRecurring, setNewMeetingIsRecurring] = useState(false);
-  const [newMeetingParticipants, setNewMeetingParticipants] = useState(""); // Comma-separated string
+  const [newMeetingParticipants, setNewMeetingParticipants] = useState<string[]>([]);
+  const [currentOfficeMembers, setCurrentOfficeMembers] = useState<OfficeMember[]>([]);
+  const [isLoadingOfficeMembers, setIsLoadingOfficeMembers] = useState(false);
+
 
   const [selectedMeetingForPreview, setSelectedMeetingForPreview] = useState<Meeting | null>(null);
   const [hasCameraPermission, setHasCameraPermission] = useState<boolean | undefined>(undefined);
@@ -98,6 +111,30 @@ export default function MeetingsPage() {
       fetchUserOffices();
     }
   }, [authLoading, user, fetchUserOffices]);
+
+  useEffect(() => {
+    const fetchOfficeMembers = async () => {
+      if (userOffices.length > 0 && user) {
+        setIsLoadingOfficeMembers(true);
+        try {
+          const members = await getMembersForOffice(userOffices[0].id);
+          setCurrentOfficeMembers(members.filter(m => m.userId !== user.uid)); // Exclude current user
+        } catch (error) {
+          console.error("Failed to fetch office members:", error);
+          toast({ variant: "destructive", title: "Error", description: "Could not load office members for selection." });
+        } finally {
+          setIsLoadingOfficeMembers(false);
+        }
+      } else {
+        setCurrentOfficeMembers([]);
+      }
+    };
+
+    if (user && userOffices.length > 0) {
+      fetchOfficeMembers();
+    }
+  }, [user, userOffices, toast]);
+
 
   const fetchMeetings = useCallback(async () => {
     if (user) {
@@ -237,7 +274,7 @@ export default function MeetingsPage() {
     setNewMeetingEndDate(new Date());
     setNewMeetingEndTime(format(new Date(Date.now() + 60 * 60 * 1000), "HH:mm"));
     setNewMeetingIsRecurring(false);
-    setNewMeetingParticipants("");
+    setNewMeetingParticipants([]);
   };
 
   const combineDateTime = (date: Date, time: string): Date => {
@@ -272,7 +309,7 @@ export default function MeetingsPage() {
       dateTime: startDateTime,
       endDateTime: endDateTime,
       isRecurring: newMeetingIsRecurring,
-      participants: newMeetingParticipants.split(',').map(p => p.trim()).filter(p => p !== ""),
+      participants: newMeetingParticipants,
       description: newMeetingDescription || undefined,
     };
     const actorName = user.displayName || user.email || "User";
@@ -394,10 +431,72 @@ export default function MeetingsPage() {
                   <Switch id="isRecurring" checked={newMeetingIsRecurring} onCheckedChange={setNewMeetingIsRecurring} disabled={isSubmitting}/>
                 </div>
 
-                <div className="space-y-1.5">
-                  <Label htmlFor="participants" className="flex items-center text-sm font-medium text-muted-foreground"><Users className="mr-2 h-4 w-4 text-muted-foreground"/>Participants (Optional)</Label>
-                    <Textarea id="participants" value={newMeetingParticipants} onChange={(e) => setNewMeetingParticipants(e.target.value)} placeholder="Comma-separated names or emails" disabled={isSubmitting} rows={2}/>
-                </div>
+                 <div className="space-y-1.5">
+                    <Label htmlFor="participants" className="flex items-center text-sm font-medium text-muted-foreground"><Users className="mr-2 h-4 w-4 text-muted-foreground"/>Participants</Label>
+                    <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                        <Button variant="outline" className="w-full justify-start text-left font-normal h-auto min-h-10 py-2" disabled={isSubmitting || isLoadingOfficeMembers}>
+                            {isLoadingOfficeMembers ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                            {newMeetingParticipants.length === 0 && !isLoadingOfficeMembers
+                            ? "Select Participants"
+                            : newMeetingParticipants.length > 2 
+                                ? `${newMeetingParticipants.slice(0,2).join(', ')} +${newMeetingParticipants.length - 2} more`
+                                : newMeetingParticipants.join(', ')}
+                            
+                        </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent className="w-[calc(var(--radix-dialog-content-width)-2rem)] sm:w-[calc(var(--radix-dialog-content-width)-3rem)] max-w-md">
+                        <DropdownMenuLabel>Select Team Members</DropdownMenuLabel>
+                        <DropdownMenuSeparator />
+                        {currentOfficeMembers.length > 0 && (
+                            <DropdownMenuCheckboxItem
+                            checked={newMeetingParticipants.length === currentOfficeMembers.length && currentOfficeMembers.length > 0}
+                            onCheckedChange={(checked) => {
+                                if (checked) {
+                                setNewMeetingParticipants(currentOfficeMembers.map(m => m.name));
+                                } else {
+                                setNewMeetingParticipants([]);
+                                }
+                            }}
+                            disabled={isLoadingOfficeMembers}
+                            >
+                            Select All ({currentOfficeMembers.length})
+                            </DropdownMenuCheckboxItem>
+                        )}
+                        <DropdownMenuSeparator />
+                        {isLoadingOfficeMembers ? (
+                            <div className="flex justify-center p-2"><Loader2 className="h-5 w-5 animate-spin" /></div>
+                        ) : currentOfficeMembers.length === 0 ? (
+                            <div className="p-2 text-sm text-muted-foreground text-center">No other members in your primary office.</div>
+                        ) : (
+                            <div className="max-h-48 overflow-y-auto">
+                            {currentOfficeMembers.map((member) => (
+                            <DropdownMenuCheckboxItem
+                                key={member.userId}
+                                checked={newMeetingParticipants.includes(member.name)}
+                                onCheckedChange={(checked) => {
+                                setNewMeetingParticipants((prev) =>
+                                    checked
+                                    ? [...prev, member.name]
+                                    : prev.filter((name) => name !== member.name)
+                                );
+                                }}
+                            >
+                                <div className="flex items-center">
+                                <Avatar className="h-6 w-6 mr-2">
+                                    <AvatarImage src={member.avatarUrl || `https://placehold.co/40x40.png?text=${member.name.substring(0,1)}`} alt={member.name} data-ai-hint="person avatar"/>
+                                    <AvatarFallback>{member.name.substring(0,1)}</AvatarFallback>
+                                </Avatar>
+                                {member.name}
+                                </div>
+                            </DropdownMenuCheckboxItem>
+                            ))}
+                            </div>
+                        )}
+                        </DropdownMenuContent>
+                    </DropdownMenu>
+                    </div>
+
                 <div className="space-y-1.5">
                     <Label className="flex items-center text-sm font-medium text-muted-foreground"><Video className="mr-2 h-4 w-4 text-muted-foreground"/>Meeting Type</Label>
                     <Button variant="outline" className="w-full justify-start bg-primary/10 border-primary text-primary" disabled>
@@ -518,3 +617,4 @@ export default function MeetingsPage() {
 }
 
     
+
