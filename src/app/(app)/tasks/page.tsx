@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
-import { PlusCircle, ListChecks, Filter, Loader2, User, Briefcase, Edit, Info, Clock, AlertTriangle } from "lucide-react";
+import { PlusCircle, ListChecks, Filter, Loader2, User, Briefcase, Edit, Info, Clock, AlertTriangle, Users as UsersIcon } from "lucide-react";
 import { useState, useEffect, useCallback } from "react";
 import {
   Dialog,
@@ -23,13 +23,22 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
 import { Calendar as CalendarIcon } from "lucide-react";
-import type { Task } from "@/types";
+import type { Task, OfficeMember } from "@/types";
 import { statusColors, addTaskForUser, getTasksForUser } from "@/lib/firebase/firestore/tasks";
 import { useAuth } from "@/lib/firebase/auth";
 import { useToast } from "@/hooks/use-toast";
-import { getOfficesForUser, type Office } from "@/lib/firebase/firestore/offices";
+import { getOfficesForUser, getMembersForOffice, type Office } from "@/lib/firebase/firestore/offices";
 import dynamic from 'next/dynamic';
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 
 
 const DynamicCalendar = dynamic(() => import('@/components/ui/calendar').then(mod => mod.Calendar), {
@@ -46,12 +55,14 @@ export default function TasksPage() {
   const [isLoadingTasks, setIsLoadingTasks] = useState(true);
   const [isCreateTaskDialogOpen, setIsCreateTaskDialogOpen] = useState(false);
   const [userOffices, setUserOffices] = useState<Office[]>([]);
+  const [currentOfficeMembers, setCurrentOfficeMembers] = useState<OfficeMember[]>([]);
+  const [isLoadingOfficeMembers, setIsLoadingOfficeMembers] = useState(false);
 
   const [newTaskName, setNewTaskName] = useState("");
   const [newDescription, setNewDescription] = useState("");
   const [newPriority, setNewPriority] = useState<Task["priority"]>("Medium");
   const [newDueDate, setNewDueDate] = useState<Date | undefined>();
-  const [newAssignedTo, setNewAssignedTo] = useState("");
+  const [newAssignedTo, setNewAssignedTo] = useState<string[]>([]); // Changed to string array
   
   const [isSubmittingTask, setIsSubmittingTask] = useState(false);
 
@@ -67,6 +78,28 @@ export default function TasksPage() {
       fetchUserOffices();
     }
   }, [authLoading, user, fetchUserOffices]);
+
+  useEffect(() => {
+    const fetchMembers = async () => {
+      if (userOffices.length > 0 && user) {
+        setIsLoadingOfficeMembers(true);
+        try {
+          const members = await getMembersForOffice(userOffices[0].id); // Assuming first office is primary
+          setCurrentOfficeMembers(members.filter(m => m.userId !== user.uid)); // Exclude current user
+        } catch (error) {
+          console.error("Failed to fetch office members:", error);
+          toast({ variant: "destructive", title: "Error", description: "Could not load office members for selection." });
+        } finally {
+          setIsLoadingOfficeMembers(false);
+        }
+      } else {
+        setCurrentOfficeMembers([]);
+      }
+    };
+    if (user && userOffices.length > 0) {
+      fetchMembers();
+    }
+  }, [user, userOffices, toast]);
 
 
   const fetchTasks = useCallback(async () => {
@@ -96,7 +129,7 @@ export default function TasksPage() {
     setNewDescription("");
     setNewPriority("Medium");
     setNewDueDate(undefined);
-    setNewAssignedTo("");
+    setNewAssignedTo([]); // Reset to empty array
   };
 
   const handleCreateTask = async () => {
@@ -112,7 +145,7 @@ export default function TasksPage() {
     setIsSubmittingTask(true);
     const taskData: Omit<Task, 'id' | 'createdAt' | 'updatedAt' | 'userId'> = {
       name: newTaskName,
-      assignedTo: newAssignedTo || "Unassigned", // Default if empty
+      assignedTo: newAssignedTo.length > 0 ? newAssignedTo.join(', ') : "Unassigned",
       dueDate: newDueDate, 
       status: "To Do", 
       priority: newPriority,
@@ -277,8 +310,69 @@ export default function TasksPage() {
             </div>
 
             <div className="space-y-1.5">
-                <Label htmlFor="newAssignedTo" className="flex items-center text-sm font-medium text-muted-foreground"><User className="mr-2 h-4 w-4 text-muted-foreground"/>Assignee</Label>
-                <Input id="newAssignedTo" value={newAssignedTo} onChange={(e) => setNewAssignedTo(e.target.value)} placeholder="Name or email" disabled={isSubmittingTask}/>
+                <Label htmlFor="newAssignedTo" className="flex items-center text-sm font-medium text-muted-foreground"><UsersIcon className="mr-2 h-4 w-4 text-muted-foreground"/>Assignee(s)</Label>
+                <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                    <Button variant="outline" className="w-full justify-start text-left font-normal h-auto min-h-10 py-2" disabled={isSubmittingTask || isLoadingOfficeMembers}>
+                        {isLoadingOfficeMembers ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                        {newAssignedTo.length === 0 && !isLoadingOfficeMembers
+                        ? "Select Assignee(s)"
+                        : newAssignedTo.length > 2 
+                            ? `${newAssignedTo.slice(0,2).join(', ')} +${newAssignedTo.length - 2} more`
+                            : newAssignedTo.join(', ')}
+                        
+                    </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent className="w-[calc(var(--radix-dialog-content-width)-2rem)] sm:w-[calc(var(--radix-dialog-content-width)-3rem)] max-w-md">
+                    <DropdownMenuLabel>Select Team Members</DropdownMenuLabel>
+                    <DropdownMenuSeparator />
+                    {currentOfficeMembers.length > 0 && (
+                        <DropdownMenuCheckboxItem
+                        checked={newAssignedTo.length === currentOfficeMembers.length && currentOfficeMembers.length > 0}
+                        onCheckedChange={(checked) => {
+                            if (checked) {
+                            setNewAssignedTo(currentOfficeMembers.map(m => m.name));
+                            } else {
+                            setNewAssignedTo([]);
+                            }
+                        }}
+                        disabled={isLoadingOfficeMembers}
+                        >
+                        Select All ({currentOfficeMembers.length})
+                        </DropdownMenuCheckboxItem>
+                    )}
+                    <DropdownMenuSeparator />
+                    {isLoadingOfficeMembers ? (
+                        <div className="flex justify-center p-2"><Loader2 className="h-5 w-5 animate-spin" /></div>
+                    ) : currentOfficeMembers.length === 0 ? (
+                        <div className="p-2 text-sm text-muted-foreground text-center">No other members in your primary office to assign.</div>
+                    ) : (
+                        <div className="max-h-48 overflow-y-auto">
+                        {currentOfficeMembers.map((member) => (
+                        <DropdownMenuCheckboxItem
+                            key={member.userId}
+                            checked={newAssignedTo.includes(member.name)}
+                            onCheckedChange={(checked) => {
+                            setNewAssignedTo((prev) =>
+                                checked
+                                ? [...prev, member.name]
+                                : prev.filter((name) => name !== member.name)
+                            );
+                            }}
+                        >
+                            <div className="flex items-center">
+                            <Avatar className="h-6 w-6 mr-2">
+                                <AvatarImage src={member.avatarUrl || `https://placehold.co/40x40.png?text=${member.name.substring(0,1)}`} alt={member.name} data-ai-hint="person avatar"/>
+                                <AvatarFallback>{member.name.substring(0,1)}</AvatarFallback>
+                            </Avatar>
+                            {member.name}
+                            </div>
+                        </DropdownMenuCheckboxItem>
+                        ))}
+                        </div>
+                    )}
+                    </DropdownMenuContent>
+                </DropdownMenu>
             </div>
 
           </div>
@@ -294,5 +388,4 @@ export default function TasksPage() {
     </div>
   );
 }
-
     
