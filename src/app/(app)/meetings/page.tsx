@@ -12,11 +12,11 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import Image from "next/image";
 import dynamic from 'next/dynamic';
 import { useToast } from "@/hooks/use-toast";
-import type { Meeting } from "@/types";
+import type { Meeting, OfficeMember } from "@/types";
 import { useAuth } from "@/lib/firebase/auth";
 import { addMeetingForUser, getMeetingsForUser, deleteMeetingForUser } from "@/lib/firebase/firestore/meetings";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
-import { getOfficesForUser, type Office, getMembersForOffice, type OfficeMember } from "@/lib/firebase/firestore/offices";
+import { getOfficesForUser, type Office, getMembersForOffice } from "@/lib/firebase/firestore/offices";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useSearchParams, useRouter, usePathname } from 'next/navigation';
 import { addUserNotification } from "@/lib/firebase/firestore/notifications";
@@ -117,7 +117,8 @@ export default function MeetingsPage() {
       if (userOffices.length > 0 && user) {
         setIsLoadingOfficeMembers(true);
         try {
-          const members = await getMembersForOffice(userOffices[0].id);
+          // Assuming first office is the primary one for member selection
+          const members = await getMembersForOffice(userOffices[0].id); 
           setCurrentOfficeMembers(members.filter(m => m.userId !== user.uid)); // Exclude current user
         } catch (error) {
           console.error("Failed to fetch office members:", error);
@@ -215,7 +216,7 @@ export default function MeetingsPage() {
     };
     
     checkAndSendReminders();
-    const intervalId = setInterval(checkAndSendReminders, 30 * 1000);
+    const intervalId = setInterval(checkAndSendReminders, 30 * 1000); // Check every 30 seconds
     return () => clearInterval(intervalId);
 
   }, [meetings, user, toast, isLoadingMeetings]);
@@ -224,12 +225,13 @@ export default function MeetingsPage() {
   useEffect(() => {
     const getCameraPermission = async () => {
       if (!selectedMeetingForPreview) {
+        // Clean up if no meeting is selected
         if (localStreamRef.current) {
           localStreamRef.current.getTracks().forEach(track => track.stop());
           localStreamRef.current = null;
         }
         if (videoRef.current) videoRef.current.srcObject = null;
-        setHasCameraPermission(undefined);
+        setHasCameraPermission(undefined); // Reset permission state
         return;
       }
 
@@ -257,14 +259,14 @@ export default function MeetingsPage() {
 
     getCameraPermission();
 
-    return () => { 
+    return () => { // Cleanup function
       if (localStreamRef.current) {
         localStreamRef.current.getTracks().forEach(track => track.stop());
         localStreamRef.current = null;
       }
       if (videoRef.current) videoRef.current.srcObject = null;
     };
-  }, [selectedMeetingForPreview, toast]);
+  }, [selectedMeetingForPreview, toast]); // Re-run when selectedMeeting changes
 
   const resetScheduleForm = () => {
     setNewMeetingTitle("");
@@ -338,7 +340,7 @@ export default function MeetingsPage() {
         fetchMeetings();
         if (selectedMeetingForPreview?.id === meetingToDelete.id) {
             setSelectedMeetingForPreview(null);
-            router.replace(pathname, { scroll: false }); 
+            router.replace(pathname, { scroll: false }); // Clear meetingId from URL
         }
     } catch (error) {
         console.error("Failed to delete meeting:", error);
@@ -352,7 +354,7 @@ export default function MeetingsPage() {
 
   const handleLeaveMeeting = () => {
     setSelectedMeetingForPreview(null);
-    router.replace(pathname, { scroll: false }); 
+    router.replace(pathname, { scroll: false }); // Clear meetingId from URL
   };
   
   const calculateDuration = (start: Date, end: Date): string => {
@@ -534,7 +536,6 @@ export default function MeetingsPage() {
           )}
           {!isLoadingMeetings && meetings.length === 0 ? (
             <div className="text-center py-10 bg-muted/50 rounded-md flex flex-col items-center justify-center">
-              <Image src="https://placehold.co/200x150.png" alt="No meetings" width={200} height={150} className="mx-auto mb-4 rounded" data-ai-hint="calendar illustration empty" />
               <p className="text-muted-foreground">No meetings scheduled yet.</p>
               <p className="text-sm text-muted-foreground">Schedule a new meeting to get started.</p>
             </div>
