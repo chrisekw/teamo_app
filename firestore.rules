@@ -16,52 +16,36 @@ service cloud.firestore {
     // Office-related collections
     match /offices/{officeId} {
       allow read: if isUserOfficeMember(officeId);
-      // Define create, update, delete rules for offices as needed
       // Example: allow create: if isAuthenticated();
       // Example: allow update, delete: if isAuthenticated() && request.auth.uid == resource.data.ownerId;
 
 
       match /tasks/{taskId} {
-        // GET: User can get a specific task if they are the creator or an assignee.
-        allow get: if isUserOfficeMember(officeId) &&
-                      (request.auth.uid == resource.data.creatorUserId || request.auth.uid in resource.data.assigneeIds);
-        
-        // LIST: User can query the tasks collection if they are a member of the office.
-        // The client-side query is responsible for filtering to only show relevant tasks.
-        allow list: if isUserOfficeMember(officeId); 
-
+        allow get: if isUserOfficeMember(officeId);
+        allow list: if isUserOfficeMember(officeId);
         allow create: if isUserOfficeMember(officeId) &&
                          request.auth.uid == request.resource.data.creatorUserId &&
                          request.resource.data.officeId == officeId;
-
         allow update: if isUserOfficeMember(officeId) &&
                          (request.auth.uid == resource.data.creatorUserId || request.auth.uid in resource.data.assigneeIds) &&
                          request.resource.data.officeId == officeId &&
                          request.resource.data.creatorUserId == resource.data.creatorUserId;
-
         allow delete: if isUserOfficeMember(officeId) &&
                          request.auth.uid == resource.data.creatorUserId;
       }
 
       match /meetings/{meetingId} {
-        // GET: User can get a specific meeting if they are the creator or a participant.
-        allow get: if isUserOfficeMember(officeId) && 
-                      (request.auth.uid == resource.data.creatorUserId || request.auth.uid in resource.data.participantIds);
-        
-        // LIST: User can query the meetings collection if they are a member of the office.
-        // The client-side query is responsible for filtering to only show relevant meetings.
-        allow list: if isUserOfficeMember(officeId); 
-
-        allow create: if isUserOfficeMember(officeId) && 
+        allow read: if isUserOfficeMember(officeId) &&
+                       (request.auth.uid == resource.data.creatorUserId || request.auth.uid in resource.data.participantIds);
+        allow list: if isUserOfficeMember(officeId);
+        allow create: if isUserOfficeMember(officeId) &&
                          request.auth.uid == request.resource.data.creatorUserId &&
                          request.resource.data.officeId == officeId;
-
-        allow update: if isUserOfficeMember(officeId) && 
+        allow update: if isUserOfficeMember(officeId) &&
                          (request.auth.uid == resource.data.creatorUserId || request.auth.uid in resource.data.participantIds) &&
-                         request.resource.data.officeId == officeId && 
+                         request.resource.data.officeId == officeId &&
                          request.resource.data.creatorUserId == resource.data.creatorUserId;
-
-        allow delete: if isUserOfficeMember(officeId) && 
+        allow delete: if isUserOfficeMember(officeId) &&
                          request.auth.uid == resource.data.creatorUserId;
       }
       
@@ -78,35 +62,13 @@ service cloud.firestore {
         allow create, update, delete: if isUserOfficeMember(officeId) && 
                                          request.auth.uid == get(/databases/$(database)/documents/offices/$(officeId)).data.ownerId;
       }
-
-      match /chatThreads/{threadId} {
-        allow get: if isAuthenticated() &&
-                      (request.auth.uid == threadId.split("_")[0] || request.auth.uid == threadId.split("_")[1]);
-        allow list: if isAuthenticated() && request.query.limit <= 30; 
-        allow update: if isAuthenticated() && request.auth.uid in resource.data.participantIds;
-        allow create: if isAuthenticated() &&
-                        request.auth.uid in request.resource.data.participantIds &&
-                        threadId.split("_")[0] in request.resource.data.participantIds &&
-                        threadId.split("_")[1] in request.resource.data.participantIds &&
-                        request.resource.data.participantIds.size() == 2 &&
-                        request.resource.data.participantInfo.keys().hasAll(request.resource.data.participantIds);
-
-        match /messages/{messageId} {
-          allow read: if isAuthenticated() &&
-                      (request.auth.uid == threadId.split("_")[0] || request.auth.uid == threadId.split("_")[1]);
-          allow create: if isAuthenticated() &&
-                          (request.auth.uid == threadId.split("_")[0] || request.auth.uid == threadId.split("_")[1]) &&
-                          request.resource.data.senderId == request.auth.uid;
-          allow update, delete: if false;
-        }
-      }
       
       match /generalMessages/{messageId} {
         allow read, list: if isUserOfficeMember(officeId);
         allow create: if isUserOfficeMember(officeId) && request.resource.data.senderId == request.auth.uid;
         allow update, delete: if false;
       }
-
+      
       match /activityLog/{activityId} {
         allow read, list: if isUserOfficeMember(officeId);
         allow create: if false;
@@ -119,30 +81,64 @@ service cloud.firestore {
         allow create: if isAuthenticated(); 
         allow delete: if false;
       }
-    }
+    } // End of match /offices/{officeId}
 
-    // User-specific top-level collections
+    // Root-level collections
+    
+    // Direct Message (DM) Chat Threads - MOVED TO CORRECT LOCATION
+    match /chatThreads/{threadId} {
+      // Users can get a thread if their UID is part of the threadId (uid1_uid2)
+      allow get: if isAuthenticated() &&
+                    (request.auth.uid == threadId.split("_")[0] || request.auth.uid == threadId.split("_")[1]);
+
+      // Users can list threads they are part of (client query must ensure participantIds array-contains user.uid)
+      allow list: if isAuthenticated() && request.query.limit <= 30; 
+
+      // Users can update a thread if they are a participant
+      allow update: if isAuthenticated() && request.auth.uid in resource.data.participantIds;
+
+      // Users can create a DM thread if their UID is one of the participants and threadId matches
+      allow create: if isAuthenticated() &&
+                      request.auth.uid in request.resource.data.participantIds &&
+                      threadId.split("_")[0] in request.resource.data.participantIds &&
+                      threadId.split("_")[1] in request.resource.data.participantIds &&
+                      request.resource.data.participantIds.size() == 2 &&
+                      request.resource.data.participantInfo.keys().hasAll(request.resource.data.participantIds);
+
+      match /messages/{messageId} {
+        allow read: if isAuthenticated() &&
+                    (request.auth.uid == threadId.split("_")[0] || request.auth.uid == threadId.split("_")[1]);
+        allow create: if isAuthenticated() &&
+                        (request.auth.uid == threadId.split("_")[0] || request.auth.uid == threadId.split("_")[1]) &&
+                        request.resource.data.senderId == request.auth.uid;
+        allow update, delete: if false;
+      }
+    }
+    
+    // User-specific collections
     match /users/{userId} {
       allow read, update, delete: if request.auth.uid == userId;
       allow create: if request.auth.uid == userId && !exists(/databases/$(database)/documents/users/$(userId));
 
-
       match /userProfiles/{profileId} {
          allow read, update, create: if request.auth.uid == userId && request.auth.uid == profileId;
       }
-
       match /goals/{goalId} {
         allow read, list, create, update, delete: if request.auth.uid == userId;
       }
-
       match /notifications/{notificationId} {
         allow read, list, create, update, delete: if request.auth.uid == userId;
       }
-
       match /memberOfOffices/{officeDocId} {
          allow read, list: if request.auth.uid == userId;
          allow create, update, delete: if false; 
       }
     }
+
+    // Top-level userProfiles collection (alternative to subcollection)
+    match /userProfiles/{userId} {
+      allow read, update, create: if request.auth.uid == userId;
+    }
+    
   }
 }
