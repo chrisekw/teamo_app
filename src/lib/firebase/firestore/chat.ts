@@ -15,8 +15,8 @@ import {
   where,
   limit,
   setDoc,
-  onSnapshot, // Added onSnapshot
-  type Unsubscribe // Added Unsubscribe type
+  onSnapshot, 
+  type Unsubscribe 
 } from 'firebase/firestore';
 import type { ChatMessage, ChatMessageFirestoreData, ChatThread, ChatThreadFirestoreData, ChatUser } from '@/types';
 import { addUserNotification } from './notifications';
@@ -72,6 +72,15 @@ const chatThreadConverter: FirestoreDataConverter<ChatThread, ChatThreadFirestor
 
     data.updatedAt = serverTimestamp();
 
+    // Ensure participantInfo doesn't contain undefined avatarUrls before saving
+    if (data.participantInfo) {
+      for (const userId in data.participantInfo) {
+        if (data.participantInfo[userId].avatarUrl === undefined) {
+          delete data.participantInfo[userId].avatarUrl;
+        }
+      }
+    }
+
     return data as DocumentData;
   },
   fromFirestore: (snapshot, options): ChatThread => {
@@ -110,14 +119,26 @@ export async function getOrCreateDmThread(user1: ChatUser, user2: ChatUser): Pro
   if (threadSnap.exists()) {
     return threadSnap.data();
   } else {
+    const participantInfoForFirestore: ChatThread['participantInfo'] = {};
+
+    const p1Info: Partial<Pick<ChatUser, 'name' | 'avatarUrl'>> = { name: user1.name };
+    if (user1.avatarUrl !== undefined) {
+      p1Info.avatarUrl = user1.avatarUrl;
+    }
+    participantInfoForFirestore[user1.id] = p1Info as Pick<ChatUser, 'name' | 'avatarUrl'>;
+
+    const p2Info: Partial<Pick<ChatUser, 'name' | 'avatarUrl'>> = { name: user2.name };
+    if (user2.avatarUrl !== undefined) {
+      p2Info.avatarUrl = user2.avatarUrl;
+    }
+    participantInfoForFirestore[user2.id] = p2Info as Pick<ChatUser, 'name' | 'avatarUrl'>;
+    
     const newThreadData: Omit<ChatThread, 'id' | 'updatedAt'> = {
       participantIds: [user1.id, user2.id],
-      participantInfo: {
-        [user1.id]: { name: user1.name, avatarUrl: user1.avatarUrl },
-        [user2.id]: { name: user2.name, avatarUrl: user2.avatarUrl },
-      },
+      participantInfo: participantInfoForFirestore,
+      // lastMessageText, lastMessageSenderName, lastMessageTimestamp will be set by first message
     };
-    await setDoc(threadRef, newThreadData);
+    await setDoc(threadRef, newThreadData); // The converter handles updatedAt and potential undefineds in participantInfo
     const newlyCreatedSnap = await getDoc(threadRef);
     if (!newlyCreatedSnap.exists()) throw new Error("Failed to create DM thread.");
     return newlyCreatedSnap.data();
@@ -217,7 +238,7 @@ export function onMessagesUpdate(
     callback(messages);
   }, (error) => {
     console.error(`Error listening to messages for thread ${threadId}:`, error);
-    callback([]); // Send empty array on error
+    callback([]); 
   });
 }
 
