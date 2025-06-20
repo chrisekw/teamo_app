@@ -7,8 +7,8 @@ import { Dialog, DialogTrigger, DialogContent, DialogHeader, DialogTitle, Dialog
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { PlusCircle, Video, Users as UsersIcon, Clock, Loader2, Trash2, CalendarDays, Briefcase, Repeat, Edit } from "lucide-react";
-import { useState, useEffect, useRef, useCallback } from "react";
+import { PlusCircle, Video, Users as UsersIcon, Clock, Loader2, Trash2, CalendarDays, Briefcase, Repeat, Edit, ScreenShareOff, Mic } from "lucide-react";
+import { useState, useEffect, useCallback } from "react";
 import dynamic from 'next/dynamic';
 import { useToast } from "@/hooks/use-toast";
 import type { Meeting, OfficeMember, Office } from "@/types";
@@ -95,11 +95,8 @@ export default function MeetingsPage() {
   const [newMeetingParticipantIds, setNewMeetingParticipantIds] = useState<string[]>([]);
 
 
-  const [selectedMeetingForPreview, setSelectedMeetingForPreview] = useState<Meeting | null>(null);
-  const [hasCameraPermission, setHasCameraPermission] = useState<boolean | undefined>(undefined);
-  const [isJoiningMeeting, setIsJoiningMeeting] = useState(false);
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const localStreamRef = useRef<MediaStream | null>(null);
+  const [selectedMeeting, setSelectedMeeting] = useState<Meeting | null>(null);
+  const [isLoadingMeetingDetails, setIsLoadingMeetingDetails] = useState(false);
 
   const fetchOfficeData = useCallback(async () => {
     if (user) {
@@ -159,13 +156,12 @@ export default function MeetingsPage() {
     }
   }, [authLoading, user, activeOffice, fetchMeetingsForActiveOffice, isLoadingOfficeData]);
 
-  const handleJoinMeetingClick = useCallback(async (meeting: Meeting) => {
+  const handleJoinMeetingClick = useCallback((meeting: Meeting) => {
     if (!activeOffice) {
         toast({ variant: "destructive", title: "Error", description: "No active office selected." });
         return;
     }
-    setSelectedMeetingForPreview(meeting);
-    router.replace(`${pathname}?meetingId=${meeting.id}&officeId=${activeOffice.id}`, { scroll: false });
+    router.push(`${pathname}?meetingId=${meeting.id}&officeId=${activeOffice.id}`, { scroll: false });
   }, [activeOffice, router, pathname, toast]);
 
   useEffect(() => {
@@ -174,18 +170,17 @@ export default function MeetingsPage() {
 
     const loadMeetingFromUrl = async () => {
       if (meetingIdFromUrl && officeIdFromUrl && user) {
-        setIsJoiningMeeting(true); // Indicate loading the specific meeting
+        setIsLoadingMeetingDetails(true);
         try {
           const meetingToSelect = await getMeetingByIdFromOffice(officeIdFromUrl, meetingIdFromUrl);
           if (meetingToSelect) {
-            // Check if this user should be able to view this meeting
             const isParticipantOrCreator = meetingToSelect.creatorUserId === user.uid || (meetingToSelect.participantIds && meetingToSelect.participantIds.includes(user.uid));
             if (isParticipantOrCreator) {
               if (activeOffice?.id !== officeIdFromUrl) {
                 const targetOffice = userOffices.find(o => o.id === officeIdFromUrl);
-                if (targetOffice) setActiveOffice(targetOffice); // Switch active office if necessary
+                if (targetOffice) setActiveOffice(targetOffice);
               }
-              setSelectedMeetingForPreview(meetingToSelect);
+              setSelectedMeeting(meetingToSelect);
             } else {
               toast({ variant: "destructive", title: "Access Denied", description: "You are not a participant in this meeting." });
               router.replace(pathname, { scroll: false });
@@ -199,19 +194,19 @@ export default function MeetingsPage() {
           toast({ variant: "destructive", title: "Error", description: "Could not load meeting details from link." });
           router.replace(pathname, { scroll: false });
         } finally {
-          setIsJoiningMeeting(false);
+          setIsLoadingMeetingDetails(false);
         }
+      } else {
+        setSelectedMeeting(null);
       }
     };
     
-    if (meetingIdFromUrl && officeIdFromUrl && user && !selectedMeetingForPreview) {
+    if (meetingIdFromUrl && officeIdFromUrl && user) {
         loadMeetingFromUrl();
-    } else if (!meetingIdFromUrl && selectedMeetingForPreview) {
-        // If URL is cleared but meeting is selected, clear selection (user navigated away from join view)
-        setSelectedMeetingForPreview(null);
+    } else {
+        setSelectedMeeting(null);
     }
-
-  }, [searchParams, user, meetings, selectedMeetingForPreview, activeOffice, userOffices, router, pathname, toast]);
+  }, [searchParams, user, activeOffice?.id, userOffices, router, pathname, toast]);
 
 
   useEffect(() => {
@@ -257,52 +252,6 @@ export default function MeetingsPage() {
 
   }, [meetings, user, toast, isLoadingMeetings, isLoadingOfficeData, activeOffice]);
 
-
-  useEffect(() => {
-    const getCameraPermission = async () => {
-      if (!selectedMeetingForPreview) {
-        if (localStreamRef.current) {
-          localStreamRef.current.getTracks().forEach(track => track.stop());
-          localStreamRef.current = null;
-        }
-        if (videoRef.current) videoRef.current.srcObject = null;
-        setHasCameraPermission(undefined); 
-        return;
-      }
-
-      setIsJoiningMeeting(true);
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-        localStreamRef.current = stream;
-        setHasCameraPermission(true);
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-        }
-      } catch (error) {
-        console.error('Error accessing media devices:', error);
-        setHasCameraPermission(false);
-        toast({
-          variant: 'destructive',
-          title: 'Media Access Denied',
-          description: 'Please enable camera and microphone permissions in your browser settings to join the meeting.',
-          duration: 7000,
-        });
-      } finally {
-        setIsJoiningMeeting(false);
-      }
-    };
-
-    getCameraPermission();
-
-    return () => { 
-      if (localStreamRef.current) {
-        localStreamRef.current.getTracks().forEach(track => track.stop());
-        localStreamRef.current = null;
-      }
-      if (videoRef.current) videoRef.current.srcObject = null;
-    };
-  }, [selectedMeetingForPreview, toast]); 
-
   const resetScheduleForm = () => {
     setNewMeetingTitle("");
     setNewMeetingDescription("");
@@ -343,7 +292,7 @@ export default function MeetingsPage() {
 
     const selectedParticipantDetails = newMeetingParticipantIds
       .map(id => currentOfficeMembers.find(m => m.userId === id))
-      .filter(Boolean) as OfficeMember[]; // Ensure only actual members
+      .filter(Boolean) as OfficeMember[]; 
     
     const participantsDisplay = selectedParticipantDetails.map(m => m.name).join(', ') || "No specific participants";
 
@@ -352,8 +301,8 @@ export default function MeetingsPage() {
       dateTime: startDateTime,
       endDateTime: endDateTime,
       isRecurring: newMeetingIsRecurring,
-      participantIds: newMeetingParticipantIds, // Store IDs
-      participantsDisplay: participantsDisplay, // Store display names
+      participantIds: newMeetingParticipantIds,
+      participantsDisplay: participantsDisplay,
       description: newMeetingDescription || undefined,
     };
     const actorName = user.displayName || user.email || "User";
@@ -380,8 +329,8 @@ export default function MeetingsPage() {
         await deleteMeetingFromOffice(activeOffice.id, meetingToDelete.id, user.uid, actorName);
         toast({ title: "Meeting Deleted", description: `"${meetingToDelete.title}" has been removed.`});
         fetchMeetingsForActiveOffice();
-        if (selectedMeetingForPreview?.id === meetingToDelete.id) {
-            setSelectedMeetingForPreview(null);
+        if (selectedMeeting?.id === meetingToDelete.id) {
+            setSelectedMeeting(null);
             router.replace(pathname, { scroll: false }); 
         }
     } catch (error) {
@@ -395,7 +344,7 @@ export default function MeetingsPage() {
 
 
   const handleLeaveMeeting = () => {
-    setSelectedMeetingForPreview(null);
+    setSelectedMeeting(null);
     router.replace(pathname, { scroll: false }); 
   };
   
@@ -420,256 +369,254 @@ export default function MeetingsPage() {
   if (authLoading || isLoadingOfficeData) {
      return <div className="container mx-auto p-8 text-center"><Loader2 className="h-12 w-12 animate-spin text-primary" /></div>;
   }
+  
+  if (isLoadingMeetingDetails) {
+     return <div className="container mx-auto p-8 text-center"><Loader2 className="h-12 w-12 animate-spin text-primary"/></div>;
+  }
 
   return (
     <div className="container mx-auto p-4 sm:p-6 lg:p-8">
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-8">
-        <h1 className="text-3xl font-headline font-bold mb-4 sm:mb-0">
-            Video Meetings {activeOffice ? `for ${activeOffice.name}` : ''}
-        </h1>
-        {!selectedMeetingForPreview && (
-          <Dialog open={isScheduleDialogOpen} onOpenChange={(isOpen) => { if (!isSubmitting) setIsScheduleDialogOpen(isOpen); if(!isOpen) resetScheduleForm();}}>
-            <DialogTrigger asChild>
-              <Button disabled={isSubmitting || !activeOffice}>
-                <PlusCircle className="mr-2 h-4 w-4" /> Schedule New Meeting
-              </Button>
-            </DialogTrigger>
-            <DialogContent className="sm:max-w-md">
-              <DialogHeader>
-                <DialogTitle className="font-headline text-xl">Schedule New Meeting {activeOffice ? `for ${activeOffice.name}`: ''}</DialogTitle>
-              </DialogHeader>
-              <div className="space-y-4 py-4 max-h-[75vh] overflow-y-auto pr-2">
-                <div className="space-y-1.5">
-                  <Label htmlFor="title" className="flex items-center text-sm font-medium text-muted-foreground"><Edit className="mr-2 h-4 w-4 text-muted-foreground"/>Meeting Title</Label>
-                  <Input id="title" value={newMeetingTitle} onChange={(e) => setNewMeetingTitle(e.target.value)} placeholder="Enter meeting title" disabled={isSubmitting}/>
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="description" className="flex items-center text-sm font-medium text-muted-foreground"><Clock className="mr-2 h-4 w-4 text-muted-foreground"/>Description (Optional)</Label>
-                  <Textarea id="description" value={newMeetingDescription} onChange={(e) => setNewMeetingDescription(e.target.value)} placeholder="Enter meeting description" rows={3} disabled={isSubmitting}/>
-                </div>
-                
-                <div className="grid grid-cols-1 gap-4">
-                  <div className="space-y-1.5">
-                    <Label htmlFor="startDate" className="flex items-center text-sm font-medium text-muted-foreground"><CalendarDays className="mr-2 h-4 w-4 text-muted-foreground"/>Start Date & Time</Label>
-                    <div className="flex gap-2">
-                      <Popover>
-                        <PopoverTrigger asChild>
-                          <Button id="startDate" variant="outline" className={cn("w-full justify-start text-left font-normal", !newMeetingStartDate && "text-muted-foreground")} disabled={isSubmitting}>
-                            <CalendarDays className="mr-2 h-4 w-4" />
-                            {newMeetingStartDate ? format(newMeetingStartDate, "MMM d, yyyy") : <span>Pick a date</span>}
-                          </Button>
-                        </PopoverTrigger>
-                        <PopoverContent className="w-auto p-0"><ShadCNCalendar mode="single" selected={newMeetingStartDate} onSelect={setNewMeetingStartDate} disabled={(date) => date < new Date(new Date().setHours(0,0,0,0)) || isSubmitting}/></PopoverContent>
-                      </Popover>
-                      <Input id="startTime" type="time" value={newMeetingStartTime} onChange={(e) => setNewMeetingStartTime(e.target.value)} className="w-auto" disabled={isSubmitting}/>
-                    </div>
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label htmlFor="endDate" className="flex items-center text-sm font-medium text-muted-foreground"><CalendarDays className="mr-2 h-4 w-4 text-muted-foreground"/>End Date & Time</Label>
-                     <div className="flex gap-2">
-                        <Popover>
-                            <PopoverTrigger asChild>
-                            <Button id="endDate" variant="outline" className={cn("w-full justify-start text-left font-normal", !newMeetingEndDate && "text-muted-foreground")} disabled={isSubmitting}>
-                                <CalendarDays className="mr-2 h-4 w-4" />
-                                {newMeetingEndDate ? format(newMeetingEndDate, "MMM d, yyyy") : <span>Pick a date</span>}
-                            </Button>
-                            </PopoverTrigger>
-                            <PopoverContent className="w-auto p-0"><ShadCNCalendar mode="single" selected={newMeetingEndDate} onSelect={setNewMeetingEndDate} disabled={(date) => (newMeetingStartDate && date < newMeetingStartDate) || isSubmitting}/></PopoverContent>
-                        </Popover>
-                        <Input id="endTime" type="time" value={newMeetingEndTime} onChange={(e) => setNewMeetingEndTime(e.target.value)} className="w-auto" disabled={isSubmitting}/>
-                    </div>
-                  </div>
-                </div>
-                
-                <div className="flex items-center justify-between pt-2">
-                  <Label htmlFor="isRecurring" className="flex items-center text-sm font-medium text-muted-foreground"><Repeat className="mr-2 h-4 w-4 text-muted-foreground"/> Recurring Meeting </Label>
-                  <Switch id="isRecurring" checked={newMeetingIsRecurring} onCheckedChange={setNewMeetingIsRecurring} disabled={isSubmitting}/>
-                </div>
-
-                 <div className="space-y-1.5">
-                    <Label htmlFor="participants" className="flex items-center text-sm font-medium text-muted-foreground"><UsersIcon className="mr-2 h-4 w-4 text-muted-foreground"/>Participants</Label>
-                    <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                        <Button variant="outline" id="participants" className="w-full justify-start text-left font-normal h-auto min-h-10 py-2" disabled={isSubmitting || isLoadingOfficeData || currentOfficeMembers.length === 0}>
-                            {isLoadingOfficeData && currentOfficeMembers.length === 0 ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                            {getSelectedParticipantNamesForDialog()}
-                        </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent className="w-[calc(var(--radix-dialog-content-width)-2rem)] sm:w-[calc(var(--radix-dialog-content-width)-3rem)] max-w-md">
-                        <DropdownMenuLabel>Select Team Members</DropdownMenuLabel>
-                        <DropdownMenuSeparator />
-                        {currentOfficeMembers.length > 0 && (
-                            <DropdownMenuCheckboxItem
-                            checked={newMeetingParticipantIds.length === currentOfficeMembers.length && currentOfficeMembers.length > 0}
-                            onCheckedChange={(checked) => {
-                                if (checked) {
-                                setNewMeetingParticipantIds(currentOfficeMembers.map(m => m.userId));
-                                } else {
-                                setNewMeetingParticipantIds([]);
-                                }
-                            }}
-                            disabled={isLoadingOfficeData}
-                            >
-                            Select All ({currentOfficeMembers.length})
-                            </DropdownMenuCheckboxItem>
-                        )}
-                        <DropdownMenuSeparator />
-                        {isLoadingOfficeData && currentOfficeMembers.length === 0 ? (
-                            <div className="flex justify-center p-2"><Loader2 className="h-5 w-5 animate-spin" /></div>
-                        ) : currentOfficeMembers.length === 0 ? (
-                            <div className="p-2 text-sm text-muted-foreground text-center">No members in this office to assign.</div>
-                        ) : (
-                            <div className="max-h-48 overflow-y-auto">
-                            {currentOfficeMembers.map((member) => (
-                            <DropdownMenuCheckboxItem
-                                key={member.userId}
-                                checked={newMeetingParticipantIds.includes(member.userId)}
-                                onCheckedChange={(checked) => {
-                                setNewMeetingParticipantIds((prev) =>
-                                    checked
-                                    ? [...prev, member.userId]
-                                    : prev.filter((id) => id !== member.userId)
-                                );
-                                }}
-                            >
-                                <div className="flex items-center">
-                                <Avatar className="h-6 w-6 mr-2">
-                                    <AvatarImage src={member.avatarUrl || `https://placehold.co/40x40.png?text=${member.name.substring(0,1)}`} alt={member.name} data-ai-hint="person avatar"/>
-                                    <AvatarFallback>{member.name.substring(0,1)}</AvatarFallback>
-                                </Avatar>
-                                {member.name}
-                                </div>
-                            </DropdownMenuCheckboxItem>
-                            ))}
-                            </div>
-                        )}
-                        </DropdownMenuContent>
-                    </DropdownMenu>
-                    </div>
-
-                <div className="space-y-1.5">
-                    <Label className="flex items-center text-sm font-medium text-muted-foreground"><Video className="mr-2 h-4 w-4 text-muted-foreground"/>Meeting Type</Label>
-                    <Button variant="outline" className="w-full justify-start bg-primary/10 border-primary text-primary" disabled>
-                        <Video className="mr-2 h-4 w-4"/> Video Conference
-                    </Button>
-                </div>
-              </div>
-              <DialogFooter className="sm:justify-between">
-                <Button variant="outline" onClick={() => setIsScheduleDialogOpen(false)} disabled={isSubmitting}>Cancel</Button>
-                <Button onClick={handleScheduleMeeting} disabled={isSubmitting || !activeOffice}>
-                    {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                    Schedule Meeting
-                </Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
-        )}
-      </div>
-
-      {!selectedMeetingForPreview ? (
-        <div className="w-full">
-          <h2 className="text-2xl font-headline font-semibold mb-4">
-            All Scheduled Meetings
-          </h2>
-          {isLoadingMeetings && <div className="text-center"><Loader2 className="h-8 w-8 animate-spin text-primary"/></div>}
-          
-          {!isLoadingMeetings && !activeOffice && (
-                <Card className="shadow-lg">
-                    <CardContent className="text-center py-10 text-muted-foreground">
-                        <Briefcase className="mx-auto h-12 w-12 mb-3 text-gray-400" />
-                        Please create or select an office to manage meetings.
-                        <Button asChild variant="link" className="block mx-auto mt-2">
-                            <Link href="/office-designer">Go to Office Designer</Link>
-                        </Button>
-                    </CardContent>
-                </Card>
-            )}
-
-          {!isLoadingMeetings && activeOffice && meetings.length === 0 ? (
-            <div className="text-center py-10 bg-muted/50 rounded-md flex flex-col items-center justify-center">
-               <Video className="mx-auto h-12 w-12 text-muted-foreground mb-3"/>
-              <p className="text-muted-foreground">No meetings scheduled yet for {activeOffice.name}.</p>
-              <p className="text-sm text-muted-foreground">Schedule a new meeting to get started.</p>
-            </div>
-          ) : null}
-
-          {!isLoadingMeetings && activeOffice && meetings.length > 0 && (
-            <div className="space-y-4">
-              {meetings.map((meeting) => (
-                <Card key={meeting.id} className="shadow-lg hover:shadow-xl transition-shadow duration-300">
-                  <CardHeader>
-                    <div className="flex justify-between items-start">
-                        <CardTitle className="font-headline flex items-center">
-                        <Video className="mr-2 h-5 w-5 text-primary" />
-                        {meeting.title}
-                        </CardTitle>
-                        <AlertDialog>
-                            <AlertDialogTrigger asChild>
-                                <Button variant="ghost" size="icon" onClick={() => setMeetingToDelete(meeting)} disabled={isSubmitting}>
-                                    <Trash2 className="h-4 w-4 text-destructive" />
-                                </Button>
-                            </AlertDialogTrigger>
-                            {meetingToDelete && meetingToDelete.id === meeting.id && (
-                                <AlertDialogContent>
-                                    <AlertDialogHeader>
-                                    <AlertDialogTitle>Are you sure?</AlertDialogTitle>
-                                    <AlertDialogDescription>
-                                        This action cannot be undone. This will permanently delete the meeting "{meetingToDelete.title}".
-                                    </AlertDialogDescription>
-                                    </AlertDialogHeader>
-                                    <AlertDialogFooter>
-                                    <AlertDialogCancel onClick={() => setMeetingToDelete(null)} disabled={isSubmitting}>Cancel</AlertDialogCancel>
-                                    <AlertDialogAction onClick={handleDeleteMeeting} className="bg-destructive hover:bg-destructive/90" disabled={isSubmitting}>
-                                        {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin"/>}
-                                        Delete
-                                    </AlertDialogAction>
-                                    </AlertDialogFooter>
-                                </AlertDialogContent>
-                            )}
-                        </AlertDialog>
-                    </div>
-                    <CardDescription className="flex flex-col sm:flex-row sm:items-center sm:space-x-4 text-sm pt-1">
-                      <span className="flex items-center mb-1 sm:mb-0"><Clock className="mr-1 h-4 w-4" /> {meeting.dateTime.toLocaleDateString()} at {meeting.dateTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} ({calculateDuration(meeting.dateTime, meeting.endDateTime)})</span>
-                      {meeting.participantsDisplay && <span className="flex items-center"><UsersIcon className="mr-1 h-4 w-4" /> {meeting.participantsDisplay}</span>}
-                    </CardDescription>
-                  </CardHeader>
-                  {meeting.description && (
-                    <CardContent>
-                      <p className="text-sm text-muted-foreground">{meeting.description}</p>
-                    </CardContent>
-                  )}
-                  <CardFooter>
-                    <Button 
-                      className="w-full sm:w-auto" 
-                      onClick={() => handleJoinMeetingClick(meeting)}
-                      disabled={isJoiningMeeting && selectedMeetingForPreview?.id === meeting.id}
-                    >
-                      {isJoiningMeeting && selectedMeetingForPreview?.id === meeting.id ? (
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      ) : (
-                        <Video className="mr-2 h-4 w-4" />
-                      )}
-                      {isJoiningMeeting && selectedMeetingForPreview?.id === meeting.id ? 'Joining...' : 'Join Meeting'}
-                    </Button>
-                  </CardFooter>
-                </Card>
-              ))}
-            </div>
-          )}
-        </div>
-      ) : (
+      {selectedMeeting && user ? (
         <VideoCallView
-            selectedMeeting={selectedMeetingForPreview}
+            selectedMeeting={selectedMeeting}
             user={user}
             onLeaveMeeting={handleLeaveMeeting}
-            videoRef={videoRef}
-            isJoining={isJoiningMeeting}
-            hasCameraPermission={hasCameraPermission}
         />
+      ) : (
+        <>
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-8">
+            <h1 className="text-3xl font-headline font-bold mb-4 sm:mb-0">
+                Video Meetings {activeOffice ? `for ${activeOffice.name}` : ''}
+            </h1>
+            <Dialog open={isScheduleDialogOpen} onOpenChange={(isOpen) => { if (!isSubmitting) setIsScheduleDialogOpen(isOpen); if(!isOpen) resetScheduleForm();}}>
+              <DialogTrigger asChild>
+                <Button disabled={isSubmitting || !activeOffice}>
+                  <PlusCircle className="mr-2 h-4 w-4" /> Schedule New Meeting
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="sm:max-w-md">
+                <DialogHeader>
+                  <DialogTitle className="font-headline text-xl">Schedule New Meeting {activeOffice ? `for ${activeOffice.name}`: ''}</DialogTitle>
+                </DialogHeader>
+                <div className="space-y-4 py-4 max-h-[75vh] overflow-y-auto pr-2">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="title" className="flex items-center text-sm font-medium text-muted-foreground"><Edit className="mr-2 h-4 w-4 text-muted-foreground"/>Meeting Title</Label>
+                    <Input id="title" value={newMeetingTitle} onChange={(e) => setNewMeetingTitle(e.target.value)} placeholder="Enter meeting title" disabled={isSubmitting}/>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="description" className="flex items-center text-sm font-medium text-muted-foreground"><Clock className="mr-2 h-4 w-4 text-muted-foreground"/>Description (Optional)</Label>
+                    <Textarea id="description" value={newMeetingDescription} onChange={(e) => setNewMeetingDescription(e.target.value)} placeholder="Enter meeting description" rows={3} disabled={isSubmitting}/>
+                  </div>
+                  
+                  <div className="grid grid-cols-1 gap-4">
+                    <div className="space-y-1.5">
+                      <Label htmlFor="startDate" className="flex items-center text-sm font-medium text-muted-foreground"><CalendarDays className="mr-2 h-4 w-4 text-muted-foreground"/>Start Date & Time</Label>
+                      <div className="flex gap-2">
+                        <Popover>
+                          <PopoverTrigger asChild>
+                            <Button id="startDate" variant="outline" className={cn("w-full justify-start text-left font-normal", !newMeetingStartDate && "text-muted-foreground")} disabled={isSubmitting}>
+                              <CalendarDays className="mr-2 h-4 w-4" />
+                              {newMeetingStartDate ? format(newMeetingStartDate, "MMM d, yyyy") : <span>Pick a date</span>}
+                            </Button>
+                          </PopoverTrigger>
+                          <PopoverContent className="w-auto p-0"><ShadCNCalendar mode="single" selected={newMeetingStartDate} onSelect={setNewMeetingStartDate} disabled={(date) => date < new Date(new Date().setHours(0,0,0,0)) || isSubmitting}/></PopoverContent>
+                        </Popover>
+                        <Input id="startTime" type="time" value={newMeetingStartTime} onChange={(e) => setNewMeetingStartTime(e.target.value)} className="w-auto" disabled={isSubmitting}/>
+                      </div>
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="endDate" className="flex items-center text-sm font-medium text-muted-foreground"><CalendarDays className="mr-2 h-4 w-4 text-muted-foreground"/>End Date & Time</Label>
+                       <div className="flex gap-2">
+                          <Popover>
+                              <PopoverTrigger asChild>
+                              <Button id="endDate" variant="outline" className={cn("w-full justify-start text-left font-normal", !newMeetingEndDate && "text-muted-foreground")} disabled={isSubmitting}>
+                                  <CalendarDays className="mr-2 h-4 w-4" />
+                                  {newMeetingEndDate ? format(newMeetingEndDate, "MMM d, yyyy") : <span>Pick a date</span>}
+                              </Button>
+                              </PopoverTrigger>
+                              <PopoverContent className="w-auto p-0"><ShadCNCalendar mode="single" selected={newMeetingEndDate} onSelect={setNewMeetingEndDate} disabled={(date) => (newMeetingStartDate && date < newMeetingStartDate) || isSubmitting}/></PopoverContent>
+                          </Popover>
+                          <Input id="endTime" type="time" value={newMeetingEndTime} onChange={(e) => setNewMeetingEndTime(e.target.value)} className="w-auto" disabled={isSubmitting}/>
+                      </div>
+                    </div>
+                  </div>
+                  
+                  <div className="flex items-center justify-between pt-2">
+                    <Label htmlFor="isRecurring" className="flex items-center text-sm font-medium text-muted-foreground"><Repeat className="mr-2 h-4 w-4 text-muted-foreground"/> Recurring Meeting </Label>
+                    <Switch id="isRecurring" checked={newMeetingIsRecurring} onCheckedChange={setNewMeetingIsRecurring} disabled={isSubmitting}/>
+                  </div>
+
+                   <div className="space-y-1.5">
+                      <Label htmlFor="participants" className="flex items-center text-sm font-medium text-muted-foreground"><UsersIcon className="mr-2 h-4 w-4 text-muted-foreground"/>Participants</Label>
+                      <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                          <Button variant="outline" id="participants" className="w-full justify-start text-left font-normal h-auto min-h-10 py-2" disabled={isSubmitting || isLoadingOfficeData || currentOfficeMembers.length === 0}>
+                              {isLoadingOfficeData && currentOfficeMembers.length === 0 ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                              {getSelectedParticipantNamesForDialog()}
+                          </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent className="w-[calc(var(--radix-dialog-content-width)-2rem)] sm:w-[calc(var(--radix-dialog-content-width)-3rem)] max-w-md">
+                          <DropdownMenuLabel>Select Team Members</DropdownMenuLabel>
+                          <DropdownMenuSeparator />
+                          {currentOfficeMembers.length > 0 && (
+                              <DropdownMenuCheckboxItem
+                              checked={newMeetingParticipantIds.length === currentOfficeMembers.length && currentOfficeMembers.length > 0}
+                              onCheckedChange={(checked) => {
+                                  if (checked) {
+                                  setNewMeetingParticipantIds(currentOfficeMembers.map(m => m.userId));
+                                  } else {
+                                  setNewMeetingParticipantIds([]);
+                                  }
+                              }}
+                              disabled={isLoadingOfficeData}
+                              >
+                              Select All ({currentOfficeMembers.length})
+                              </DropdownMenuCheckboxItem>
+                          )}
+                          <DropdownMenuSeparator />
+                          {isLoadingOfficeData && currentOfficeMembers.length === 0 ? (
+                              <div className="flex justify-center p-2"><Loader2 className="h-5 w-5 animate-spin" /></div>
+                          ) : currentOfficeMembers.length === 0 ? (
+                              <div className="p-2 text-sm text-muted-foreground text-center">No members in this office to assign.</div>
+                          ) : (
+                              <div className="max-h-48 overflow-y-auto">
+                              {currentOfficeMembers.map((member) => (
+                              <DropdownMenuCheckboxItem
+                                  key={member.userId}
+                                  checked={newMeetingParticipantIds.includes(member.userId)}
+                                  onCheckedChange={(checked) => {
+                                  setNewMeetingParticipantIds((prev) =>
+                                      checked
+                                      ? [...prev, member.userId]
+                                      : prev.filter((id) => id !== member.userId)
+                                  );
+                                  }}
+                              >
+                                  <div className="flex items-center">
+                                  <Avatar className="h-6 w-6 mr-2">
+                                      <AvatarImage src={member.avatarUrl || `https://placehold.co/40x40.png?text=${member.name.substring(0,1)}`} alt={member.name} data-ai-hint="person avatar"/>
+                                      <AvatarFallback>{member.name.substring(0,1)}</AvatarFallback>
+                                  </Avatar>
+                                  {member.name}
+                                  </div>
+                              </DropdownMenuCheckboxItem>
+                              ))}
+                              </div>
+                          )}
+                          </DropdownMenuContent>
+                      </DropdownMenu>
+                      </div>
+
+                  <div className="space-y-1.5">
+                      <Label className="flex items-center text-sm font-medium text-muted-foreground"><Video className="mr-2 h-4 w-4 text-muted-foreground"/>Meeting Type</Label>
+                      <Button variant="outline" className="w-full justify-start bg-primary/10 border-primary text-primary" disabled>
+                          <Video className="mr-2 h-4 w-4"/> Video Conference
+                      </Button>
+                  </div>
+                </div>
+                <DialogFooter className="sm:justify-between">
+                  <Button variant="outline" onClick={() => setIsScheduleDialogOpen(false)} disabled={isSubmitting}>Cancel</Button>
+                  <Button onClick={handleScheduleMeeting} disabled={isSubmitting || !activeOffice}>
+                      {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                      Schedule Meeting
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+          </div>
+
+          <div className="w-full">
+            <h2 className="text-2xl font-headline font-semibold mb-4">
+              All Scheduled Meetings
+            </h2>
+            {isLoadingMeetings && <div className="text-center"><Loader2 className="h-8 w-8 animate-spin text-primary"/></div>}
+            
+            {!isLoadingMeetings && !activeOffice && (
+                  <Card className="shadow-lg">
+                      <CardContent className="text-center py-10 text-muted-foreground">
+                          <Briefcase className="mx-auto h-12 w-12 mb-3 text-gray-400" />
+                          Please create or select an office to manage meetings.
+                          <Button asChild variant="link" className="block mx-auto mt-2">
+                              <Link href="/office-designer">Go to Office Designer</Link>
+                          </Button>
+                      </CardContent>
+                  </Card>
+              )}
+
+            {!isLoadingMeetings && activeOffice && meetings.length === 0 ? (
+              <div className="text-center py-10 bg-muted/50 rounded-md flex flex-col items-center justify-center">
+                 <Video className="mx-auto h-12 w-12 text-muted-foreground mb-3"/>
+                <p className="text-muted-foreground">No meetings scheduled yet for {activeOffice.name}.</p>
+                <p className="text-sm text-muted-foreground">Schedule a new meeting to get started.</p>
+              </div>
+            ) : null}
+
+            {!isLoadingMeetings && activeOffice && meetings.length > 0 && (
+              <div className="space-y-4">
+                {meetings.map((meeting) => (
+                  <Card key={meeting.id} className="shadow-lg hover:shadow-xl transition-shadow duration-300">
+                    <CardHeader>
+                      <div className="flex justify-between items-start">
+                          <CardTitle className="font-headline flex items-center">
+                          <Video className="mr-2 h-5 w-5 text-primary" />
+                          {meeting.title}
+                          </CardTitle>
+                          <AlertDialog>
+                              <AlertDialogTrigger asChild>
+                                  <Button variant="ghost" size="icon" onClick={() => setMeetingToDelete(meeting)} disabled={isSubmitting}>
+                                      <Trash2 className="h-4 w-4 text-destructive" />
+                                  </Button>
+                              </AlertDialogTrigger>
+                              {meetingToDelete && meetingToDelete.id === meeting.id && (
+                                  <AlertDialogContent>
+                                      <AlertDialogHeader>
+                                      <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+                                      <AlertDialogDescription>
+                                          This action cannot be undone. This will permanently delete the meeting "{meetingToDelete.title}".
+                                      </AlertDialogDescription>
+                                      </AlertDialogHeader>
+                                      <AlertDialogFooter>
+                                      <AlertDialogCancel onClick={() => setMeetingToDelete(null)} disabled={isSubmitting}>Cancel</AlertDialogCancel>
+                                      <AlertDialogAction onClick={handleDeleteMeeting} className="bg-destructive hover:bg-destructive/90" disabled={isSubmitting}>
+                                          {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin"/>}
+                                          Delete
+                                      </AlertDialogAction>
+                                      </AlertDialogFooter>
+                                  </AlertDialogContent>
+                              )}
+                          </AlertDialog>
+                      </div>
+                      <CardDescription className="flex flex-col sm:flex-row sm:items-center sm:space-x-4 text-sm pt-1">
+                        <span className="flex items-center mb-1 sm:mb-0"><Clock className="mr-1 h-4 w-4" /> {meeting.dateTime.toLocaleDateString()} at {meeting.dateTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} ({calculateDuration(meeting.dateTime, meeting.endDateTime)})</span>
+                        {meeting.participantsDisplay && <span className="flex items-center"><UsersIcon className="mr-1 h-4 w-4" /> {meeting.participantsDisplay}</span>}
+                      </CardDescription>
+                    </CardHeader>
+                    {meeting.description && (
+                      <CardContent>
+                        <p className="text-sm text-muted-foreground">{meeting.description}</p>
+                      </CardContent>
+                    )}
+                    <CardFooter>
+                      <Button 
+                        className="w-full sm:w-auto" 
+                        onClick={() => handleJoinMeetingClick(meeting)}
+                        disabled={isLoadingMeetingDetails}
+                      >
+                        {isLoadingMeetingDetails && selectedMeeting?.id === meeting.id ? (
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        ) : (
+                          <Video className="mr-2 h-4 w-4" />
+                        )}
+                        {isLoadingMeetingDetails && selectedMeeting?.id === meeting.id ? 'Joining...' : 'Join Meeting'}
+                      </Button>
+                    </CardFooter>
+                  </Card>
+                ))}
+              </div>
+            )}
+          </div>
+        </>
       )}
     </div>
   );
 }
-
-    
-
