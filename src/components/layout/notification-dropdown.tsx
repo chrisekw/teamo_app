@@ -18,8 +18,8 @@ import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useAuth } from '@/lib/firebase/auth';
 import {
-  onUserNotificationsUpdate, // Changed
-  onUnreadNotificationCountUpdate, // Changed
+  onUserNotificationsUpdate, 
+  onUnreadNotificationCountUpdate, 
   markNotificationAsRead,
   markAllUserNotificationsAsRead,
   type UserNotification
@@ -28,7 +28,7 @@ import { useToast } from '@/hooks/use-toast';
 import { formatDistanceToNow } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { useRouter } from 'next/navigation';
-import type { Unsubscribe } from 'firebase/firestore'; // Added
+import type { Unsubscribe } from 'firebase/firestore'; 
 
 export function NotificationDropdown() {
   const { user, loading: authLoading } = useAuth();
@@ -36,18 +36,18 @@ export function NotificationDropdown() {
   const router = useRouter();
   const [notifications, setNotifications] = useState<UserNotification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
-  const [isLoading, setIsLoading] = useState(true); // For initial load
+  const [isLoading, setIsLoading] = useState(true); 
   const [isMenuOpen, setIsMenuOpen] = useState(false);
 
   useEffect(() => {
     if (user && !authLoading) {
-      setIsLoading(true); // Set loading true when starting listeners
+      setIsLoading(true); 
 
       const unsubscribeNotifications = onUserNotificationsUpdate(
         user.uid,
         (notifs) => {
           setNotifications(notifs);
-          if (isLoading) setIsLoading(false); // Set loading false after first data retrieval
+          setIsLoading(false); // Set loading false after first notifications data retrieval
         },
         { count: 10 }
       );
@@ -56,7 +56,11 @@ export function NotificationDropdown() {
         user.uid,
         (count) => {
           setUnreadCount(count);
-           if (isLoading && notifications.length === 0) setIsLoading(false); // Also consider loading false if count is fetched
+          // If notifications haven't loaded yet but count has, also consider loading done
+          // This handles cases where there might be 0 notifications but the count listener responds first.
+          if (notifications.length === 0 && isLoading) {
+             // setIsLoading(false); // This might be redundant if the notifications listener sets it.
+          }
         }
       );
 
@@ -65,12 +69,11 @@ export function NotificationDropdown() {
         unsubscribeCount();
       };
     } else if (!user && !authLoading) {
-      // Reset state if user logs out
       setNotifications([]);
       setUnreadCount(0);
       setIsLoading(false);
     }
-  }, [user, authLoading, isLoading]); // isLoading in deps to ensure it can be reset
+  }, [user, authLoading]); // Removed 'isLoading' from dependency array
 
 
   const handleNotificationClick = async (notification: UserNotification) => {
@@ -78,7 +81,6 @@ export function NotificationDropdown() {
     if (!notification.isRead) {
       try {
         await markNotificationAsRead(user.uid, notification.id);
-        // State will update via onSnapshot listeners
       } catch (error) {
         toast({ variant: "destructive", title: "Error", description: "Failed to mark as read." });
       }
@@ -93,7 +95,6 @@ export function NotificationDropdown() {
     if (!user || unreadCount === 0) return;
     try {
       await markAllUserNotificationsAsRead(user.uid);
-      // State will update via onSnapshot listeners
       toast({ title: "Notifications Cleared", description: "All notifications marked as read." });
     } catch (error) {
       toast({ variant: "destructive", title: "Error", description: "Failed to mark all as read." });
@@ -179,3 +180,4 @@ const NotificationItemContent = ({ notification }: { notification: UserNotificat
     </p>
   </>
 );
+
