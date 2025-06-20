@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
-import { PlusCircle, ListChecks, Filter, Loader2, User, Briefcase, Edit, Info, Clock, AlertTriangle, Users as UsersIcon } from "lucide-react";
+import { PlusCircle, ListChecks, Filter, Loader2, Edit, Info, Clock, AlertTriangle, Users as UsersIcon } from "lucide-react";
 import { useState, useEffect, useCallback } from "react";
 import {
   Dialog,
@@ -23,11 +23,11 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
 import { Calendar as CalendarIcon } from "lucide-react";
-import type { Task, OfficeMember } from "@/types";
-import { statusColors, addTaskForUser, getTasksForUser } from "@/lib/firebase/firestore/tasks";
+import type { Task, OfficeMember, Office } from "@/types"; // Added Office
+import { statusColors, addTaskToOffice, getTasksVisibleToUserInOffice } from "@/lib/firebase/firestore/tasks"; // Updated imports
 import { useAuth } from "@/lib/firebase/auth";
 import { useToast } from "@/hooks/use-toast";
-import { getOfficesForUser, getMembersForOffice, type Office } from "@/lib/firebase/firestore/offices";
+import { getOfficesForUser, getMembersForOffice } from "@/lib/firebase/firestore/offices"; // Keep these
 import dynamic from 'next/dynamic';
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -54,9 +54,12 @@ export default function TasksPage() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [isLoadingTasks, setIsLoadingTasks] = useState(true);
   const [isCreateTaskDialogOpen, setIsCreateTaskDialogOpen] = useState(false);
-  const [userOffices, setUserOffices] = useState<Office[]>([]);
+  
+  const [userOffices, setUserOffices] = useState<Office[]>([]); // Keep this
+  const [activeOffice, setActiveOffice] = useState<Office | null>(null); // To store the selected/primary office
   const [currentOfficeMembers, setCurrentOfficeMembers] = useState<OfficeMember[]>([]);
-  const [isLoadingOfficeMembers, setIsLoadingOfficeMembers] = useState(false);
+  const [isLoadingOfficeData, setIsLoadingOfficeData] = useState(true);
+
 
   const [newTaskName, setNewTaskName] = useState("");
   const [newDescription, setNewDescription] = useState("");
@@ -66,54 +69,64 @@ export default function TasksPage() {
   
   const [isSubmittingTask, setIsSubmittingTask] = useState(false);
 
-  const fetchUserOfficesAndMembers = useCallback(async () => {
+  // Fetch user's offices and then members of the primary office
+  const fetchOfficeData = useCallback(async () => {
     if (user) {
-      const offices = await getOfficesForUser(user.uid);
-      setUserOffices(offices);
-      if (offices.length > 0) {
-        setIsLoadingOfficeMembers(true);
-        try {
-          const members = await getMembersForOffice(offices[0].id); // Assuming first office
-          setCurrentOfficeMembers(members); // No longer filtering out current user here
-        } catch (error) {
-          console.error("Failed to fetch office members:", error);
-          toast({ variant: "destructive", title: "Error", description: "Could not load office members."});
-        } finally {
-          setIsLoadingOfficeMembers(false);
+      setIsLoadingOfficeData(true);
+      try {
+        const offices = await getOfficesForUser(user.uid);
+        setUserOffices(offices);
+        if (offices.length > 0) {
+          setActiveOffice(offices[0]); // Set the first office as active for now
+          const members = await getMembersForOffice(offices[0].id);
+          setCurrentOfficeMembers(members);
+        } else {
+          setActiveOffice(null);
+          setCurrentOfficeMembers([]);
         }
-      } else {
-        setCurrentOfficeMembers([]);
+      } catch (error) {
+        console.error("Failed to fetch office data:", error);
+        toast({ variant: "destructive", title: "Error", description: "Could not load office members."});
+      } finally {
+        setIsLoadingOfficeData(false);
       }
     }
   }, [user, toast]);
 
   useEffect(() => {
     if (!authLoading && user) {
-      fetchUserOfficesAndMembers();
+      fetchOfficeData();
     }
-  }, [authLoading, user, fetchUserOfficesAndMembers]);
+  }, [authLoading, user, fetchOfficeData]);
 
 
-  const fetchTasks = useCallback(async () => {
-    if (user) {
+  const fetchTasksForOffice = useCallback(async () => {
+    if (user && activeOffice) { // Only fetch tasks if an office is active
       setIsLoadingTasks(true);
       try {
-        const userTasks = await getTasksForUser(user.uid);
+        const userTasks = await getTasksVisibleToUserInOffice(activeOffice.id, user.uid);
         setTasks(userTasks);
       } catch (error) {
         console.error("Failed to fetch tasks:", error);
-        toast({ variant: "destructive", title: "Error", description: "Could not fetch tasks." });
+        toast({ variant: "destructive", title: "Error", description: "Could not fetch tasks for the office." });
+        setTasks([]); // Clear tasks on error
       } finally {
         setIsLoadingTasks(false);
       }
+    } else if (!activeOffice) {
+      setTasks([]); // No active office, no tasks to show
+      setIsLoadingTasks(false);
     }
-  }, [user, toast]);
+  }, [user, activeOffice, toast]);
 
   useEffect(() => {
-    if (!authLoading && user) {
-      fetchTasks();
+    if (!authLoading && user && activeOffice) { // Depends on activeOffice now
+      fetchTasksForOffice();
+    } else if (!activeOffice && !isLoadingOfficeData) { // Handle case where user has no offices
+      setTasks([]);
+      setIsLoadingTasks(false);
     }
-  }, [user, authLoading, fetchTasks]);
+  }, [user, authLoading, activeOffice, fetchTasksForOffice, isLoadingOfficeData]);
 
 
   const resetCreateForm = () => {
@@ -125,8 +138,8 @@ export default function TasksPage() {
   };
 
   const handleCreateTask = async () => {
-    if (!user) {
-      toast({ variant: "destructive", title: "Error", description: "You must be logged in to create tasks." });
+    if (!user || !activeOffice) { // Ensure activeOffice is present
+      toast({ variant: "destructive", title: "Error", description: "You must be logged in and have an active office selected to create tasks." });
       return;
     }
     if (!newTaskName.trim()) {
@@ -136,12 +149,13 @@ export default function TasksPage() {
 
     setIsSubmittingTask(true);
 
-    const selectedAssigneeNames = newAssigneeIds
-        .map(id => currentOfficeMembers.find(m => m.userId === id)?.name)
-        .filter(Boolean) as string[];
-    const assigneesDisplay = selectedAssigneeNames.join(', ') || "Unassigned";
+    const selectedAssigneeDetails = newAssigneeIds
+        .map(id => currentOfficeMembers.find(m => m.userId === id))
+        .filter(Boolean) as OfficeMember[];
+    
+    const assigneesDisplay = selectedAssigneeDetails.map(m => m.name).join(', ') || "Unassigned";
 
-    const taskData: Omit<Task, 'id' | 'createdAt' | 'updatedAt' | 'userId'> = {
+    const taskData: Omit<Task, 'id' | 'createdAt' | 'updatedAt' | 'officeId' | 'creatorUserId'> = {
       name: newTaskName,
       assigneeIds: newAssigneeIds,
       assigneesDisplay: assigneesDisplay,
@@ -153,14 +167,13 @@ export default function TasksPage() {
     };
     
     const actorName = user.displayName || user.email || "User";
-    const officeForTask = userOffices.length > 0 ? userOffices[0] : undefined;
 
     try {
-      await addTaskForUser(user.uid, taskData, actorName, officeForTask?.id, officeForTask?.name);
-      toast({ title: "Task Created", description: `"${taskData.name}" has been added.` });
+      await addTaskToOffice(activeOffice.id, user.uid, taskData, actorName, activeOffice.name);
+      toast({ title: "Task Created", description: `"${taskData.name}" has been added to ${activeOffice.name}.` });
       setIsCreateTaskDialogOpen(false);
       resetCreateForm();
-      fetchTasks(); 
+      fetchTasksForOffice(); 
     } catch (error) {
       console.error("Failed to create task:", error);
       toast({ variant: "destructive", title: "Error", description: "Could not create task." });
@@ -192,36 +205,54 @@ export default function TasksPage() {
   };
 
 
-  if (authLoading || isLoadingTasks) {
+  if (authLoading || isLoadingOfficeData) {
     return <div className="container mx-auto p-8 text-center"><Loader2 className="h-12 w-12 animate-spin text-primary" /></div>;
   }
 
   return (
     <div className="container mx-auto p-4 sm:p-6 lg:p-8">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-8">
-        <h1 className="text-3xl font-headline font-bold mb-4 sm:mb-0">Task Management</h1>
+        <h1 className="text-3xl font-headline font-bold mb-4 sm:mb-0">
+          Tasks {activeOffice ? `for ${activeOffice.name}` : ''}
+        </h1>
         <div className="flex space-x-2">
-          <Button variant="outline">
+          <Button variant="outline" disabled>
             <Filter className="mr-2 h-4 w-4" /> Filter
           </Button>
-          <Button onClick={() => { resetCreateForm(); setIsCreateTaskDialogOpen(true); }}>
+          <Button onClick={() => { resetCreateForm(); setIsCreateTaskDialogOpen(true); }} disabled={!activeOffice || isSubmittingTask}>
             <PlusCircle className="mr-2 h-4 w-4" /> Create Task
           </Button>
         </div>
       </div>
 
-      {sortedTasks.length === 0 ? (
+      {isLoadingTasks && <div className="text-center"><Loader2 className="h-8 w-8 animate-spin text-primary"/></div>}
+
+      {!isLoadingTasks && !activeOffice && (
+        <Card className="shadow-lg">
+            <CardContent className="text-center py-10 text-muted-foreground">
+                <ListChecks className="mx-auto h-12 w-12 mb-3 text-gray-400" />
+                Please create or select an office to manage tasks.
+                <Button asChild variant="link" className="block mx-auto mt-2">
+                    <Link href="/office-designer">Go to Office Designer</Link>
+                </Button>
+            </CardContent>
+        </Card>
+      )}
+
+      {!isLoadingTasks && activeOffice && sortedTasks.length === 0 ? (
          <Card className="shadow-lg">
          <CardContent className="text-center py-10 text-muted-foreground">
             <ListChecks className="mx-auto h-12 w-12 mb-3 text-gray-400" />
-           No tasks found. Create one to get started!
+           No tasks found for {activeOffice.name}. Create one to get started!
          </CardContent>
        </Card>
-      ) : (
+      ) : null}
+
+      {!isLoadingTasks && activeOffice && sortedTasks.length > 0 && (
         <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
           {sortedTasks.map((task) => (
             <Link 
-              href={`/tasks/${task.id}`} 
+              href={`/tasks/${task.officeId}/${task.id}`} // Updated Link to include officeId
               key={task.id} 
               className="block hover:shadow-xl transition-shadow duration-300 rounded-lg"
             >
@@ -260,7 +291,7 @@ export default function TasksPage() {
       <Dialog open={isCreateTaskDialogOpen} onOpenChange={(isOpen) => { if (!isSubmittingTask) { setIsCreateTaskDialogOpen(isOpen); if (!isOpen) resetCreateForm();}}}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle className="font-headline text-xl">Create New Task</DialogTitle>
+            <DialogTitle className="font-headline text-xl">Create New Task {activeOffice ? `for ${activeOffice.name}` : ''}</DialogTitle>
           </DialogHeader>
           <div className="space-y-4 py-4 max-h-[75vh] overflow-y-auto pr-2">
             <div className="space-y-1.5">
@@ -322,10 +353,9 @@ export default function TasksPage() {
                 <Label htmlFor="newAssigneeIds" className="flex items-center text-sm font-medium text-muted-foreground"><UsersIcon className="mr-2 h-4 w-4 text-muted-foreground"/>Assignee(s)</Label>
                 <DropdownMenu>
                     <DropdownMenuTrigger asChild>
-                    <Button variant="outline" id="newAssigneeIds" className="w-full justify-start text-left font-normal h-auto min-h-10 py-2" disabled={isSubmittingTask || isLoadingOfficeMembers}>
-                        {isLoadingOfficeMembers ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                    <Button variant="outline" id="newAssigneeIds" className="w-full justify-start text-left font-normal h-auto min-h-10 py-2" disabled={isSubmittingTask || isLoadingOfficeData || currentOfficeMembers.length === 0}>
+                        {isLoadingOfficeData && currentOfficeMembers.length === 0 ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
                         {getSelectedAssigneeNamesForDialog()}
-                        
                     </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent className="w-[calc(var(--radix-dialog-content-width)-2rem)] sm:w-[calc(var(--radix-dialog-content-width)-3rem)] max-w-md">
@@ -341,16 +371,16 @@ export default function TasksPage() {
                             setNewAssigneeIds([]);
                             }
                         }}
-                        disabled={isLoadingOfficeMembers}
+                        disabled={isLoadingOfficeData}
                         >
                         Select All ({currentOfficeMembers.length})
                         </DropdownMenuCheckboxItem>
                     )}
                     <DropdownMenuSeparator />
-                    {isLoadingOfficeMembers ? (
+                    {isLoadingOfficeData && currentOfficeMembers.length === 0 ? (
                         <div className="flex justify-center p-2"><Loader2 className="h-5 w-5 animate-spin" /></div>
                     ) : currentOfficeMembers.length === 0 ? (
-                        <div className="p-2 text-sm text-muted-foreground text-center">No members in your primary office to assign.</div>
+                        <div className="p-2 text-sm text-muted-foreground text-center">No members in this office to assign.</div>
                     ) : (
                         <div className="max-h-48 overflow-y-auto">
                         {currentOfficeMembers.map((member) => (
@@ -383,7 +413,7 @@ export default function TasksPage() {
           </div>
           <DialogFooter className="sm:justify-between pt-2">
             <Button variant="outline" className="w-full sm:w-auto h-10" onClick={() => setIsCreateTaskDialogOpen(false)} disabled={isSubmittingTask}>Cancel</Button>
-            <Button onClick={handleCreateTask} className="w-full sm:w-auto h-10" disabled={isSubmittingTask}>
+            <Button onClick={handleCreateTask} className="w-full sm:w-auto h-10" disabled={isSubmittingTask || !activeOffice}>
                 {isSubmittingTask && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                 Create Task
             </Button>
@@ -393,4 +423,3 @@ export default function TasksPage() {
     </div>
   );
 }
-    

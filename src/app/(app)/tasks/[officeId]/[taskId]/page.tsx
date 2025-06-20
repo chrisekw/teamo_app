@@ -15,14 +15,14 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
 import { Calendar as CalendarIcon, ArrowLeft, Save, Trash2, ListChecks, Loader2, Edit, Info, User, Clock, BarChart, AlertTriangle, Star, Briefcase, Users as UsersIcon } from "lucide-react";
-import type { Task, OfficeMember, Office } from "@/types"; // Added Office
-import { getTaskByIdFromOffice, updateTaskInOffice, deleteTaskFromOffice, statusColors } from "@/lib/firebase/firestore/tasks"; // Updated imports
+import type { Task, OfficeMember, Office } from "@/types";
+import { getTaskByIdFromOffice, updateTaskInOffice, deleteTaskFromOffice, statusColors } from "@/lib/firebase/firestore/tasks";
 import { useAuth } from "@/lib/firebase/auth";
 import { useToast } from "@/hooks/use-toast";
 import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
-import { getMembersForOffice, getOfficeDetails } from "@/lib/firebase/firestore/offices"; // getOfficeDetails added
+import { getMembersForOffice, getOfficeDetails } from "@/lib/firebase/firestore/offices";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   DropdownMenu,
@@ -47,19 +47,16 @@ export default function TaskDetailPage() {
   const { user, loading: authLoading } = useAuth();
   const { toast } = useToast();
   
-  // Params now include officeId
-  const officeId = params.officeId as string;
-  const taskId = params.taskId as string;
+  const officeIdParam = typeof params.officeId === 'string' && params.officeId.length > 0 ? params.officeId : null;
+  const taskIdParam = typeof params.taskId === 'string' && params.taskId.length > 0 ? params.taskId : null;
 
   const [currentTask, setCurrentTask] = useState<Task | null>(null);
-  const [activeOffice, setActiveOffice] = useState<Office | null>(null); // To store active office details
+  const [activeOffice, setActiveOffice] = useState<Office | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [currentOfficeMembers, setCurrentOfficeMembers] = useState<OfficeMember[]>([]);
   const [isLoadingOfficeMembers, setIsLoadingOfficeMembers] = useState(false);
 
-
-  // Form states
   const [taskName, setTaskName] = useState("");
   const [assigneeIds, setAssigneeIds] = useState<string[]>([]);
   const [dueDate, setDueDate] = useState<Date | undefined>();
@@ -70,37 +67,43 @@ export default function TaskDetailPage() {
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
 
   const fetchOfficeAndMembers = useCallback(async () => {
-    if (user && officeId) {
+    if (user && officeIdParam) {
       setIsLoadingOfficeMembers(true);
       try {
-        const officeDetails = await getOfficeDetails(officeId);
-        setActiveOffice(officeDetails); // Set active office
+        const officeDetails = await getOfficeDetails(officeIdParam);
+        setActiveOffice(officeDetails);
         if (officeDetails) {
-          const members = await getMembersForOffice(officeId);
+          const members = await getMembersForOffice(officeIdParam);
           setCurrentOfficeMembers(members); 
         } else {
           setCurrentOfficeMembers([]);
+           toast({ variant: "destructive", title: "Error", description: "Could not load office details for this task."});
+           router.push("/tasks");
         }
       } catch (error) {
         console.error("Failed to fetch office members:", error);
         toast({ variant: "destructive", title: "Error", description: "Could not load office members for task assignment."});
+        router.push("/tasks");
       } finally {
         setIsLoadingOfficeMembers(false);
       }
     }
-  }, [user, officeId, toast]);
+  }, [user, officeIdParam, toast, router]);
 
   useEffect(() => {
-    if (!authLoading && user && officeId) { 
+    if (!authLoading && user && officeIdParam) { 
       fetchOfficeAndMembers();
+    } else if (!officeIdParam && !authLoading) {
+      setIsLoading(false);
+      setIsLoadingOfficeMembers(false);
     }
-  }, [authLoading, user, officeId, fetchOfficeAndMembers]);
+  }, [authLoading, user, officeIdParam, fetchOfficeAndMembers]);
 
   const fetchTask = useCallback(async () => {
-    if (user && taskId && officeId) { // Ensure officeId is present
+    if (user && taskIdParam && officeIdParam) { 
       setIsLoading(true);
       try {
-        const taskData = await getTaskByIdFromOffice(officeId, taskId); // Use new function
+        const taskData = await getTaskByIdFromOffice(officeIdParam, taskIdParam); 
         if (taskData) {
           setCurrentTask(taskData);
           setTaskName(taskData.name);
@@ -111,28 +114,29 @@ export default function TaskDetailPage() {
           setDescription(taskData.description || "");
           setProgress(taskData.progress);
         } else {
-           // Task not found in this office, redirect.
-           // The toast is removed from here, the page will handle "not found" state.
            router.push("/tasks"); 
         }
       } catch (error) {
         console.error("Failed to fetch task:", error);
         toast({ variant: "destructive", title: "Error", description: "Could not fetch task details." });
+        router.push("/tasks");
       } finally {
         setIsLoading(false);
       }
     }
-  }, [user, taskId, officeId, toast, router]);
+  }, [user, taskIdParam, officeIdParam, toast, router]);
 
   useEffect(() => {
-    if (!authLoading && user && officeId) { // Ensure officeId is available before fetching task
+    if (!authLoading && user && officeIdParam && taskIdParam && !isLoadingOfficeMembers && activeOffice) { 
       fetchTask();
+    } else if ((!officeIdParam || !taskIdParam) && !authLoading) {
+      setIsLoading(false);
     }
-  }, [authLoading, user, fetchTask, officeId]);
+  }, [authLoading, user, fetchTask, officeIdParam, taskIdParam, isLoadingOfficeMembers, activeOffice]);
 
   const handleSaveChanges = async (e: FormEvent) => {
     e.preventDefault();
-    if (!currentTask || !user || !officeId || !activeOffice) return;
+    if (!currentTask || !user || !officeIdParam || !activeOffice) return;
 
     setIsSubmitting(true);
 
@@ -140,7 +144,6 @@ export default function TaskDetailPage() {
       .map(id => currentOfficeMembers.find(m => m.userId === id))
       .filter(Boolean) as OfficeMember[];
     const assigneesDisplay = selectedAssigneeDetails.map(m => m.name).join(', ') || "Unassigned";
-
 
     const updatedTaskData: Partial<Omit<Task, 'id' | 'createdAt' | 'updatedAt' | 'officeId' | 'creatorUserId'>> = {
       name: taskName,
@@ -155,7 +158,7 @@ export default function TaskDetailPage() {
     const actorName = user.displayName || user.email || "User";
 
     try {
-      await updateTaskInOffice(officeId, currentTask.id, updatedTaskData, user.uid, actorName, activeOffice.name);
+      await updateTaskInOffice(officeIdParam, currentTask.id, updatedTaskData, user.uid, actorName, activeOffice.name);
       toast({ title: "Task Updated", description: "Your changes have been saved." });
       router.push("/tasks");
     } catch (error) {
@@ -167,17 +170,17 @@ export default function TaskDetailPage() {
   };
 
   const handleDelete = async () => {
-    if (!currentTask || !user || !officeId) return;
+    if (!currentTask || !user || !officeIdParam) return;
     setIsSubmitting(true);
     const actorName = user.displayName || user.email || "User";
     try {
-      await deleteTaskFromOffice(officeId, currentTask.id, user.uid, actorName);
+      await deleteTaskFromOffice(officeIdParam, currentTask.id, user.uid, actorName);
       toast({ title: "Task Deleted", description: `"${currentTask.name}" has been removed.` });
       router.push("/tasks");
     } catch (error) {
       console.error("Failed to delete task:", error);
       toast({ variant: "destructive", title: "Error", description: "Could not delete task." });
-      setIsSubmitting(false); // Only set false on error, success leads to redirect
+      setIsSubmitting(false); 
     }
     setIsDeleteDialogOpen(false);
   };
@@ -191,8 +194,7 @@ export default function TaskDetailPage() {
     return names.join(', ') || "Select Assignee(s)";
   };
 
-
-  if (authLoading || isLoading || isLoadingOfficeMembers && !currentTask) { 
+  if (authLoading || (!officeIdParam || !taskIdParam && !authLoading) || isLoading || (isLoadingOfficeMembers && !currentTask && officeIdParam && taskIdParam)) { 
     return <div className="container mx-auto p-8 text-center"><Loader2 className="h-12 w-12 animate-spin text-primary"/></div>;
   }
 
@@ -209,7 +211,7 @@ export default function TaskDetailPage() {
     );
   }
   
-  if (!currentTask) return null; // Should be covered by above, but good for TS
+  if (!currentTask || !officeIdParam) return null; 
 
   return (
     <div className="container mx-auto p-4 sm:p-6 lg:p-8">
@@ -226,7 +228,7 @@ export default function TaskDetailPage() {
         <form onSubmit={handleSaveChanges}>
           <CardHeader>
             <CardTitle className="font-headline text-2xl sm:text-3xl">Edit Task: {currentTask.name}</CardTitle>
-            <CardDescription>Modify the details of this task below. Belongs to office: {activeOffice?.name || officeId}</CardDescription>
+            <CardDescription>Modify the details of this task below. Belongs to office: {activeOffice?.name || officeIdParam}</CardDescription>
           </CardHeader>
           <CardContent className="space-y-6 py-6 max-h-[calc(100vh-250px)] overflow-y-auto pr-2 sm:pr-3">
             <div className="space-y-1.5">
@@ -397,3 +399,4 @@ export default function TaskDetailPage() {
     </div>
   );
 }
+

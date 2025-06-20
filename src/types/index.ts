@@ -1,5 +1,4 @@
 
-
 import type { LucideIcon } from 'lucide-react';
 import type { Timestamp } from 'firebase/firestore';
 
@@ -16,15 +15,15 @@ export interface NavItem {
 
 // --- User Profile Types ---
 export interface UserProfile {
-  id: string; // Should be the same as Firebase Auth UID
+  id: string; 
   displayName: string;
-  email: string; // Usually from Auth, stored for convenience
+  email: string; 
   avatarUrl?: string;
   phoneNumber?: string;
   profession?: string;
   birthday?: Date;
   bio?: string;
-  resumeUrl?: string; // URL to the stored resume file
+  resumeUrl?: string; 
   createdAt?: Date;
   updatedAt?: Date;
 }
@@ -39,9 +38,11 @@ export type UserProfileFirestoreData = Omit<UserProfile, 'id' | 'birthday' | 'cr
 // --- Task Management Types ---
 export interface Task {
   id: string;
+  officeId: string; // Added
+  creatorUserId: string; // Renamed from userId
   name: string;
   assigneeIds?: string[];
-  assigneesDisplay?: string; // Comma-separated names for display
+  assigneesDisplay?: string; 
   dueDate?: Date;
   status: "To Do" | "In Progress" | "Done" | "Blocked";
   priority: "Low" | "Medium" | "High";
@@ -49,10 +50,9 @@ export interface Task {
   description?: string;
   createdAt?: Date;
   updatedAt?: Date;
-  userId?: string; // The user who "owns" or created this task
 }
 
-export type TaskFirestoreData = Omit<Task, 'id' | 'dueDate' | 'createdAt' | 'updatedAt' | 'userId'> & {
+export type TaskFirestoreData = Omit<Task, 'id' | 'dueDate' | 'createdAt' | 'updatedAt'> & {
   dueDate?: Timestamp;
   createdAt?: Timestamp;
   updatedAt?: Timestamp;
@@ -62,6 +62,7 @@ export type TaskFirestoreData = Omit<Task, 'id' | 'dueDate' | 'createdAt' | 'upd
 // --- Goal Tracker Types ---
 export interface Goal {
   id: string;
+  creatorUserId: string; // Renamed from userId
   name: string;
   description: string;
   targetValue: number;
@@ -69,34 +70,37 @@ export interface Goal {
   unit: string;
   deadline?: Date;
   participantIds?: string[];
-  participantsDisplay?: string; // Comma-separated names for display
+  participantsDisplay?: string; 
   createdAt?: Date;
   updatedAt?: Date;
-  userId?: string; // The user who "owns" or created this goal
+  officeId?: string; // Added - to be implemented for Goals later
 }
 
-export type GoalFirestoreData = Omit<Goal, 'id' | 'deadline' | 'createdAt' | 'updatedAt' | 'userId'> & {
+export type GoalFirestoreData = Omit<Goal, 'id' | 'deadline' | 'createdAt' | 'updatedAt' | 'creatorUserId'> & {
   deadline?: Timestamp;
   createdAt?: Timestamp;
   updatedAt?: Timestamp;
+  creatorUserId: string;
+  officeId?: string;
 };
 
 // --- Meetings Types ---
 export interface Meeting {
   id: string;
+  officeId: string; // Added
+  creatorUserId: string; // Renamed from userId
   title: string;
-  dateTime: Date; // Start date and time
-  endDateTime: Date; // End date and time
+  dateTime: Date; 
+  endDateTime: Date; 
   isRecurring?: boolean;
   participantIds?: string[];
-  participantsDisplay?: string; // Comma-separated names for display
+  participantsDisplay?: string; 
   description?: string;
   createdAt?: Date;
   updatedAt?: Date;
-  userId?: string; // The user who "owns" or created this meeting
 }
 
-export type MeetingFirestoreData = Omit<Meeting, 'id' | 'dateTime' | 'endDateTime' | 'createdAt' | 'updatedAt' | 'userId'> & {
+export type MeetingFirestoreData = Omit<Meeting, 'id' | 'dateTime' | 'endDateTime' | 'createdAt' | 'updatedAt'> & {
   dateTime: Timestamp;
   endDateTime: Timestamp;
   createdAt?: Timestamp;
@@ -230,7 +234,7 @@ export interface ChatMessage {
   chatThreadId: string;
 }
 
-export type ChatMessageFirestoreData = Omit<ChatMessage, 'id' | 'timestamp' | 'audioDataUrl' > & {
+export type ChatMessageFirestoreData = Omit<ChatMessage, 'id' | 'timestamp' | 'audioDataUrl' | 'chatThreadId' > & {
   timestamp: Timestamp;
   audioDataUrl?: string; 
 };
@@ -239,7 +243,7 @@ export type ChatMessageFirestoreData = Omit<ChatMessage, 'id' | 'timestamp' | 'a
 export interface ChatThread {
   id: string;
   participantIds: string[];
-  participantInfo: { [userId: string]: Pick<ChatUser, 'name' | 'avatarUrl'> };
+  participantInfo: { [userId: string]: Pick<ChatUser, 'name'> & {avatarUrl?: string} };
   lastMessageText?: string;
   lastMessageSenderName?: string;
   lastMessageTimestamp?: Date;
@@ -254,9 +258,9 @@ export type ChatThreadFirestoreData = Omit<ChatThread, 'id' | 'lastMessageTimest
 
 // --- User Notification Types ---
 export type UserNotificationType =
-  | "task-new" | "task-updated" // Added task-updated
-  | "goal-new" | "goal-updated" // Added goal-updated
-  | "meeting-new" | "meeting-updated" // Added meeting-updated
+  | "task-new" | "task-updated" 
+  | "goal-new" | "goal-updated" 
+  | "meeting-new" | "meeting-updated" 
   | "chat-new-message"
   | "office-invite"
   | "office-join-request"
@@ -282,5 +286,3 @@ export interface UserNotification {
 export type UserNotificationFirestoreData = Omit<UserNotification, 'id' | 'timestamp' | 'userId'> & {
   timestamp: Timestamp;
 };
-
-    
