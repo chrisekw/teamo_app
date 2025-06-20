@@ -79,7 +79,7 @@ export default function MeetingsPage() {
   const [newMeetingEndTime, setNewMeetingEndTime] = useState(format(new Date(Date.now() + 60 * 60 * 1000), "HH:mm")); // Default 1 hour later
   const [newMeetingIsRecurring, setNewMeetingIsRecurring] = useState(false);
   const [newMeetingDepartment, setNewMeetingDepartment] = useState("");
-  const [newMeetingParticipants, setNewMeetingParticipants] = useState("");
+  const [newMeetingParticipants, setNewMeetingParticipants] = useState(""); // Comma-separated string
 
   const [selectedMeetingForPreview, setSelectedMeetingForPreview] = useState<Meeting | null>(null);
   const [hasCameraPermission, setHasCameraPermission] = useState<boolean | undefined>(undefined);
@@ -275,7 +275,7 @@ export default function MeetingsPage() {
       endDateTime: endDateTime,
       isRecurring: newMeetingIsRecurring,
       department: newMeetingDepartment || undefined,
-      participants: newMeetingParticipants.split(',').map(p => p.trim()).filter(p => p),
+      participants: newMeetingParticipants.split(',').map(p => p.trim()).filter(p => p !== ""),
       description: newMeetingDescription || undefined,
     };
     const actorName = user.displayName || user.email || "User";
@@ -399,11 +399,11 @@ export default function MeetingsPage() {
 
                 <div className="space-y-1.5">
                   <Label htmlFor="department" className="flex items-center text-sm font-medium text-muted-foreground"><Briefcase className="mr-2 h-4 w-4 text-muted-foreground"/>Department (Optional)</Label>
-                    <Input id="department" value={newMeetingDepartment} onChange={(e) => setNewMeetingDepartment(e.target.value)} placeholder="Select Department" disabled={isSubmitting}/>
+                    <Input id="department" value={newMeetingDepartment} onChange={(e) => setNewMeetingDepartment(e.target.value)} placeholder="e.g., Engineering" disabled={isSubmitting}/>
                 </div>
                 <div className="space-y-1.5">
-                  <Label htmlFor="participants" className="flex items-center text-sm font-medium text-muted-foreground"><Users className="mr-2 h-4 w-4 text-muted-foreground"/>Participants</Label>
-                    <Input id="participants" value={newMeetingParticipants} onChange={(e) => setNewMeetingParticipants(e.target.value)} placeholder="e.g. Alice, Bob (comma-separated)" disabled={isSubmitting}/>
+                  <Label htmlFor="participants" className="flex items-center text-sm font-medium text-muted-foreground"><Users className="mr-2 h-4 w-4 text-muted-foreground"/>Participants (Optional)</Label>
+                    <Textarea id="participants" value={newMeetingParticipants} onChange={(e) => setNewMeetingParticipants(e.target.value)} placeholder="Comma-separated names or emails" disabled={isSubmitting} rows={2}/>
                 </div>
                 <div className="space-y-1.5">
                     <Label className="flex items-center text-sm font-medium text-muted-foreground"><Video className="mr-2 h-4 w-4 text-muted-foreground"/>Meeting Type</Label>
@@ -483,7 +483,7 @@ export default function MeetingsPage() {
                     </div>
                     <CardDescription className="flex flex-col sm:flex-row sm:items-center sm:space-x-4 text-sm pt-1">
                       <span className="flex items-center mb-1 sm:mb-0"><Clock className="mr-1 h-4 w-4" /> {meeting.dateTime.toLocaleDateString()} at {meeting.dateTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} ({calculateDuration(meeting.dateTime, meeting.endDateTime)})</span>
-                      <span className="flex items-center"><Users className="mr-1 h-4 w-4" /> {meeting.participants.length > 0 ? meeting.participants.join(', ') : "No participants listed"}</span>
+                      {meeting.participants.length > 0 && <span className="flex items-center"><Users className="mr-1 h-4 w-4" /> {meeting.participants.join(', ')}</span>}
                     </CardDescription>
                   </CardHeader>
                   {meeting.description && (
@@ -523,4 +523,5 @@ export default function MeetingsPage() {
     </div>
   );
 }
+
     

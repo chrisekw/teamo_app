@@ -1,27 +1,34 @@
 
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, lazy, Suspense } from "react";
 import { useForm, SubmitHandler, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import dynamic from 'next/dynamic';
 
-import { summarizeTeamCommunication, SummarizeTeamCommunicationInput, SummarizeTeamCommunicationOutput } from "@/ai/flows/summarize-team-communication";
-import { suggestTeamAlignmentActions, SuggestTeamAlignmentActionsInput, SuggestTeamAlignmentActionsOutput } from "@/ai/flows/suggest-team-alignment-actions";
-import { suggestActionableTasks, SuggestActionableTasksInput, SuggestActionableTasksOutput } from "@/ai/flows/suggest-actionable-tasks";
-import { answerTeamQuestion, AnswerTeamQuestionInput, AnswerTeamQuestionOutput } from "@/ai/flows/answer-team-questions";
-import { generateTeamContent, GenerateTeamContentInput, GenerateTeamContentOutput } from "@/ai/flows/generate-team-content";
+import type { SummarizeTeamCommunicationInput, SummarizeTeamCommunicationOutput } from "@/ai/flows/summarize-team-communication";
+import type { SuggestTeamAlignmentActionsInput, SuggestTeamAlignmentActionsOutput } from "@/ai/flows/suggest-team-alignment-actions";
+import type { SuggestActionableTasksInput, SuggestActionableTasksOutput } from "@/ai/flows/suggest-actionable-tasks";
+import type { AnswerTeamQuestionInput, AnswerTeamQuestionOutput } from "@/ai/flows/answer-team-questions";
+import type { GenerateTeamContentInput, GenerateTeamContentOutput } from "@/ai/flows/generate-team-content";
+
+// Dynamically import AI flow functions only when needed or keep them if they are small server actions
+import { summarizeTeamCommunication } from "@/ai/flows/summarize-team-communication";
+import { suggestTeamAlignmentActions } from "@/ai/flows/suggest-team-alignment-actions";
+import { suggestActionableTasks } from "@/ai/flows/suggest-actionable-tasks";
+import { answerTeamQuestion } from "@/ai/flows/answer-team-questions";
+import { generateTeamContent } from "@/ai/flows/generate-team-content";
+
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Form as ShadcnForm, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
-// Removed direct Label import, FormLabel from ui/form will be used
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { Loader2, Sparkles, MessageSquare, CheckSquare, AlertTriangleIcon, ListChecks, HelpCircle, FileText, Send, Bot, Briefcase, Clock, Edit, Type, Layers, Brain, MessageCircleQuestion, MessageCircle as MessageCircleIcon } from "lucide-react"; // Added MessageCircleIcon alias
+import { Loader2, Sparkles, MessageSquare, CheckSquare, AlertTriangleIcon, ListChecks, HelpCircle, FileText, Send, Bot, Briefcase, Clock, Edit, Type, Layers, Brain, MessageCircleQuestion, MessageCircle as MessageCircleIcon } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { useToast } from "@/hooks/use-toast";
 import { Badge } from "@/components/ui/badge";
@@ -34,7 +41,7 @@ const DynamicScrollArea = dynamic(() => import('@/components/ui/scroll-area').th
   loading: () => <Skeleton className="h-full w-full" />
 });
 
-
+// Schemas
 const summarizeSchema = z.object({
   teamChatLog: z.string().min(50, "Chat log should be substantial for meaningful summary."),
   goal: z.string().min(5, "Goal description is too short."),
@@ -72,6 +79,20 @@ const generateContentSchema = z.object({
   path: ["customContentType"],
 });
 type GenerateContentFormValues = z.infer<typeof generateContentSchema>;
+
+
+// Dynamic components for forms and results
+const SummarizeFields = lazy(() => import('@/components/ai/summarize-fields'));
+const SummarizeResultDisplay = lazy(() => import('@/components/ai/summarize-result-display'));
+const SuggestAlignmentFields = lazy(() => import('@/components/ai/suggest-alignment-fields'));
+const SuggestAlignmentResultDisplay = lazy(() => import('@/components/ai/suggest-alignment-result-display'));
+const SuggestTasksFields = lazy(() => import('@/components/ai/suggest-tasks-fields'));
+const SuggestTasksResultDisplay = lazy(() => import('@/components/ai/suggest-tasks-result-display'));
+const AnswerQuestionFields = lazy(() => import('@/components/ai/answer-question-fields'));
+const AnswerQuestionResultDisplay = lazy(() => import('@/components/ai/answer-question-result-display'));
+const GenerateContentFields = lazy(() => import('@/components/ai/generate-content-fields'));
+const GenerateContentResultDisplay = lazy(() => import('@/components/ai/generate-content-result-display'));
+
 
 interface ChatMessage {
   id: string;
@@ -121,9 +142,7 @@ export default function AiAssistantPage() {
   const suggestTasksForm = useForm<SuggestTasksFormValues>({ resolver: zodResolver(suggestTasksSchema), defaultValues: { contextText: "", maxTasks: 5 } });
   const answerQuestionFormDialog = useForm<AnswerQuestionFormValues>({ resolver: zodResolver(answerQuestionSchema), defaultValues: { question: "", context: "" }});
   const generateContentForm = useForm<GenerateContentFormValues>({ resolver: zodResolver(generateContentSchema), defaultValues: { topic: "", contentType: "blog post", customContentType: "", desiredLength: "medium", toneAndStyle: "professional and informative", additionalInstructions: "" } });
-  const contentTypeWatch = generateContentForm.watch("contentType");
-
-
+  
   const onSummarizeSubmit: SubmitHandler<SummarizeFormValues> = async (data) => {
     setIsSummarizing(true); setSummarizeResult(null);
     try {
@@ -194,170 +213,20 @@ export default function AiAssistantPage() {
   };
 
   const quickActions = [
-    { key: 'summarize' as AiFunctionKey, title: "Summarize Communication", description: "Analyze chat logs for key points.", icon: MessageSquare, form: summarizeForm, submitHandler: onSummarizeSubmit, result: summarizeResult, isLoading: isSummarizing, fields: (
-        <>
-          <ShadcnForm {...summarizeForm}>
-             <FormField control={summarizeForm.control} name="teamChatLog" render={({ field }) => (
-                <FormItem className="space-y-1.5">
-                  <FormLabel className="flex items-center text-sm font-medium text-muted-foreground"><MessageCircleIcon className="mr-2 h-4 w-4 text-muted-foreground"/>Team Chat Log</FormLabel>
-                  <FormControl><Textarea id="teamChatLog" placeholder="Paste team chat log here..." {...field} rows={6} /></FormControl>
-                  <FormMessage />
-                </FormItem>
-              )} />
-             <FormField control={summarizeForm.control} name="goal" render={({ field }) => (
-                <FormItem className="space-y-1.5">
-                  <FormLabel className="flex items-center text-sm font-medium text-muted-foreground"><Briefcase className="mr-2 h-4 w-4 text-muted-foreground"/>Relevant Team Goal</FormLabel>
-                  <FormControl><Input id="goal" placeholder="e.g., Launch V2..." {...field} /></FormControl>
-                  <FormMessage />
-                </FormItem>
-              )} />
-          </ShadcnForm>
-        </>
-      ), renderResult: summarizeResult && (
-        <div className="space-y-3 pt-4">
-          <Alert><MessageSquare className="h-4 w-4" /><AlertTitle>Overall Summary</AlertTitle><AlertDescription>{summarizeResult.summary}</AlertDescription></Alert>
-          <Alert><CheckSquare className="h-4 w-4" /><AlertTitle>Key Decisions</AlertTitle><AlertDescription>{summarizeResult.keyDecisions}</AlertDescription></Alert>
-          <Alert variant="destructive"><AlertTriangleIcon className="h-4 w-4" /><AlertTitle>Identified Roadblocks</AlertTitle><AlertDescription>{summarizeResult.roadblocks}</AlertDescription></Alert>
-        </div>
-      )
+    { key: 'summarize' as AiFunctionKey, title: "Summarize Communication", description: "Analyze chat logs for key points.", icon: MessageSquare, form: summarizeForm, submitHandler: onSummarizeSubmit, result: summarizeResult, isLoading: isSummarizing, 
+      FieldsComponent: SummarizeFields, ResultComponent: SummarizeResultDisplay
     },
-    { key: 'alignment' as AiFunctionKey, title: "Suggest Alignment Actions", description: "Get suggestions to improve team alignment.", icon: Sparkles, form: suggestAlignmentForm, submitHandler: onSuggestAlignmentSubmit, result: suggestAlignmentResult, isLoading: isSuggestingAlignment, fields: (
-        <>
-           <ShadcnForm {...suggestAlignmentForm}>
-             <FormField control={suggestAlignmentForm.control} name="goalProgress" render={({ field }) => (
-                <FormItem className="space-y-1.5">
-                  <FormLabel className="flex items-center text-sm font-medium text-muted-foreground"><Clock className="mr-2 h-4 w-4 text-muted-foreground"/>Goal Progress</FormLabel>
-                  <FormControl><Textarea id="goalProgress" placeholder="Describe current goal progress..." {...field} rows={3} /></FormControl>
-                  <FormMessage />
-                </FormItem>
-              )} />
-             <FormField control={suggestAlignmentForm.control} name="taskCompletion" render={({ field }) => (
-                <FormItem className="space-y-1.5">
-                  <FormLabel className="flex items-center text-sm font-medium text-muted-foreground"><CheckSquare className="mr-2 h-4 w-4 text-muted-foreground"/>Task Completion</FormLabel>
-                  <FormControl><Textarea id="taskCompletion" placeholder="Summarize task completion..." {...field} rows={3} /></FormControl>
-                  <FormMessage />
-                </FormItem>
-              )} />
-             <FormField control={suggestAlignmentForm.control} name="communicationPatterns" render={({ field }) => (
-                <FormItem className="space-y-1.5">
-                  <FormLabel className="flex items-center text-sm font-medium text-muted-foreground"><MessageSquare className="mr-2 h-4 w-4 text-muted-foreground"/>Communication Patterns</FormLabel>
-                  <FormControl><Textarea id="communicationPatterns" placeholder="Describe communication patterns..." {...field} rows={3} /></FormControl>
-                  <FormMessage />
-                </FormItem>
-              )} />
-            </ShadcnForm>
-        </>
-      ), renderResult: suggestAlignmentResult && (
-        <div className="space-y-3 pt-4">
-          <Alert><Sparkles className="h-4 w-4" /><AlertTitle>Rationale</AlertTitle><AlertDescription>{suggestAlignmentResult.rationale}</AlertDescription></Alert>
-          <Card><CardContent className="pt-4"><h4 className="font-semibold mb-2">Suggested Actions:</h4><ul className="list-disc pl-5 space-y-1 text-sm">{suggestAlignmentResult.suggestedActions.map((action, i) => <li key={i}>{action}</li>)}</ul></CardContent></Card>
-        </div>
-      )
+    { key: 'alignment' as AiFunctionKey, title: "Suggest Alignment Actions", description: "Get suggestions to improve team alignment.", icon: Sparkles, form: suggestAlignmentForm, submitHandler: onSuggestAlignmentSubmit, result: suggestAlignmentResult, isLoading: isSuggestingAlignment,
+      FieldsComponent: SuggestAlignmentFields, ResultComponent: SuggestAlignmentResultDisplay
     },
-    { key: 'tasks' as AiFunctionKey, title: "Suggest Actionable Tasks", description: "Extract tasks from notes or discussions.", icon: ListChecks, form: suggestTasksForm, submitHandler: onSuggestTasksSubmit, result: suggestTasksResult, isLoading: isSuggestingTasks, fields: (
-        <>
-          <ShadcnForm {...suggestTasksForm}>
-            <FormField control={suggestTasksForm.control} name="contextText" render={({ field }) => (
-              <FormItem className="space-y-1.5">
-                <FormLabel className="flex items-center text-sm font-medium text-muted-foreground"><Edit className="mr-2 h-4 w-4 text-muted-foreground"/>Context / Input Text</FormLabel>
-                <FormControl><Textarea id="contextText" placeholder="Paste meeting notes, project brief..." {...field} rows={6} /></FormControl>
-                <FormMessage />
-              </FormItem>
-            )} />
-            <FormField control={suggestTasksForm.control} name="maxTasks" render={({ field }) => (
-              <FormItem className="space-y-1.5">
-                <FormLabel className="flex items-center text-sm font-medium text-muted-foreground"><Layers className="mr-2 h-4 w-4 text-muted-foreground"/>Maximum Tasks</FormLabel>
-                <FormControl><Input id="maxTasks" type="number" {...field} /></FormControl>
-                <FormMessage />
-              </FormItem>
-            )} />
-          </ShadcnForm>
-        </>
-      ), renderResult: suggestTasksResult && (
-        <div className="space-y-3 pt-4">
-          {suggestTasksResult.summary && <Alert><Sparkles className="h-4 w-4" /><AlertTitle>Summary</AlertTitle><AlertDescription>{suggestTasksResult.summary}</AlertDescription></Alert>}
-          <h4 className="font-semibold">Suggested Tasks:</h4>
-          {suggestTasksResult.suggestedTasks.length > 0 ? <ul className="space-y-2">{suggestTasksResult.suggestedTasks.map((task, i) => (<li key={i} className="p-3 border rounded-md text-sm"><p className="font-semibold">{task.taskName} <Badge variant={task.priority === "High" ? "destructive" : task.priority === "Medium" ? "secondary" : "outline"}>{task.priority}</Badge></p><p className="text-muted-foreground">{task.description}</p>{task.potentialAssignee && <p className="text-xs text-muted-foreground mt-1">Assignee: {task.potentialAssignee}</p>}</li>))}</ul> : <p className="text-sm text-muted-foreground">No tasks suggested.</p>}
-        </div>
-      )
+    { key: 'tasks' as AiFunctionKey, title: "Suggest Actionable Tasks", description: "Extract tasks from notes or discussions.", icon: ListChecks, form: suggestTasksForm, submitHandler: onSuggestTasksSubmit, result: suggestTasksResult, isLoading: isSuggestingTasks,
+      FieldsComponent: SuggestTasksFields, ResultComponent: SuggestTasksResultDisplay
     },
-     { key: 'question' as AiFunctionKey, title: "Answer Team Questions", description: "Ask about productivity, practices, etc.", icon: HelpCircle, form: answerQuestionFormDialog, submitHandler: onAnswerQuestionDialogSubmit, result: answerQuestionResultDialog, isLoading: isAnsweringQuestionDialog, fields: (
-        <>
-          <ShadcnForm {...answerQuestionFormDialog}>
-            <FormField control={answerQuestionFormDialog.control} name="question" render={({ field }) => (
-              <FormItem className="space-y-1.5">
-                <FormLabel className="flex items-center text-sm font-medium text-muted-foreground"><MessageCircleQuestion className="mr-2 h-4 w-4 text-muted-foreground"/>Your Question</FormLabel>
-                <FormControl><Textarea id="question" placeholder="e.g., Effective strategies for remote teams?" {...field} rows={3} /></FormControl>
-                <FormMessage />
-              </FormItem>
-            )} />
-            <FormField control={answerQuestionFormDialog.control} name="context" render={({ field }) => (
-              <FormItem className="space-y-1.5">
-                <FormLabel className="flex items-center text-sm font-medium text-muted-foreground"><Brain className="mr-2 h-4 w-4 text-muted-foreground"/>Optional Context</FormLabel>
-                <FormControl><Textarea id="context" placeholder="Provide background info..." {...field} rows={3} /></FormControl>
-                <FormMessage />
-              </FormItem>
-            )} />
-          </ShadcnForm>
-        </>
-      ), renderResult: answerQuestionResultDialog && (
-        <div className="space-y-3 pt-4">
-          <Alert><HelpCircle className="h-4 w-4" /><AlertTitle>AI's Answer</AlertTitle><AlertDescription className="whitespace-pre-wrap">{answerQuestionResultDialog.answer}</AlertDescription>{answerQuestionResultDialog.confidenceScore && <p className="text-xs text-muted-foreground mt-2">Confidence: {(answerQuestionResultDialog.confidenceScore * 100).toFixed(0)}%</p>}</Alert>
-        </div>
-      )
+    { key: 'question' as AiFunctionKey, title: "Answer Team Questions", description: "Ask about productivity, practices, etc.", icon: HelpCircle, form: answerQuestionFormDialog, submitHandler: onAnswerQuestionDialogSubmit, result: answerQuestionResultDialog, isLoading: isAnsweringQuestionDialog,
+      FieldsComponent: AnswerQuestionFields, ResultComponent: AnswerQuestionResultDisplay
     },
-    { key: 'content' as AiFunctionKey, title: "Generate Team Content", description: "Create blog posts, emails, agendas.", icon: FileText, form: generateContentForm, submitHandler: onGenerateContentSubmit, result: generateContentResult, isLoading: isGeneratingContent, fields: (
-        <>
-          <ShadcnForm {...generateContentForm}>
-            <FormField control={generateContentForm.control} name="topic" render={({ field }) => (
-              <FormItem className="space-y-1.5">
-                <FormLabel className="flex items-center text-sm font-medium text-muted-foreground"><Type className="mr-2 h-4 w-4 text-muted-foreground"/>Topic / Subject</FormLabel>
-                <FormControl><Input id="topic" placeholder="e.g., New product feature announcement" {...field} /></FormControl>
-                <FormMessage />
-              </FormItem>
-            )} />
-            <FormField control={generateContentForm.control} name="contentType" render={({ field }) => (
-              <FormItem className="space-y-1.5">
-                <FormLabel className="flex items-center text-sm font-medium text-muted-foreground"><FileText className="mr-2 h-4 w-4 text-muted-foreground"/>Content Type</FormLabel>
-                <Select onValueChange={field.onChange} defaultValue={field.value}><FormControl><SelectTrigger id="contentType"><SelectValue /></SelectTrigger></FormControl><SelectContent><SelectItem value="blog post">Blog Post</SelectItem><SelectItem value="email draft">Email Draft</SelectItem><SelectItem value="social media update">Social Media Update</SelectItem><SelectItem value="meeting agenda">Meeting Agenda</SelectItem><SelectItem value="presentation outline">Presentation Outline</SelectItem><SelectItem value="custom">Custom</SelectItem></SelectContent></Select>
-                <FormMessage />
-              </FormItem>
-            )} />
-            {contentTypeWatch === 'custom' && <FormField control={generateContentForm.control} name="customContentType" render={({ field }) => (
-              <FormItem className="space-y-1.5">
-                <FormLabel className="flex items-center text-sm font-medium text-muted-foreground"><Edit className="mr-2 h-4 w-4 text-muted-foreground"/>Custom Content Type</FormLabel>
-                <FormControl><Input id="customContentType" placeholder="Specify type" {...field} /></FormControl>
-                <FormMessage />
-              </FormItem>
-            )} />}
-            <FormField control={generateContentForm.control} name="desiredLength" render={({ field }) => (
-              <FormItem className="space-y-1.5">
-                <FormLabel className="flex items-center text-sm font-medium text-muted-foreground"><Layers className="mr-2 h-4 w-4 text-muted-foreground"/>Desired Length</FormLabel>
-                <Select onValueChange={field.onChange} defaultValue={field.value}><FormControl><SelectTrigger id="desiredLength"><SelectValue /></SelectTrigger></FormControl><SelectContent><SelectItem value="short">Short</SelectItem><SelectItem value="medium">Medium</SelectItem><SelectItem value="long">Long</SelectItem></SelectContent></Select>
-                <FormMessage />
-              </FormItem>
-            )} />
-            <FormField control={generateContentForm.control} name="toneAndStyle" render={({ field }) => (
-              <FormItem className="space-y-1.5">
-                <FormLabel className="flex items-center text-sm font-medium text-muted-foreground"><Sparkles className="mr-2 h-4 w-4 text-muted-foreground"/>Tone and Style</FormLabel>
-                <FormControl><Input id="toneAndStyle" placeholder="e.g., Professional and informative" {...field} /></FormControl>
-                <FormMessage />
-              </FormItem>
-            )} />
-            <FormField control={generateContentForm.control} name="additionalInstructions" render={({ field }) => (
-              <FormItem className="space-y-1.5">
-                <FormLabel className="flex items-center text-sm font-medium text-muted-foreground"><Brain className="mr-2 h-4 w-4 text-muted-foreground"/>Additional Instructions</FormLabel>
-                <FormControl><Textarea id="additionalInstructions" placeholder="Key points to include..." {...field} rows={3} /></FormControl>
-                <FormMessage />
-              </FormItem>
-            )} />
-          </ShadcnForm>
-        </>
-      ), renderResult: generateContentResult && (
-        <div className="space-y-3 pt-4">
-            <Alert><FileText className="h-4 w-4" /><AlertTitle>Generated Content (Type: {generateContentResult.contentTypeUsed})</AlertTitle><AlertDescription className="prose dark:prose-invert max-w-none whitespace-pre-wrap">{generateContentResult.generatedContent}</AlertDescription></Alert>
-        </div>
-      )
+    { key: 'content' as AiFunctionKey, title: "Generate Team Content", description: "Create blog posts, emails, agendas.", icon: FileText, form: generateContentForm, submitHandler: onGenerateContentSubmit, result: generateContentResult, isLoading: isGeneratingContent,
+      FieldsComponent: GenerateContentFields, ResultComponent: GenerateContentResultDisplay
     },
   ];
 
@@ -398,10 +267,16 @@ export default function AiAssistantPage() {
                 </DialogHeader>
                 <form onSubmit={(action.form as any).handleSubmit(action.submitHandler)}>
                   <div className="space-y-4 py-4 max-h-[60vh] overflow-y-auto pr-2">
-                    {action.fields}
+                    <Suspense fallback={<div className="flex justify-center py-4"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div>}>
+                      <action.FieldsComponent form={action.form} generateContentForm={generateContentForm} />
+                    </Suspense>
                   </div>
                   {action.isLoading && <div className="flex justify-center py-4"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div>}
-                  {action.result && action.renderResult}
+                  {action.result && (
+                    <Suspense fallback={<div className="flex justify-center py-4"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div>}>
+                        <action.ResultComponent result={action.result} />
+                    </Suspense>
+                  )}
                   <DialogFooter className="mt-6">
                     <Button type="button" variant="outline" onClick={() => setOpenDialog(null)}>Cancel</Button>
                     <Button type="submit" disabled={action.isLoading}>
@@ -476,4 +351,6 @@ export default function AiAssistantPage() {
     </div>
   );
 }
+    
+
     

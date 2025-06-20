@@ -39,21 +39,21 @@ export type UserProfileFirestoreData = Omit<UserProfile, 'id' | 'birthday' | 'cr
 export interface Task {
   id: string;
   name: string;
-  assignedTo: string;
-  dueDate?: Date; // Made optional as per new form design
+  assignedTo: string; // Can be a user name, email, or comma-separated list for now
+  dueDate?: Date;
   status: "To Do" | "In Progress" | "Done" | "Blocked";
   priority: "Low" | "Medium" | "High";
   progress: number;
   description?: string;
-  department?: string; // Added new field
+  department?: string;
   createdAt?: Date;
   updatedAt?: Date;
-  userId?: string;
+  userId?: string; // The user who "owns" or created this task
 }
 
 export type TaskFirestoreData = Omit<Task, 'id' | 'dueDate' | 'createdAt' | 'updatedAt' | 'userId'> & {
-  dueDate?: Timestamp; // Made optional
-  department?: string; // Added new field
+  dueDate?: Timestamp;
+  department?: string;
   createdAt?: Timestamp;
   updatedAt?: Timestamp;
 };
@@ -68,13 +68,15 @@ export interface Goal {
   currentValue: number;
   unit: string;
   deadline?: Date;
+  participants?: string[]; // Names or IDs of involved users/groups
   createdAt?: Date;
   updatedAt?: Date;
-  userId?: string;
+  userId?: string; // The user who "owns" or created this goal
 }
 
 export type GoalFirestoreData = Omit<Goal, 'id' | 'deadline' | 'createdAt' | 'updatedAt' | 'userId'> & {
   deadline?: Timestamp;
+  participants?: string[];
   createdAt?: Timestamp;
   updatedAt?: Timestamp;
 };
@@ -87,11 +89,11 @@ export interface Meeting {
   endDateTime: Date; // End date and time
   isRecurring?: boolean;
   department?: string;
-  participants: string[];
+  participants: string[]; // Names or IDs of invited users/groups
   description?: string;
   createdAt?: Date;
   updatedAt?: Date;
-  userId?: string;
+  userId?: string; // The user who "owns" or created this meeting
 }
 
 export type MeetingFirestoreData = Omit<Meeting, 'id' | 'dateTime' | 'endDateTime' | 'createdAt' | 'updatedAt' | 'userId'> & {
@@ -129,15 +131,15 @@ export interface Room {
   id: string;
   name: string;
   type: RoomType;
-  iconName: string; // Store the Lucide icon name as a string
-  coverImageUrl?: string; // Added for room cover image
+  iconName: string;
+  coverImageUrl?: string;
   officeId: string;
   createdAt?: Date;
   updatedAt?: Date;
 }
 
 export type RoomFirestoreData = Omit<Room, 'id' | 'officeId' | 'createdAt' | 'updatedAt'> & {
-  coverImageUrl?: string; // Added for room cover image
+  coverImageUrl?: string;
   createdAt?: Timestamp;
   updatedAt?: Timestamp;
 };
@@ -145,8 +147,8 @@ export type RoomFirestoreData = Omit<Room, 'id' | 'officeId' | 'createdAt' | 'up
 export interface OfficeMember {
   userId: string;
   name: string;
-  role: MemberRole; // System role (Owner, Admin, Member)
-  workRole?: string; // Professional/functional role (e.g., Developer, Marketer)
+  role: MemberRole;
+  workRole?: string;
   avatarUrl?: string;
   joinedAt?: Date;
 }
@@ -159,16 +161,16 @@ export type OfficeMemberFirestoreData = Omit<OfficeMember, 'joinedAt' | 'userId'
 export type OfficeJoinRequestStatus = 'pending' | 'approved' | 'rejected';
 
 export interface OfficeJoinRequest {
-  id: string; // Firestore document ID
+  id: string;
   officeId: string;
-  officeName: string; // For displaying in user's request list or notifications
+  officeName: string;
   requesterId: string;
   requesterName: string;
   requesterAvatarUrl?: string;
   status: OfficeJoinRequestStatus;
   requestedAt: Date;
-  processedAt?: Date; // Timestamp when approved/rejected
-  processedBy?: string; // User ID of the owner/admin who processed it
+  processedAt?: Date;
+  processedBy?: string;
 }
 
 export type OfficeJoinRequestFirestoreData = Omit<OfficeJoinRequest, 'id' | 'requestedAt' | 'processedAt'> & {
@@ -194,7 +196,7 @@ export interface ActivityLogItem {
   title: string;
   description: string;
   timestamp: Date;
-  iconName: string; // Lucide icon name as string
+  iconName: string;
   actorName?: string;
   actorId?: string;
   entityId?: string;
@@ -210,21 +212,21 @@ export type ActivityLogItemFirestoreData = Omit<ActivityLogItem, 'id' | 'timesta
 export interface ChatUser {
   id: string;
   name: string;
-  role: string; // This can be MemberRole or a custom string like 'User'
+  role: string;
   avatarUrl?: string;
 }
 
 export interface ChatMessage {
   id: string;
-  text: string; // For text messages, or "Voice Note" as placeholder for voice notes
+  text: string;
   senderId: string;
   senderName: string;
   timestamp: Date;
   avatarUrl?: string;
   type?: 'text' | 'voice_note' | 'call_event';
   callDuration?: string;
-  voiceNoteDuration?: string; // e.g., "00:35"
-  audioDataUrl?: string; // Base64 data URI for the audio
+  voiceNoteDuration?: string;
+  audioDataUrl?: string;
   chatThreadId: string;
 }
 
@@ -252,14 +254,14 @@ export type ChatThreadFirestoreData = Omit<ChatThread, 'id' | 'lastMessageTimest
 
 // --- User Notification Types ---
 export type UserNotificationType =
-  | "task-new"
-  | "goal-new"
-  | "meeting-new"
+  | "task-new" | "task-updated" // Added task-updated
+  | "goal-new" | "goal-updated" // Added goal-updated
+  | "meeting-new" | "meeting-updated" // Added meeting-updated
   | "chat-new-message"
-  | "office-invite" // Potentially deprecated by join requests
-  | "office-join-request" // To owner when someone requests to join
-  | "office-join-approved" // To requester when approved
-  | "office-join-rejected" // To requester when rejected
+  | "office-invite"
+  | "office-join-request"
+  | "office-join-approved"
+  | "office-join-rejected"
   | "generic";
 
 export interface UserNotification {
@@ -280,4 +282,5 @@ export interface UserNotification {
 export type UserNotificationFirestoreData = Omit<UserNotification, 'id' | 'timestamp' | 'userId'> & {
   timestamp: Timestamp;
 };
+
     

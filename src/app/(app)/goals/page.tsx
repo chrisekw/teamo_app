@@ -4,7 +4,7 @@
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
-import { PlusCircle, Target, Edit3, Trash2, CheckCircle2, Loader2, CalendarIcon as CalendarLucide, Info, Percent, Hash, Edit } from "lucide-react";
+import { PlusCircle, Target, Edit3, Trash2, CheckCircle2, Loader2, CalendarIcon as CalendarLucide, Info, Percent, Hash, Edit, Users } from "lucide-react";
 import { useState, useEffect, useCallback } from "react";
 import {
   Dialog,
@@ -52,6 +52,7 @@ export default function GoalsPage() {
   const [goalCurrentValue, setGoalCurrentValue] = useState(0);
   const [goalUnit, setGoalUnit] = useState("%");
   const [goalDeadline, setGoalDeadline] = useState<Date | undefined>();
+  const [goalParticipants, setGoalParticipants] = useState(""); // Comma-separated string
 
   const fetchUserOffices = useCallback(async () => {
     if (user) {
@@ -95,6 +96,7 @@ export default function GoalsPage() {
     setGoalCurrentValue(0);
     setGoalUnit("%");
     setGoalDeadline(undefined);
+    setGoalParticipants("");
     setCurrentGoalToEdit(null);
   };
 
@@ -107,6 +109,7 @@ export default function GoalsPage() {
       setGoalCurrentValue(goal.currentValue);
       setGoalUnit(goal.unit);
       setGoalDeadline(goal.deadline);
+      setGoalParticipants(goal.participants?.join(', ') || "");
     } else {
       resetForm();
     }
@@ -131,6 +134,7 @@ export default function GoalsPage() {
       currentValue: goalCurrentValue,
       unit: goalUnit,
       deadline: goalDeadline,
+      participants: goalParticipants.split(',').map(p => p.trim()).filter(p => p !== ""),
     };
     const actorName = user.displayName || user.email || "User";
     const officeForGoal = userOffices.length > 0 ? userOffices[0] : undefined;
@@ -138,7 +142,7 @@ export default function GoalsPage() {
 
     try {
       if (currentGoalToEdit) {
-        await updateGoalForUser(user.uid, currentGoalToEdit.id, goalData, actorName, officeForGoal?.id);
+        await updateGoalForUser(user.uid, currentGoalToEdit.id, goalData, actorName, officeForGoal?.id, officeForGoal?.name);
         toast({ title: "Goal Updated", description: `"${goalData.name}" has been updated.` });
       } else {
         await addGoalForUser(user.uid, goalData, actorName, officeForGoal?.id, officeForGoal?.name);
@@ -240,6 +244,11 @@ export default function GoalsPage() {
                     Deadline: {goal.deadline.toLocaleDateString()}
                   </p>
                 )}
+                 {goal.participants && goal.participants.length > 0 && (
+                    <p className="text-xs text-muted-foreground mt-1">
+                        Participants: {goal.participants.join(', ')}
+                    </p>
+                )}
               </CardContent>
               <CardFooter>
                 {isAchieved ? (
@@ -319,6 +328,10 @@ export default function GoalsPage() {
                 </PopoverContent>
               </Popover>
             </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="goalParticipants" className="flex items-center text-sm font-medium text-muted-foreground"><Users className="mr-2 h-4 w-4 text-muted-foreground"/>Participants (Optional)</Label>
+              <Textarea id="goalParticipants" value={goalParticipants} onChange={(e) => setGoalParticipants(e.target.value)} placeholder="Comma-separated names or emails" disabled={isSubmitting} rows={2}/>
+            </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setIsGoalDialogOpen(false)} disabled={isSubmitting}>Cancel</Button>
@@ -332,4 +345,5 @@ export default function GoalsPage() {
     </div>
   );
 }
+
     

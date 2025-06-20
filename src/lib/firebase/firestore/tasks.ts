@@ -15,7 +15,7 @@ const taskConverter: FirestoreDataConverter<Task, TaskFirestoreData> = {
     if (taskInput.dueDate && taskInput.dueDate instanceof Date) {
       data.dueDate = Timestamp.fromDate(taskInput.dueDate);
     } else if (taskInput.hasOwnProperty('dueDate') && !taskInput.dueDate) {
-      delete data.dueDate; // Remove if explicitly set to undefined
+      delete data.dueDate;
     }
     
     if (taskInput.department === undefined) delete data.department;
@@ -40,6 +40,7 @@ const taskConverter: FirestoreDataConverter<Task, TaskFirestoreData> = {
       department: data.department,
       createdAt: data.createdAt instanceof Timestamp ? data.createdAt.toDate() : new Date(),
       updatedAt: data.updatedAt instanceof Timestamp ? data.updatedAt.toDate() : new Date(),
+      userId: snapshot.ref.parent.parent!.id, // Assuming tasks are under /users/{userId}/tasks
     };
   }
 };
@@ -76,7 +77,7 @@ export async function addTaskForUser(
 ): Promise<Task> {
   if (!actorUserId) throw new Error("Actor User ID is required to add a task.");
   const tasksCol = getTasksCollection(actorUserId);
-  const docRef = await addDoc(tasksCol, taskData as Task); 
+  const docRef = await addDoc(tasksCol, { ...taskData, userId: actorUserId } as Task); // Add userId for context
   
   const newDocSnap = await getDoc(docRef);
   if (!newDocSnap.exists()) {
@@ -88,7 +89,7 @@ export async function addTaskForUser(
     addActivityLog(officeId, {
       type: "task-new",
       title: `New Task: ${newTask.name}`,
-      description: `Assigned to: ${newTask.assignedTo || 'Unassigned'}${newTask.department ? ` in ${newTask.department}` : ''} by ${actorName}`,
+      description: `Assigned to: ${newTask.assignedTo || 'Unassigned'}${newTask.department ? ` in ${newTask.department}` : ''}. Created by ${actorName}.`,
       iconName: "ListChecks",
       actorId: actorUserId,
       actorName: actorName,
@@ -125,7 +126,8 @@ export async function updateTaskForUser(
   taskId: string, 
   taskData: Partial<Omit<Task, 'id' | 'createdAt' | 'updatedAt' | 'userId'>>,
   actorName: string,
-  officeId?: string 
+  officeId?: string,
+  officeName?: string
 ): Promise<void> {
   if (!userId || !taskId) throw new Error("User ID and Task ID are required for update.");
   const taskDocRef = getTaskDoc(userId, taskId);
@@ -136,30 +138,65 @@ export async function updateTaskForUser(
   if (taskData.dueDate && taskData.dueDate instanceof Date) {
     updatePayload.dueDate = Timestamp.fromDate(taskData.dueDate);
   } else if (taskData.hasOwnProperty('dueDate') && !taskData.dueDate) {
-    updatePayload.dueDate = undefined; // Allows removing due date
+    updatePayload.dueDate = undefined; 
   }
   
   if (taskData.hasOwnProperty('department') && taskData.department === undefined) {
-    updatePayload.department = undefined; // Allows removing department
+    updatePayload.department = undefined;
   }
-
 
   await updateDoc(taskDocRef, updatePayload);
 
   if (officeId && originalTask) {
+    let activityType: "task-completed" | "task-status-update" = "task-status-update";
+    let activityTitle = `Task Update: ${originalTask.name}`;
+    let activityDescription = `${actorName} updated task: "${originalTask.name}".`;
+    let iconName = "Edit3";
+
     if (taskData.status && taskData.status !== originalTask.status) {
-      const activityType = taskData.status === "Done" ? "task-completed" : "task-status-update";
-      const iconName = taskData.status === "Done" ? "CheckSquare" : "Edit3";
-      addActivityLog(officeId, {
-        type: activityType,
-        title: `Task ${taskData.status === "Done" ? 'Completed' : 'Update'}: ${originalTask.name}`,
-        description: `Status changed to ${taskData.status} by ${actorName}`,
-        iconName: iconName,
-        actorId: userId,
-        actorName,
-        entityId: taskId,
-        entityType: "task",
-      });
+      activityDescription = `Status changed to ${taskData.status} by ${actorName}.`;
+      if (taskData.status === "Done") {
+        activityType = "task-completed";
+        activityTitle = `Task Completed: ${originalTask.name}`;
+        iconName = "CheckSquare";
+      }
+    } else if (taskData.assignedTo && taskData.assignedTo !== originalTask.assignedTo) {
+        activityDescription = `Task "${originalTask.name}" reassigned to ${taskData.assignedTo} by ${actorName}.`;
+    } else if (taskData.name && taskData.name !== originalTask.name) {
+        activityDescription = `Task name changed from "${originalTask.name}" to "${taskData.name}" by ${actorName}.`;
+    }
+    // Add more specific descriptions for other fields if needed
+
+    addActivityLog(officeId, {
+      type: activityType,
+      title: activityTitle,
+      description: activityDescription,
+      iconName: iconName,
+      actorId: userId,
+      actorName,
+      entityId: taskId,
+      entityType: "task",
+    });
+    
+    // Notify office members about the update
+    try {
+        const members = await getMembersForOffice(officeId);
+        for (const member of members) {
+            if (member.userId !== userId) { // Don't notify the actor
+                await addUserNotification(member.userId, {
+                    type: "task-updated",
+                    title: `Task Update in ${officeName || 'Office'}: ${originalTask.name}`,
+                    message: activityDescription,
+                    link: `/tasks/${taskId}`,
+                    officeId: officeId,
+                    actorName: actorName,
+                    entityId: taskId,
+                    entityType: "task"
+                });
+            }
+        }
+    } catch (error) {
+        console.error("Failed to send task update notifications:", error);
     }
   }
 }
@@ -168,6 +205,7 @@ export async function deleteTaskForUser(userId: string, taskId: string): Promise
   if (!userId || !taskId) throw new Error("User ID and Task ID are required for delete.");
   const taskDocRef = getTaskDoc(userId, taskId);
   await deleteDoc(taskDocRef);
+  // Consider adding an activity log for deletion if officeId is available
 }
 
 export const statusColors: Record<Task["status"], string> = {
@@ -176,3 +214,5 @@ export const statusColors: Record<Task["status"], string> = {
   "Done": "bg-green-500",
   "Blocked": "bg-red-500",
 };
+
+    

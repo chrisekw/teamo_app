@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
-import { PlusCircle, ListChecks, Filter, Loader2, User, Briefcase, Edit, Info, Clock, AlertTriangle } from "lucide-react"; // Added Edit, Info, Clock, AlertTriangle
+import { PlusCircle, ListChecks, Filter, Loader2, User, Briefcase, Edit, Info, Clock, AlertTriangle } from "lucide-react";
 import { useState, useEffect, useCallback } from "react";
 import {
   Dialog,
@@ -114,7 +114,7 @@ export default function TasksPage() {
     setIsSubmittingTask(true);
     const taskData: Omit<Task, 'id' | 'createdAt' | 'updatedAt' | 'userId'> = {
       name: newTaskName,
-      assignedTo: newAssignedTo || "Unassigned",
+      assignedTo: newAssignedTo || "Unassigned", // Default if empty
       dueDate: newDueDate, 
       status: "To Do", 
       priority: newPriority,
@@ -282,12 +282,12 @@ export default function TasksPage() {
 
             <div className="space-y-1.5">
                 <Label htmlFor="newAssignedTo" className="flex items-center text-sm font-medium text-muted-foreground"><User className="mr-2 h-4 w-4 text-muted-foreground"/>Assignee</Label>
-                <Input id="newAssignedTo" value={newAssignedTo} onChange={(e) => setNewAssignedTo(e.target.value)} placeholder="Select Assignee" disabled={isSubmittingTask}/>
+                <Input id="newAssignedTo" value={newAssignedTo} onChange={(e) => setNewAssignedTo(e.target.value)} placeholder="Name or email" disabled={isSubmittingTask}/>
             </div>
 
             <div className="space-y-1.5">
-                <Label htmlFor="newTaskDepartment" className="flex items-center text-sm font-medium text-muted-foreground"><Briefcase className="mr-2 h-4 w-4 text-muted-foreground"/>Department</Label>
-                <Input id="newTaskDepartment" value={newTaskDepartment} onChange={(e) => setNewTaskDepartment(e.target.value)} placeholder="Select Department" disabled={isSubmittingTask}/>
+                <Label htmlFor="newTaskDepartment" className="flex items-center text-sm font-medium text-muted-foreground"><Briefcase className="mr-2 h-4 w-4 text-muted-foreground"/>Department (Optional)</Label>
+                <Input id="newTaskDepartment" value={newTaskDepartment} onChange={(e) => setNewTaskDepartment(e.target.value)} placeholder="e.g., Engineering" disabled={isSubmittingTask}/>
             </div>
 
           </div>
@@ -303,3 +303,5 @@ export default function TasksPage() {
     </div>
   );
 }
+
+    

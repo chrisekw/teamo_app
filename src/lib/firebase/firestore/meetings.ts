@@ -38,10 +38,15 @@ const meetingConverter: FirestoreDataConverter<Meeting, MeetingFirestoreData> = 
     }
     data.updatedAt = serverTimestamp();
     
-    // Ensure optional fields that are undefined are not sent to Firestore
     if (meetingInput.isRecurring === undefined) delete data.isRecurring;
     if (meetingInput.department === undefined) delete data.department;
     if (meetingInput.description === undefined) delete data.description;
+    if (meetingInput.participants && Array.isArray(meetingInput.participants)) {
+        data.participants = meetingInput.participants;
+    } else {
+        data.participants = []; // Default to empty array if not provided or invalid
+    }
+
 
     return data;
   },
@@ -58,6 +63,7 @@ const meetingConverter: FirestoreDataConverter<Meeting, MeetingFirestoreData> = 
       description: data.description || "",
       createdAt: data.createdAt instanceof Timestamp ? data.createdAt.toDate() : new Date(),
       updatedAt: data.updatedAt instanceof Timestamp ? data.updatedAt.toDate() : new Date(),
+      userId: snapshot.ref.parent.parent!.id, // Assuming meetings are under /users/{userId}/meetings
     };
   }
 };
@@ -87,7 +93,7 @@ export async function addMeetingForUser(
 ): Promise<Meeting> {
   if (!actorUserId) throw new Error("Actor User ID is required to add a meeting.");
   const meetingsCol = getMeetingsCollection(actorUserId);
-  const docRef = await addDoc(meetingsCol, meetingData as Meeting);
+  const docRef = await addDoc(meetingsCol, { ...meetingData, userId: actorUserId } as Meeting); // Add userId context
   
   const newDocSnap = await getDoc(docRef);
   if (!newDocSnap.exists()) {
@@ -109,12 +115,16 @@ export async function addMeetingForUser(
 
     try {
       const members = await getMembersForOffice(officeId);
+      const participantsList = newMeeting.participants && newMeeting.participants.length > 0 
+        ? `Participants: ${newMeeting.participants.join(', ')}.`
+        : 'No specific participants listed.';
+
       for (const member of members) {
         if (member.userId !== actorUserId) { 
           await addUserNotification(member.userId, {
             type: "meeting-new",
             title: `New Meeting in ${officeName || 'Office'}: ${newMeeting.title}`,
-            message: `${actorName} scheduled a meeting: "${newMeeting.title}" for ${newMeeting.dateTime.toLocaleDateString()} at ${newMeeting.dateTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}.`,
+            message: `${actorName} scheduled "${newMeeting.title}" for ${newMeeting.dateTime.toLocaleDateString()} at ${newMeeting.dateTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}. ${participantsList}`,
             link: `/meetings?meetingId=${newMeeting.id}`,
             officeId: officeId,
             actorName: actorName,
@@ -133,10 +143,16 @@ export async function addMeetingForUser(
 export async function updateMeetingForUser(
   userId: string, 
   meetingId: string, 
-  meetingData: Partial<Omit<Meeting, 'id' | 'createdAt' | 'updatedAt' | 'userId'>>
+  meetingData: Partial<Omit<Meeting, 'id' | 'createdAt' | 'updatedAt' | 'userId'>>,
+  actorName: string,
+  officeId?: string,
+  officeName?: string
 ): Promise<void> {
   if (!userId || !meetingId) throw new Error("User ID and Meeting ID are required for update.");
   const meetingDocRef = getMeetingDoc(userId, meetingId);
+  const originalMeetingSnap = await getDoc(meetingDocRef);
+  const originalMeeting = originalMeetingSnap.exists() ? originalMeetingSnap.data() : null;
+
   const updatePayload: Partial<MeetingFirestoreData> = { ...meetingData } as Partial<MeetingFirestoreData>;
    if (meetingData.dateTime && meetingData.dateTime instanceof Date) {
     updatePayload.dateTime = Timestamp.fromDate(meetingData.dateTime);
@@ -145,10 +161,50 @@ export async function updateMeetingForUser(
     updatePayload.endDateTime = Timestamp.fromDate(meetingData.endDateTime);
   }
   await updateDoc(meetingDocRef, updatePayload);
+
+  if (officeId && originalMeeting) {
+    // For simplicity, any update triggers a generic meeting update notification and activity log.
+    // More detailed diffing could be added if needed.
+    const updateDescription = `${actorName} updated the meeting: "${originalMeeting.title}".`;
+    
+    addActivityLog(officeId, {
+      type: "meeting-new", // Using "meeting-new" as a general type for creation/update activity
+      title: `Meeting Update: ${originalMeeting.title}`,
+      description: updateDescription,
+      iconName: "CalendarDays", 
+      actorId: userId,
+      actorName,
+      entityId: meetingId,
+      entityType: "meeting",
+    });
+
+    try {
+      const members = await getMembersForOffice(officeId);
+      for (const member of members) {
+        if (member.userId !== userId) {
+          await addUserNotification(member.userId, {
+            type: "meeting-updated",
+            title: `Meeting Update in ${officeName || 'Office'}: ${originalMeeting.title}`,
+            message: updateDescription,
+            link: `/meetings?meetingId=${meetingId}`,
+            officeId: officeId,
+            actorName: actorName,
+            entityId: meetingId,
+            entityType: "meeting"
+          });
+        }
+      }
+    } catch (error) {
+      console.error("Failed to send meeting update notifications:", error);
+    }
+  }
 }
 
 export async function deleteMeetingForUser(userId: string, meetingId: string): Promise<void> {
   if (!userId || !meetingId) throw new Error("User ID and Meeting ID are required for delete.");
   const meetingDocRef = getMeetingDoc(userId, meetingId);
   await deleteDoc(meetingDocRef);
+  // Consider adding activity log for deletion if officeId is available
 }
+
+    

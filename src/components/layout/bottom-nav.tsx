@@ -8,9 +8,9 @@ import { cn } from "@/lib/utils";
 import type { NavItem } from "@/types";
 import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/lib/firebase/auth";
-import { onUnreadNotificationCountByTypeUpdate } from "@/lib/firebase/firestore/notifications"; // Changed
+import { onUnreadNotificationCountByTypeUpdate } from "@/lib/firebase/firestore/notifications";
 import { useState, useEffect } from "react";
-import type { Unsubscribe } from 'firebase/firestore'; // Added
+import type { Unsubscribe } from 'firebase/firestore';
 
 const bottomNavItems: NavItem[] = [
   { title: "Dashboard", href: "/dashboard", icon: LayoutGrid },
@@ -24,25 +24,29 @@ export function BottomNav() {
   const pathname = usePathname();
   const { user, loading: authLoading } = useAuth();
   const [unreadChatCount, setUnreadChatCount] = useState(0);
-  const [isLoadingCount, setIsLoadingCount] = useState(true); // Set true initially
+  const [isLoadingCount, setIsLoadingCount] = useState(true);
 
   useEffect(() => {
+    let unsubscribe: Unsubscribe | null = null;
     if (user && !authLoading) {
-      setIsLoadingCount(true); // Set loading before starting listener
-      const unsubscribe = onUnreadNotificationCountByTypeUpdate(
+      setIsLoadingCount(true); // Set loading true when starting to listen
+      unsubscribe = onUnreadNotificationCountByTypeUpdate(
         user.uid,
         "chat-new-message",
         (count) => {
           setUnreadChatCount(count);
-          setIsLoadingCount(false); // Set loading false after first update
+          setIsLoadingCount(false); // Set loading false once count is received
         }
       );
-      return () => unsubscribe();
     } else if (!user && !authLoading) {
-      // Reset if user logs out or no user
       setUnreadChatCount(0);
-      setIsLoadingCount(false);
+      setIsLoadingCount(false); // Not loading if no user or not authLoading
     }
+    return () => {
+      if (unsubscribe) {
+        unsubscribe();
+      }
+    };
   }, [user, authLoading]);
 
 
@@ -80,3 +84,5 @@ export function BottomNav() {
     </nav>
   );
 }
+
+    
