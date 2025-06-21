@@ -5,6 +5,7 @@ import type { User as FirebaseUser } from 'firebase/auth';
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Loader2, Video, VideoOff, Mic, MicOff, ScreenShare, ScreenShareOff, PhoneOff, Users } from "lucide-react";
 import type { Meeting, OfficeMember } from "@/types";
 import { useEffect, useState, useRef, useCallback } from 'react';
