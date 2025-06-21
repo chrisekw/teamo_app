@@ -8,12 +8,14 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Loader2, Video, VideoOff, MicOff, ScreenShare, PhoneOff, ArrowLeft, Users, ShieldCheck, Settings2, UserCircle as UserIconLucide } from "lucide-react";
+import { Loader2, Video, VideoOff, Mic, MicOff, ScreenShare, ScreenShareOff, PhoneOff, ArrowLeft, Users, ShieldCheck, Settings2, UserCircle as UserIconLucide } from "lucide-react";
 import { useAuth } from "@/lib/firebase/auth";
 import { useToast } from "@/hooks/use-toast";
 import type { Office, Room, OfficeMember, MemberRole } from "@/types";
 import { getOfficeDetails, getRoomDetails, getMembersForOffice } from "@/lib/firebase/firestore/offices";
 import { Skeleton } from '@/components/ui/skeleton';
+import { ParticipantVideo } from '@/components/meetings/participant-video';
+import { cn } from '@/lib/utils';
 
 const roleIcons: Record<MemberRole, React.ElementType> = {
   "Owner": ShieldCheck,
@@ -23,23 +25,49 @@ const roleIcons: Record<MemberRole, React.ElementType> = {
 
 export default function OfficeRoomPage() {
   const { user, loading: authLoading } = useAuth();
-  const params = useParams();
   const router = useRouter();
   const { toast } = useToast();
-
-  const officeId = params.officeId as string;
-  const roomId = params.roomId as string;
+  // Immediately destructure params to avoid enumeration error
+  const { officeId, roomId } = useParams() as { officeId: string, roomId: string };
 
   const [officeDetails, setOfficeDetails] = useState<Office | null>(null);
   const [roomDetails, setRoomDetails] = useState<Room | null>(null);
   const [officeMembers, setOfficeMembers] = useState<OfficeMember[]>([]);
   
   const [isLoadingData, setIsLoadingData] = useState(true);
-  const [isJoining, setIsJoining] = useState(false); // For camera permission check
-  const [hasCameraPermission, setHasCameraPermission] = useState<boolean | undefined>(undefined);
+  const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
+  const [screenStream, setScreenStream] = useState<MediaStream | null>(null);
+  const [hasPermission, setHasPermission] = useState<boolean | undefined>(undefined);
+  const [isScreenShareSupported, setIsScreenShareSupported] = useState(false);
   
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const localStreamRef = useRef<MediaStream | null>(null);
+  const [isMicOn, setIsMicOn] = useState(true);
+  const [isCameraOn, setIsCameraOn] = useState(true);
+  const [isScreenSharing, setIsScreenSharing] = useState(false);
+  
+  const cameraStreamRef = useRef(cameraStream);
+  const screenStreamRef = useRef(screenStream);
+  useEffect(() => { cameraStreamRef.current = cameraStream }, [cameraStream]);
+  useEffect(() => { screenStreamRef.current = screenStream }, [screenStream]);
+
+
+  const stopStream = (stream: MediaStream | null) => {
+    stream?.getTracks().forEach(track => track.stop());
+  };
+
+  const cleanupAndLeave = useCallback(() => {
+      stopStream(cameraStreamRef.current);
+      stopStream(screenStreamRef.current);
+      setCameraStream(null);
+      setScreenStream(null);
+      router.push(`/office-designer?officeId=${officeId}`);
+  }, [officeId, router]);
+
+
+  useEffect(() => {
+      if (typeof window !== 'undefined' && navigator.mediaDevices && 'getDisplayMedia' in navigator.mediaDevices) {
+          setIsScreenShareSupported(true);
+      }
+  }, []);
 
   const fetchRoomAndOfficeData = useCallback(async () => {
     if (!officeId || !roomId) return;
@@ -63,7 +91,9 @@ export default function OfficeRoomPage() {
       }
       setOfficeDetails(officeData);
       setRoomDetails(roomData);
-      setOfficeMembers(membersData || []);
+      const participants = membersData.filter(member => roomData.participantIds?.includes(member.userId) || roomData.creatorUserId === member.userId);
+      setOfficeMembers(participants.length > 0 ? participants : membersData || []);
+
 
     } catch (error) {
       console.error("Failed to fetch room/office details:", error);
@@ -81,45 +111,65 @@ export default function OfficeRoomPage() {
   }, [authLoading, user, fetchRoomAndOfficeData]);
 
   useEffect(() => {
-    const getCameraPermission = async () => {
-      if (!roomDetails) return; // Don't try if room isn't loaded yet
-
-      setIsJoining(true);
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-        localStreamRef.current = stream;
-        setHasCameraPermission(true);
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
+    const getInitialStream = async () => {
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+            setCameraStream(stream);
+            setHasPermission(true);
+        } catch (error) {
+            console.error('Error accessing media devices:', error);
+            setHasPermission(false);
+            toast({
+                variant: 'destructive',
+                title: 'Media Access Denied',
+                description: 'Please enable camera and mic permissions in your browser settings and refresh the page.',
+                duration: 7000,
+            });
         }
-      } catch (error) {
-        console.error('Error accessing media devices:', error);
-        setHasCameraPermission(false);
-        toast({
-          variant: 'destructive',
-          title: 'Media Access Denied',
-          description: 'Please enable camera and microphone permissions in your browser settings to join the meeting. You might need to refresh after granting permissions.',
-          duration: 7000,
-        });
-      } finally {
-        setIsJoining(false);
-      }
     };
+    getInitialStream();
 
-    getCameraPermission();
-
-    return () => { 
-      if (localStreamRef.current) {
-        localStreamRef.current.getTracks().forEach(track => track.stop());
-        localStreamRef.current = null;
-      }
-      if (videoRef.current) videoRef.current.srcObject = null;
+    return () => {
+      stopStream(cameraStreamRef.current);
+      stopStream(screenStreamRef.current);
     };
-  }, [roomDetails, toast]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [toast]);
 
+  const handleToggleMic = () => {
+      if (!cameraStream) return;
+      cameraStream.getAudioTracks().forEach(track => { track.enabled = !isMicOn; });
+      setIsMicOn(prev => !prev);
+  };
 
-  const handleLeaveMeeting = () => {
-    router.push(`/office-designer?officeId=${officeId}`);
+  const handleToggleCamera = () => {
+      if (!cameraStream) return;
+      cameraStream.getVideoTracks().forEach(track => { track.enabled = !isCameraOn; });
+      setIsCameraOn(prev => !prev);
+  };
+  
+  const handleToggleScreenShare = async () => {
+      if (!isScreenShareSupported) {
+          toast({ variant: "destructive", title: "Not Supported", description: "Screen sharing is not supported by your browser." });
+          return;
+      }
+      if (isScreenSharing) {
+          stopStream(screenStream);
+          setScreenStream(null);
+          setIsScreenSharing(false);
+      } else {
+          try {
+              const stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
+              stream.getVideoTracks()[0].onended = () => {
+                  setScreenStream(null); setIsScreenSharing(false);
+              };
+              setScreenStream(stream);
+              setIsScreenSharing(true);
+          } catch (error) {
+              console.error("Error starting screen share:", error);
+              toast({ variant: "destructive", title: "Screen Share Failed", description: "Could not start screen sharing." });
+          }
+      }
   };
 
   if (authLoading || isLoadingData) {
@@ -135,13 +185,7 @@ export default function OfficeRoomPage() {
             <Skeleton className="h-10 w-24" />
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <Skeleton className="md:col-span-2 aspect-video rounded-md" />
-              <div className="space-y-2">
-                <Skeleton className="h-6 w-1/2 mb-2" />
-                <Skeleton className="h-64 rounded-md border p-2" />
-              </div>
-            </div>
+             <Skeleton className="w-full aspect-video rounded-md" />
           </CardContent>
           <CardFooter className="flex flex-col sm:flex-row justify-center items-center space-y-2 sm:space-y-0 sm:space-x-3 pt-4 border-t">
             <Skeleton className="h-12 w-24" />
@@ -154,10 +198,44 @@ export default function OfficeRoomPage() {
   }
 
   if (!officeDetails || !roomDetails) {
-    return <div className="container mx-auto p-8 text-center">Error loading details.</div>;
+    return <div className="container mx-auto p-8 text-center">Error loading details. Redirecting...</div>;
   }
   
-  const currentParticipants = officeMembers.filter(m => m.userId === user?.uid || Math.random() > 0.5); // Mock: current user + random other members
+  if (hasPermission === false) {
+    return (
+       <Card className="shadow-xl flex flex-col h-full items-center justify-center p-4">
+           <Alert variant="destructive" className="max-w-md">
+               <VideoOff className="h-4 w-4" />
+               <AlertTitle>Media Access Denied</AlertTitle>
+               <AlertDescription>
+               Teamo needs permission to use your camera and microphone. Please enable access in your browser's site settings and then refresh the page.
+               </AlertDescription>
+           </Alert>
+           <Button onClick={cleanupAndLeave} variant="secondary" className="mt-4">Back to Office</Button>
+       </Card>
+    )
+  }
+
+  const selfParticipant: OfficeMember | undefined = user ? {
+    userId: user.uid,
+    name: user.displayName || "You",
+    role: officeMembers.find(m => m.userId === user.uid)?.role || "Member",
+    avatarUrl: user.photoURL || undefined,
+  } : undefined;
+
+  const otherParticipants = officeMembers.filter(p => p.userId !== user?.uid);
+  const allParticipantsInGrid = selfParticipant ? [selfParticipant, ...otherParticipants] : otherParticipants;
+  const totalTiles = allParticipantsInGrid.length + (isScreenSharing ? 1 : 0);
+
+  const getGridClasses = (count: number) => {
+    if (count <= 1) return "grid-cols-1";
+    if (count === 2) return "grid-cols-2";
+    if (count <= 4) return "grid-cols-2";
+    if (count <= 9) return "grid-cols-3";
+    return "grid-cols-4";
+  };
+  const gridLayoutClass = getGridClasses(totalTiles);
+
 
   return (
     <div className="container mx-auto p-4 sm:p-6 lg:p-8 space-y-6">
@@ -165,10 +243,10 @@ export default function OfficeRoomPage() {
         <Button variant="outline" size="sm" asChild>
             <Link href={`/office-designer?officeId=${officeId}`}>
             <ArrowLeft className="mr-2 h-4 w-4" />
-            Back to Office: {officeDetails.name}
+            Office: {officeDetails.name}
             </Link>
         </Button>
-         <Button variant="destructive" onClick={handleLeaveMeeting}>
+         <Button variant="destructive" onClick={cleanupAndLeave}>
            <PhoneOff className="mr-2 h-4 w-4" /> Leave Room
         </Button>
       </div>
@@ -179,65 +257,46 @@ export default function OfficeRoomPage() {
             <Video className="mr-2 h-5 w-5 text-primary" />
             {roomDetails.name}
           </CardTitle>
-          <span className="text-sm text-muted-foreground">In: {officeDetails.name}</span>
+          <span className="text-sm text-muted-foreground flex items-center"><Users className="mr-1 h-4 w-4" /> {allParticipantsInGrid.length} in call</span>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="md:col-span-2 bg-muted rounded-md aspect-video relative flex items-center justify-center">
-              <video ref={videoRef} className="w-full h-full object-cover rounded-md" autoPlay muted playsInline />
-              {isJoining && (
-                <div className="absolute inset-0 flex items-center justify-center bg-black/50 rounded-md">
-                  <Loader2 className="h-12 w-12 text-white animate-spin" />
+          <div className={cn("grid w-full h-full gap-2 sm:gap-4", gridLayoutClass)}>
+            {isScreenSharing && (
+                <div className="bg-black rounded-md relative flex items-center justify-center overflow-hidden border-2 border-primary shadow-lg">
+                    <video key="screen" ref={node => {if(node) node.srcObject = screenStream}} className="w-full h-full object-contain" autoPlay/>
+                    <p className="absolute bottom-2 left-2 z-20 text-white font-medium bg-black/40 px-2 py-1 rounded-md text-sm">
+                        Your Screen Share
+                    </p>
                 </div>
-              )}
-              {hasCameraPermission === false && !isJoining && (
-                <div className="absolute inset-0 p-4 flex items-center justify-center">
-                  <Alert variant="destructive" className="w-full max-w-md">
-                    <VideoOff className="h-4 w-4" />
-                    <AlertTitle>Camera Access Denied</AlertTitle>
-                    <AlertDescription>
-                      Please enable camera and microphone permissions in your browser to join the meeting. You might need to refresh the page after granting permissions.
-                    </AlertDescription>
-                  </Alert>
-                </div>
-              )}
-               {hasCameraPermission === true && !isJoining && (
-                   <div className="absolute bottom-2 left-2 p-2 bg-black/50 text-white text-xs rounded">
-                       {user?.displayName || "Your Name"}
-                   </div>
-               )}
-            </div>
-            <div className="space-y-2">
-              <h3 className="text-lg font-semibold flex items-center"><Users className="mr-2 h-5 w-5"/> Participants ({currentParticipants.length})</h3>
-              <div className="h-64 overflow-y-auto space-y-2 pr-2 rounded-md border p-2 bg-background">
-                {currentParticipants.map((member) => {
-                  const RoleIcon = roleIcons[member.role];
-                  return (
-                    <div key={member.userId} className="flex items-center space-x-2 p-2 rounded hover:bg-muted/50">
-                      <Avatar className="h-8 w-8">
-                        <AvatarImage src={member.avatarUrl || `https://placehold.co/40x40.png?text=${member.name.substring(0,1)}`} alt={member.name} data-ai-hint="person avatar" />
-                        <AvatarFallback>{member.name.substring(0,1).toUpperCase()}</AvatarFallback>
-                      </Avatar>
-                      <div className="flex-1">
-                        <span className="text-sm font-medium">{member.name} {member.userId === user?.uid && "(You)"}</span>
-                        <div className="text-xs text-muted-foreground flex items-center">
-                           <RoleIcon className="h-3 w-3 mr-1"/> {member.role}
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-                {currentParticipants.length === 0 && <p className="text-sm text-muted-foreground text-center py-4">No participants yet.</p>}
-              </div>
-            </div>
+            )}
+            {allParticipantsInGrid.map(p => (
+                <ParticipantVideo 
+                    key={p.userId}
+                    participant={p}
+                    stream={p.userId === user?.uid ? cameraStream : null}
+                    isMuted={p.userId === user?.uid ? !isMicOn : true}
+                    isVideoOff={p.userId === user?.uid ? !isCameraOn : true}
+                    isSelf={p.userId === user?.uid}
+                />
+            ))}
           </div>
         </CardContent>
         <CardFooter className="flex flex-col sm:flex-row justify-center items-center space-y-2 sm:space-y-0 sm:space-x-3 pt-4 border-t">
-          <Button variant="outline" size="lg" disabled={!hasCameraPermission}><MicOff className="mr-2 h-5 w-5" /> Mute</Button>
-          <Button variant="outline" size="lg" disabled={!hasCameraPermission}><VideoOff className="mr-2 h-5 w-5" /> Stop Video</Button>
-          <Button variant="outline" size="lg" disabled={!hasCameraPermission}><ScreenShare className="mr-2 h-5 w-5" /> Share Screen</Button>
+            <Button variant={!isMicOn ? "destructive" : "outline"} size="lg" onClick={handleToggleMic} disabled={!hasPermission}>
+                {isMicOn ? <Mic className="mr-2 h-5 w-5" /> : <MicOff className="mr-2 h-5 w-5" />}
+                {isMicOn ? 'Mute' : 'Unmute'}
+            </Button>
+            <Button variant={!isCameraOn ? "destructive" : "outline"} size="lg" onClick={handleToggleCamera} disabled={!hasPermission}>
+                {isCameraOn ? <Video className="mr-2 h-5 w-5" /> : <VideoOff className="mr-2 h-5 w-5" />}
+                {isCameraOn ? 'Stop Video' : 'Start Video'}
+            </Button>
+            <Button variant={isScreenSharing ? "default" : "outline"} size="lg" onClick={handleToggleScreenShare} disabled={!hasPermission || !isScreenShareSupported}>
+                {isScreenSharing ? <ScreenShareOff className="mr-2 h-5 w-5" /> : <ScreenShare className="mr-2 h-5 w-5" />}
+                {isScreenSharing ? 'Stop Sharing' : 'Share Screen'}
+            </Button>
         </CardFooter>
       </Card>
     </div>
   );
 }
+
