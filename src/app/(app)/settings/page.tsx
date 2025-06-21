@@ -16,16 +16,17 @@ import { Separator } from "@/components/ui/separator";
 import { Palette, UserCircle, Bell, ShieldCheck, Database, Accessibility, Save, MonitorSmartphone, Loader2 } from "lucide-react";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { requestNotificationPermissionAndGetToken, messaging as firebaseMessagingInstance } from "@/lib/firebase/client";
+import { useFontSize } from "@/context/font-size-context";
 
 export default function SettingsPage() {
   const { toast } = useToast();
   const { theme, setTheme, systemTheme } = useTheme();
+  const { fontSize, setFontSize } = useFontSize();
 
   const [mounted, setMounted] = useState(false);
 
   const [currentTheme, setCurrentTheme] = useState("system");
   const [language, setLanguage] = useState("en");
-  const [fontSize, setFontSize] = useState("medium");
 
   const [emailNotifications, setEmailNotifications] = useState("important");
   const [pushNotificationsEnabled, setPushNotificationsEnabled] = useState(false);
@@ -178,7 +179,7 @@ export default function SettingsPage() {
             </div>
             <div className="space-y-2">
               <Label>Font Size</Label>
-              <RadioGroup value={fontSize} onValueChange={setFontSize} className="flex space-x-4">
+              <RadioGroup value={fontSize} onValueChange={(value) => setFontSize(value as 'small' | 'medium' | 'large')} className="flex space-x-4">
                 <div className="flex items-center space-x-2">
                   <RadioGroupItem value="small" id="font-small" />
                   <Label htmlFor="font-small">Small</Label>

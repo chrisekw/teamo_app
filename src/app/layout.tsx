@@ -4,6 +4,7 @@ import './globals.css';
 import { Toaster } from "@/components/ui/toaster";
 import { ThemeProvider } from "next-themes";
 import { AuthProvider } from '@/lib/firebase/auth';
+import { FontSizeProvider } from '@/context/font-size-context';
 
 export const metadata: Metadata = {
   title: 'Teamo - Virtual Office Platform',
@@ -31,10 +32,12 @@ export default function RootLayout({
           enableSystem
           disableTransitionOnChange
         >
-          <AuthProvider>
-            {children}
-            <Toaster />
-          </AuthProvider>
+          <FontSizeProvider>
+            <AuthProvider>
+              {children}
+              <Toaster />
+            </AuthProvider>
+          </FontSizeProvider>
         </ThemeProvider>
       </body>
     </html>

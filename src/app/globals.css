@@ -1,3 +1,4 @@
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -104,5 +105,13 @@
   }
   body {
     @apply bg-background text-foreground;
+  }
+  
+  /* Add these styles for font scaling */
+  html.font-size-small {
+    font-size: 14px;
+  }
+  html.font-size-large {
+    font-size: 18px;
   }
 }
