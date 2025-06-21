@@ -5,7 +5,6 @@ import type { User as FirebaseUser } from 'firebase/auth';
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Loader2, Video, VideoOff, Mic, MicOff, ScreenShare, ScreenShareOff, PhoneOff, Users } from "lucide-react";
 import type { Meeting, OfficeMember } from "@/types";
 import { useEffect, useState, useRef, useCallback } from 'react';
@@ -28,71 +27,83 @@ export function VideoCallView({
 }: VideoCallViewProps) {
     const { toast } = useToast();
 
-    // Refs for streams and video elements
-    const selfVideoRef = useRef<HTMLVideoElement>(null);
-    const screenVideoRef = useRef<HTMLVideoElement>(null);
-    const cameraStreamRef = useRef<MediaStream | null>(null);
-    const screenStreamRef = useRef<MediaStream | null>(null);
-
-    // State for call controls and status
-    const [isJoining, setIsJoining] = useState(true);
+    // State for streams and permissions
+    const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
+    const [screenStream, setScreenStream] = useState<MediaStream | null>(null);
     const [hasPermission, setHasPermission] = useState<boolean | undefined>(undefined);
-    const [isMuted, setIsMuted] = useState(false);
-    const [isVideoOff, setIsVideoOff] = useState(false);
-    const [isScreenSharing, setIsScreenSharing] = useState(false);
     
+    // State for call controls
+    const [isMicOn, setIsMicOn] = useState(true);
+    const [isCameraOn, setIsCameraOn] = useState(true);
+    const [isScreenSharing, setIsScreenSharing] = useState(false);
+
     // State for participant data
     const [meetingParticipantsDetails, setMeetingParticipantsDetails] = useState<OfficeMember[]>([]);
-    const [isLoadingParticipants, setIsLoadingParticipants] = useState(false);
-    
+    const [isLoading, setIsLoading] = useState(true);
+
     const selfParticipant: OfficeMember = {
         userId: user.uid,
         name: user.displayName || "You",
-        role: "Member", // Role could be enhanced in future
+        role: "Member",
         avatarUrl: user.photoURL || undefined,
-    }
+    };
 
-    const stopAllTracks = (stream: MediaStream | null) => {
+    const stopStream = (stream: MediaStream | null) => {
         stream?.getTracks().forEach(track => track.stop());
-    }
+    };
 
-    const getInitialStream = useCallback(async () => {
-        setIsJoining(true);
-        try {
-            const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-            cameraStreamRef.current = stream;
-            setHasPermission(true);
-            if (selfVideoRef.current) {
-                selfVideoRef.current.srcObject = stream;
-            }
-        } catch (error) {
-            console.error('Error accessing media devices:', error);
-            setHasPermission(false);
-            toast({
-                variant: 'destructive',
-                title: 'Media Access Denied',
-                description: 'Please enable camera and mic permissions in your browser settings.',
-                duration: 7000,
-            });
-        } finally {
-            setIsJoining(false);
-        }
-    }, [toast]);
-    
+    // Main cleanup function
+    const cleanupAndLeave = useCallback(() => {
+        stopStream(cameraStream);
+        stopStream(screenStream);
+        setCameraStream(null);
+        setScreenStream(null);
+        onLeaveMeeting();
+    }, [cameraStream, screenStream, onLeaveMeeting]);
+
+
+    // Get initial media permissions and stream
     useEffect(() => {
+        const getInitialStream = async () => {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+                setCameraStream(stream);
+                setHasPermission(true);
+            } catch (error) {
+                console.error('Error accessing media devices:', error);
+                setHasPermission(false);
+                toast({
+                    variant: 'destructive',
+                    title: 'Media Access Denied',
+                    description: 'Please enable camera and mic permissions in your browser settings and refresh the page.',
+                    duration: 7000,
+                });
+            }
+        };
+
         getInitialStream();
-        // Cleanup on component unmount
+        
+        // This return function acts as a cleanup for when the component unmounts
         return () => {
-            stopAllTracks(cameraStreamRef.current);
-            stopAllTracks(screenStreamRef.current);
-        }
-    }, [getInitialStream]);
+            stopStream(cameraStreamRef.current);
+            stopStream(screenStreamRef.current);
+        };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [toast]); // Run once on mount
+
+    // We need to use refs to hold the latest stream state for the cleanup function
+    // as it's defined only once.
+    const cameraStreamRef = useRef(cameraStream);
+    const screenStreamRef = useRef(screenStream);
+    useEffect(() => { cameraStreamRef.current = cameraStream }, [cameraStream]);
+    useEffect(() => { screenStreamRef.current = screenStream }, [screenStream]);
 
 
+    // Fetch participant details
     useEffect(() => {
         const fetchParticipants = async () => {
             if (selectedMeeting?.officeId) {
-                setIsLoadingParticipants(true);
+                setIsLoading(true);
                 try {
                     const officeMembers = await getMembersForOffice(selectedMeeting.officeId);
                     const participantIds = new Set([selectedMeeting.creatorUserId, ...(selectedMeeting.participantIds || [])]);
@@ -101,7 +112,7 @@ export function VideoCallView({
                 } catch (error) {
                     console.error("Error fetching participant details:", error);
                 } finally {
-                    setIsLoadingParticipants(false);
+                    setIsLoading(false);
                 }
             }
         };
@@ -109,45 +120,42 @@ export function VideoCallView({
         fetchParticipants();
     }, [selectedMeeting, user.uid]);
 
-    const handleToggleMute = () => {
-        if (!cameraStreamRef.current) return;
-        cameraStreamRef.current.getAudioTracks().forEach(track => {
-            track.enabled = !track.enabled;
+    // --- Control Handlers ---
+
+    const handleToggleMic = () => {
+        if (!cameraStream) return;
+        cameraStream.getAudioTracks().forEach(track => {
+            track.enabled = !isMicOn;
         });
-        setIsMuted(prev => !prev);
+        setIsMicOn(prev => !prev);
     };
 
-    const handleToggleVideo = () => {
-        if (!cameraStreamRef.current) return;
-        cameraStreamRef.current.getVideoTracks().forEach(track => {
-            track.enabled = !track.enabled;
+    const handleToggleCamera = () => {
+        if (!cameraStream) return;
+        cameraStream.getVideoTracks().forEach(track => {
+            track.enabled = !isCameraOn;
         });
-        setIsVideoOff(prev => !prev);
+        setIsCameraOn(prev => !prev);
     };
     
     const handleToggleScreenShare = async () => {
         if (isScreenSharing) {
             // Stop screen sharing
-            stopAllTracks(screenStreamRef.current);
-            screenStreamRef.current = null;
+            stopStream(screenStream);
+            setScreenStream(null);
             setIsScreenSharing(false);
-            if (screenVideoRef.current) screenVideoRef.current.srcObject = null;
         } else {
             // Start screen sharing
             try {
-                const screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
-                screenStreamRef.current = screenStream;
-
-                if (screenVideoRef.current) {
-                    screenVideoRef.current.srcObject = screenStream;
-                }
-
-                // Listen for the browser's "Stop sharing" button
-                screenStream.getVideoTracks()[0].onended = () => {
+                const stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
+                
+                // When user clicks the browser's "Stop sharing" button
+                stream.getVideoTracks()[0].onended = () => {
+                    setScreenStream(null);
                     setIsScreenSharing(false);
-                    screenStreamRef.current = null;
-                    if(screenVideoRef.current) screenVideoRef.current.srcObject = null;
                 };
+                
+                setScreenStream(stream);
                 setIsScreenSharing(true);
             } catch (error) {
                 console.error("Error starting screen share:", error);
@@ -156,9 +164,35 @@ export function VideoCallView({
         }
     };
 
-    const remoteParticipants = isLoadingParticipants ? [] : meetingParticipantsDetails;
+    // Mock active speaker logic (can be replaced with real logic later)
+    const remoteParticipants = meetingParticipantsDetails;
     const activeSpeaker = remoteParticipants.length > 0 ? remoteParticipants[0] : selfParticipant;
+    const mainViewStream = isScreenSharing ? screenStream : null; // In real app, this would be remote stream
+    const mainViewParticipant = isScreenSharing ? selfParticipant : activeSpeaker;
 
+    if (hasPermission === undefined || isLoading) {
+        return (
+            <Card className="shadow-xl flex flex-col h-full items-center justify-center">
+                <Loader2 className="h-12 w-12 animate-spin text-primary"/>
+                <p className="mt-4 text-muted-foreground">Connecting to meeting...</p>
+            </Card>
+        )
+    }
+
+    if (hasPermission === false) {
+         return (
+            <Card className="shadow-xl flex flex-col h-full items-center justify-center p-4">
+                <Alert variant="destructive" className="max-w-md">
+                    <VideoOff className="h-4 w-4" />
+                    <AlertTitle>Media Access Denied</AlertTitle>
+                    <AlertDescription>
+                    Teamo needs permission to use your camera and microphone. Please enable access in your browser's site settings and then refresh the page.
+                    </AlertDescription>
+                </Alert>
+                <Button onClick={cleanupAndLeave} variant="secondary" className="mt-4">Back to Meetings</Button>
+            </Card>
+         )
+    }
 
     return (
         <Card className="shadow-xl flex flex-col h-full bg-background overflow-hidden">
@@ -170,59 +204,41 @@ export function VideoCallView({
                     </CardTitle>
                     <div className="flex items-center gap-2 w-full sm:w-auto">
                         <Button variant="outline" size="sm" className="w-full sm:w-auto"><Users className="mr-2 h-4 w-4"/> Participants ({remoteParticipants.length + 1})</Button>
-                        <Button variant="destructive" size="sm" onClick={onLeaveMeeting} className="w-full sm:w-auto">
+                        <Button variant="destructive" size="sm" onClick={cleanupAndLeave} className="w-full sm:w-auto">
                             <PhoneOff className="mr-2 h-4 w-4" /> Leave
                         </Button>
                     </div>
                 </div>
-                <CardDescription>In: {selectedMeeting.participantsDisplay}</CardDescription>
             </CardHeader>
             <CardContent className="flex-1 p-0 sm:p-2 md:p-4 grid grid-cols-12 gap-4 min-h-0">
                 
                 {/* Main Video Area */}
-                <div className="col-span-12 lg:col-span-9 bg-muted rounded-md relative flex items-center justify-center overflow-hidden h-[40vh] sm:h-[60vh] lg:h-auto">
-                    {isScreenSharing ? (
-                         <video ref={screenVideoRef} className="w-full h-full object-contain" autoPlay />
-                    ) : (
-                        <ParticipantVideo participant={activeSpeaker} />
-                    )}
-                    {isJoining && (
-                        <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/50 text-white rounded-md">
-                            <Loader2 className="h-12 w-12 animate-spin" />
-                            <p className="mt-2">Joining meeting...</p>
-                        </div>
-                    )}
-                    {hasPermission === false && !isJoining && (
-                        <div className="absolute inset-0 p-4 flex items-center justify-center">
-                             <Alert variant="destructive" className="w-full max-w-md">
-                                <VideoOff className="h-4 w-4" />
-                                <AlertTitle>Camera Access Denied</AlertTitle>
-                                <AlertDescription>
-                                Enable camera and mic permissions and refresh the page.
-                                </AlertDescription>
-                            </Alert>
-                        </div>
-                    )}
+                <div className="col-span-12 lg:col-span-9 bg-black rounded-md relative flex items-center justify-center overflow-hidden h-[40vh] sm:h-[60vh] lg:h-auto">
+                    { isScreenSharing ?
+                        <video key="screen" ref={node => {if(node) node.srcObject = screenStream}} className="w-full h-full object-contain" autoPlay/>
+                        :
+                        <ParticipantVideo key={activeSpeaker.userId} participant={mainViewParticipant} stream={mainViewStream} isMuted={true} isVideoOff={true}/>
+                    }
+                    <p className="absolute bottom-4 left-4 z-20 text-white font-medium bg-black/40 px-3 py-1 rounded-lg">
+                        {isScreenSharing ? "You are presenting your screen" : `${mainViewParticipant.name}'s View`}
+                    </p>
                 </div>
 
                 {/* Participants Sidebar/Filmstrip */}
                 <div className="col-span-12 lg:col-span-3 flex flex-col min-h-0">
                     <div className="relative w-full aspect-video mb-4 shadow-md rounded-md overflow-hidden">
-                        <video ref={selfVideoRef} className={cn("w-full h-full object-cover transform -scale-x-100", isVideoOff && "hidden")} autoPlay muted playsInline />
-                         {isVideoOff && (
-                             <div className="w-full h-full bg-muted flex items-center justify-center">
-                                 <Avatar className="h-16 w-16">
-                                     <AvatarImage src={user.photoURL || undefined} alt={user.displayName || "user"} data-ai-hint="person avatar"/>
-                                     <AvatarFallback>{user.displayName?.substring(0,1) || "U"}</AvatarFallback>
-                                 </Avatar>
-                             </div>
-                         )}
-                         <div className="absolute bottom-2 left-2 p-1.5 bg-black/50 text-white text-xs rounded">You</div>
+                        <ParticipantVideo 
+                            participant={selfParticipant}
+                            stream={cameraStream}
+                            isMuted={!isMicOn}
+                            isVideoOff={!isCameraOn}
+                            isSelf={true}
+                        />
                     </div>
 
                     <h3 className="text-sm font-semibold mb-2 px-1 text-muted-foreground">Other Participants</h3>
                     <div className="flex-1 space-y-3 overflow-y-auto pr-1">
-                        {isLoadingParticipants ? (
+                        {isLoading ? (
                            [...Array(2)].map((_, i) => <Skeleton key={i} className="w-full aspect-video rounded-md" />)
                         ) : remoteParticipants.length > 0 ? (
                            remoteParticipants.map(p => <ParticipantVideo key={p.userId} participant={p} />)
@@ -233,14 +249,14 @@ export function VideoCallView({
                 </div>
 
             </CardContent>
-            <CardFooter className="flex-shrink-0 flex justify-center items-center space-x-2 sm:space-x-3 pt-4 border-t bg-background/80 backdrop-blur-sm">
-                <Button variant={isMuted ? "destructive" : "outline"} size="lg" onClick={handleToggleMute} disabled={!hasPermission}>
-                    {isMuted ? <MicOff className="mr-2 h-5 w-5" /> : <Mic className="mr-2 h-5 w-5" />}
-                    {isMuted ? 'Unmute' : 'Mute'}
+            <CardFooter className="flex-shrink-0 flex justify-center items-center space-x-2 sm:space-x-3 py-3 border-t bg-background/80 backdrop-blur-sm">
+                <Button variant={!isMicOn ? "destructive" : "outline"} size="lg" onClick={handleToggleMic} disabled={!hasPermission}>
+                    {isMicOn ? <Mic className="mr-2 h-5 w-5" /> : <MicOff className="mr-2 h-5 w-5" />}
+                    {isMicOn ? 'Mute' : 'Unmute'}
                 </Button>
-                 <Button variant={isVideoOff ? "destructive" : "outline"} size="lg" onClick={handleToggleVideo} disabled={!hasPermission}>
-                    {isVideoOff ? <VideoOff className="mr-2 h-5 w-5" /> : <Video className="mr-2 h-5 w-5" />}
-                    {isVideoOff ? 'Start Video' : 'Stop Video'}
+                 <Button variant={!isCameraOn ? "destructive" : "outline"} size="lg" onClick={handleToggleCamera} disabled={!hasPermission}>
+                    {isCameraOn ? <Video className="mr-2 h-5 w-5" /> : <VideoOff className="mr-2 h-5 w-5" />}
+                    {isCameraOn ? 'Stop Video' : 'Start Video'}
                 </Button>
                 <Button variant={isScreenSharing ? "default" : "outline"} size="lg" onClick={handleToggleScreenShare} disabled={!hasPermission}>
                     {isScreenSharing ? <ScreenShareOff className="mr-2 h-5 w-5" /> : <ScreenShare className="mr-2 h-5 w-5" />}
