@@ -182,11 +182,22 @@ export function VideoCallView({
         }
     };
 
-    // Mock active speaker logic (can be replaced with real logic later)
-    const remoteParticipants = meetingParticipantsDetails;
-    const activeSpeaker = remoteParticipants.length > 0 ? remoteParticipants[0] : selfParticipant;
-    const mainViewStream = isScreenSharing ? screenStream : null; // In real app, this would be remote stream
-    const mainViewParticipant = isScreenSharing ? selfParticipant : activeSpeaker;
+    const allParticipants = [selfParticipant, ...meetingParticipantsDetails];
+    const totalTiles = allParticipants.length + (isScreenSharing ? 1 : 0);
+
+    const getGridClasses = (count: number) => {
+        if (count <= 1) return "grid-cols-1";
+        if (count === 2) return "grid-cols-2";
+        if (count <= 4) return "grid-cols-2"; 
+        if (count <= 6) return "grid-cols-3";
+        if (count <= 9) return "grid-cols-3"; 
+        if (count <= 12) return "grid-cols-4"; 
+        if (count <= 16) return "grid-cols-4";
+        return "grid-cols-5"; 
+    };
+
+    const gridLayoutClass = getGridClasses(totalTiles);
+
 
     if (hasPermission === undefined || isLoading) {
         return (
@@ -221,51 +232,34 @@ export function VideoCallView({
                         {selectedMeeting.title}
                     </CardTitle>
                     <div className="flex items-center gap-2 w-full sm:w-auto">
-                        <Button variant="outline" size="sm" className="w-full sm:w-auto"><Users className="mr-2 h-4 w-4"/> Participants ({remoteParticipants.length + 1})</Button>
+                        <Button variant="outline" size="sm" className="w-full sm:w-auto"><Users className="mr-2 h-4 w-4"/> Participants ({allParticipants.length})</Button>
                         <Button variant="destructive" size="sm" onClick={cleanupAndLeave} className="w-full sm:w-auto">
                             <PhoneOff className="mr-2 h-4 w-4" /> Leave
                         </Button>
                     </div>
                 </div>
             </CardHeader>
-            <CardContent className="flex-1 p-0 sm:p-2 md:p-4 grid grid-cols-12 gap-4 min-h-0">
-                
-                {/* Main Video Area */}
-                <div className="col-span-12 lg:col-span-9 bg-black rounded-md relative flex items-center justify-center overflow-hidden h-[40vh] sm:h-[60vh] lg:h-auto">
-                    { isScreenSharing ?
-                        <video key="screen" ref={node => {if(node) node.srcObject = screenStream}} className="w-full h-full object-contain" autoPlay/>
-                        :
-                        <ParticipantVideo key={activeSpeaker.userId} participant={mainViewParticipant} stream={mainViewStream} isMuted={true} isVideoOff={true}/>
-                    }
-                    <p className="absolute bottom-4 left-4 z-20 text-white font-medium bg-black/40 px-3 py-1 rounded-lg">
-                        {isScreenSharing ? "You are presenting your screen" : `${mainViewParticipant.name}'s View`}
-                    </p>
-                </div>
-
-                {/* Participants Sidebar/Filmstrip */}
-                <div className="col-span-12 lg:col-span-3 flex flex-col min-h-0">
-                    <div className="relative w-full aspect-video mb-4 shadow-md rounded-md overflow-hidden">
+            <CardContent className="flex-1 p-2 sm:p-4 min-h-0">
+                <div className={cn("grid gap-4 w-full h-full", gridLayoutClass)}>
+                    {isScreenSharing && (
+                        <div className="bg-black rounded-md relative flex items-center justify-center overflow-hidden col-span-1 row-span-1 border-2 border-primary shadow-lg">
+                            <video key="screen" ref={node => {if(node) node.srcObject = screenStream}} className="w-full h-full object-contain" autoPlay/>
+                            <p className="absolute bottom-2 left-2 z-20 text-white font-medium bg-black/40 px-2 py-1 rounded-md text-sm">
+                                Your Screen Share
+                            </p>
+                        </div>
+                    )}
+                    {allParticipants.map(p => (
                         <ParticipantVideo 
-                            participant={selfParticipant}
-                            stream={cameraStream}
-                            isMuted={!isMicOn}
-                            isVideoOff={!isCameraOn}
-                            isSelf={true}
+                            key={p.userId}
+                            participant={p}
+                            stream={p.userId === user.uid ? cameraStream : null}
+                            isMuted={p.userId === user.uid ? !isMicOn : true}
+                            isVideoOff={p.userId === user.uid ? !isCameraOn : true}
+                            isSelf={p.userId === user.uid}
                         />
-                    </div>
-
-                    <h3 className="text-sm font-semibold mb-2 px-1 text-muted-foreground">Other Participants</h3>
-                    <div className="flex-1 space-y-3 overflow-y-auto pr-1">
-                        {isLoading ? (
-                           [...Array(2)].map((_, i) => <Skeleton key={i} className="w-full aspect-video rounded-md" />)
-                        ) : remoteParticipants.length > 0 ? (
-                           remoteParticipants.map(p => <ParticipantVideo key={p.userId} participant={p} />)
-                        ) : (
-                           <p className="text-sm text-muted-foreground text-center pt-8">You're the first one here!</p>
-                        )}
-                    </div>
+                    ))}
                 </div>
-
             </CardContent>
             <CardFooter className="flex-shrink-0 flex justify-center items-center space-x-2 sm:space-x-3 py-3 border-t bg-background/80 backdrop-blur-sm">
                 <Button variant={!isMicOn ? "destructive" : "outline"} size="lg" onClick={handleToggleMic} disabled={!hasPermission}>
