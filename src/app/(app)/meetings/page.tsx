@@ -32,6 +32,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 
 const ShadCNCalendar = dynamic(() => import('@/components/ui/calendar').then(mod => mod.Calendar), {
@@ -89,8 +90,7 @@ export default function MeetingsPage() {
   const [newMeetingDescription, setNewMeetingDescription] = useState("");
   const [newMeetingStartDate, setNewMeetingStartDate] = useState<Date | undefined>(new Date());
   const [newMeetingStartTime, setNewMeetingStartTime] = useState(format(new Date(), "HH:mm"));
-  const [newMeetingEndDate, setNewMeetingEndDate] = useState<Date | undefined>(new Date());
-  const [newMeetingEndTime, setNewMeetingEndTime] = useState(format(new Date(Date.now() + 60 * 60 * 1000), "HH:mm"));
+  const [newMeetingDurationMinutes, setNewMeetingDurationMinutes] = useState(60);
   const [newMeetingIsRecurring, setNewMeetingIsRecurring] = useState(false);
   const [newMeetingParticipantIds, setNewMeetingParticipantIds] = useState<string[]>([]);
 
@@ -257,8 +257,7 @@ export default function MeetingsPage() {
     setNewMeetingDescription("");
     setNewMeetingStartDate(new Date());
     setNewMeetingStartTime(format(new Date(), "HH:mm"));
-    setNewMeetingEndDate(new Date());
-    setNewMeetingEndTime(format(new Date(Date.now() + 60 * 60 * 1000), "HH:mm"));
+    setNewMeetingDurationMinutes(60);
     setNewMeetingIsRecurring(false);
     setNewMeetingParticipantIds([]);
   };
@@ -271,21 +270,21 @@ export default function MeetingsPage() {
   };
 
   const handleScheduleMeeting = async () => {
-    if (!user || !newMeetingStartDate || !newMeetingEndDate || !activeOffice) {
+    if (!user || !newMeetingStartDate || !activeOffice) {
       toast({ variant: "destructive", title: "Error", description: "You must be logged in, select dates, and have an active office." });
       return;
     }
-    if (!newMeetingTitle.trim() || !newMeetingStartTime || !newMeetingEndTime) {
-        toast({ variant: "destructive", title: "Validation Error", description: "Title, start time, and end time are required." });
+    if (!newMeetingTitle.trim() || !newMeetingStartTime) {
+        toast({ variant: "destructive", title: "Validation Error", description: "Title and start time are required." });
         return;
     }
     
     setIsSubmitting(true);
     const startDateTime = combineDateTime(newMeetingStartDate, newMeetingStartTime);
-    const endDateTime = combineDateTime(newMeetingEndDate, newMeetingEndTime);
+    const endDateTime = new Date(startDateTime.getTime() + newMeetingDurationMinutes * 60 * 1000);
 
     if (endDateTime <= startDateTime) {
-        toast({ variant: "destructive", title: "Validation Error", description: "End date/time must be after start date/time."});
+        toast({ variant: "destructive", title: "Validation Error", description: "Meeting duration must be positive."});
         setIsSubmitting(false);
         return;
     }
@@ -425,19 +424,24 @@ export default function MeetingsPage() {
                       </div>
                     </div>
                     <div className="space-y-1.5">
-                      <Label htmlFor="endDate" className="flex items-center text-sm font-medium text-muted-foreground"><CalendarDays className="mr-2 h-4 w-4 text-muted-foreground"/>End Date & Time</Label>
-                       <div className="flex gap-2">
-                          <Popover>
-                              <PopoverTrigger asChild>
-                              <Button id="endDate" variant="outline" className={cn("w-full justify-start text-left font-normal", !newMeetingEndDate && "text-muted-foreground")} disabled={isSubmitting}>
-                                  <CalendarDays className="mr-2 h-4 w-4" />
-                                  {newMeetingEndDate ? format(newMeetingEndDate, "MMM d, yyyy") : <span>Pick a date</span>}
-                              </Button>
-                              </PopoverTrigger>
-                              <PopoverContent className="w-auto p-0"><ShadCNCalendar mode="single" selected={newMeetingEndDate} onSelect={setNewMeetingEndDate} disabled={(date) => (newMeetingStartDate && date < newMeetingStartDate) || isSubmitting}/></PopoverContent>
-                          </Popover>
-                          <Input id="endTime" type="time" value={newMeetingEndTime} onChange={(e) => setNewMeetingEndTime(e.target.value)} className="w-auto" disabled={isSubmitting}/>
-                      </div>
+                        <Label htmlFor="duration" className="flex items-center text-sm font-medium text-muted-foreground"><Clock className="mr-2 h-4 w-4 text-muted-foreground"/>Duration</Label>
+                        <Select
+                            value={String(newMeetingDurationMinutes)}
+                            onValueChange={(value) => setNewMeetingDurationMinutes(Number(value))}
+                            disabled={isSubmitting}
+                        >
+                            <SelectTrigger id="duration">
+                                <SelectValue placeholder="Select duration" />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="15">15 minutes</SelectItem>
+                                <SelectItem value="30">30 minutes</SelectItem>
+                                <SelectItem value="45">45 minutes</SelectItem>
+                                <SelectItem value="60">1 hour</SelectItem>
+                                <SelectItem value="90">1 hour 30 minutes</SelectItem>
+                                <SelectItem value="120">2 hours</SelectItem>
+                            </SelectContent>
+                        </Select>
                     </div>
                   </div>
                   
