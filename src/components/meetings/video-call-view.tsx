@@ -13,6 +13,7 @@ import { Skeleton } from '../ui/skeleton';
 import { useToast } from '@/hooks/use-toast';
 import { ParticipantVideo } from './participant-video';
 import { cn } from '@/lib/utils';
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 
 interface VideoCallViewProps {
     selectedMeeting: Meeting;
@@ -31,6 +32,7 @@ export function VideoCallView({
     const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
     const [screenStream, setScreenStream] = useState<MediaStream | null>(null);
     const [hasPermission, setHasPermission] = useState<boolean | undefined>(undefined);
+    const [isScreenShareSupported, setIsScreenShareSupported] = useState(false);
     
     // State for call controls
     const [isMicOn, setIsMicOn] = useState(true);
@@ -61,6 +63,13 @@ export function VideoCallView({
         onLeaveMeeting();
     }, [cameraStream, screenStream, onLeaveMeeting]);
 
+
+    // Check for screen share support
+    useEffect(() => {
+        if (navigator.mediaDevices && 'getDisplayMedia' in navigator.mediaDevices) {
+            setIsScreenShareSupported(true);
+        }
+    }, []);
 
     // Get initial media permissions and stream
     useEffect(() => {
@@ -139,6 +148,15 @@ export function VideoCallView({
     };
     
     const handleToggleScreenShare = async () => {
+        if (!isScreenShareSupported) {
+            toast({
+                variant: "destructive",
+                title: "Not Supported",
+                description: "Screen sharing is not supported by your browser or in this environment.",
+            });
+            return;
+        }
+
         if (isScreenSharing) {
             // Stop screen sharing
             stopStream(screenStream);
@@ -258,7 +276,7 @@ export function VideoCallView({
                     {isCameraOn ? <Video className="mr-2 h-5 w-5" /> : <VideoOff className="mr-2 h-5 w-5" />}
                     {isCameraOn ? 'Stop Video' : 'Start Video'}
                 </Button>
-                <Button variant={isScreenSharing ? "default" : "outline"} size="lg" onClick={handleToggleScreenShare} disabled={!hasPermission}>
+                <Button variant={isScreenSharing ? "default" : "outline"} size="lg" onClick={handleToggleScreenShare} disabled={!hasPermission || !isScreenShareSupported}>
                     {isScreenSharing ? <ScreenShareOff className="mr-2 h-5 w-5" /> : <ScreenShare className="mr-2 h-5 w-5" />}
                     {isScreenSharing ? 'Stop Sharing' : 'Share Screen'}
                 </Button>
