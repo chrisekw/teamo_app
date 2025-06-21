@@ -256,15 +256,17 @@ export async function requestToJoinOfficeByCode(
     return { success: false, message: "You are already a member of this office." };
   }
 
-  const existingRequestQuery = query(
-    joinRequestsCol(officeId),
-    where("requesterId", "==", requester.id),
-    where("status", "==", "pending")
-  );
-  const existingRequestSnap = await getDocs(existingRequestQuery);
-  if (!existingRequestSnap.empty) {
-    return { success: false, message: "You already have a pending request for this office." };
-  }
+  // This check is removed because a non-member cannot securely query the joinRequests collection.
+  // The owner can handle duplicate requests if they occur.
+  // const existingRequestQuery = query(
+  //   joinRequestsCol(officeId),
+  //   where("requesterId", "==", requester.id),
+  //   where("status", "==", "pending")
+  // );
+  // const existingRequestSnap = await getDocs(existingRequestQuery);
+  // if (!existingRequestSnap.empty) {
+  //   return { success: false, message: "You already have a pending request for this office." };
+  // }
 
   const joinRequestData: Omit<OfficeJoinRequest, 'id' | 'requestedAt'> = {
     officeId: officeId,
@@ -717,4 +719,5 @@ export async function getPendingJoinRequestsForOffice(officeId: string): Promise
   const snapshot = await getDocs(q);
   return snapshot.docs.map(doc => doc.data());
 }
+
 
