@@ -3,111 +3,113 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
-
-    // Helper functions
-    function isAuth() {
-      return request.auth != null;
-    }
-    function isUser(userId) {
-      return isAuth() && request.auth.uid == userId;
-    }
-    function isMember(officeId) {
-      return isAuth() && exists(/databases/$(database)/documents/offices/$(officeId)/members/$(request.auth.uid));
-    }
-    function isOwner(officeId) {
-      return isAuth() && get(/databases/$(database)/documents/offices/$(officeId)).data.ownerId == request.auth.uid;
-    }
-    function isAdmin(officeId) {
-       return isOwner(officeId) || (isMember(officeId) && get(/databases/$(database)/documents/offices/$(officeId)/members/$(request.auth.uid)).data.role == 'Admin');
-    }
-
-    // User Profiles
+    
+    // User Profiles: Users can only read/write their own profile.
     match /userProfiles/{userId} {
-      allow read: if isAuth();
-      allow write: if isUser(userId);
+      allow read, update: if request.auth.uid == userId;
+      allow create: if request.auth.uid == userId;
+    }
+
+    // Chat Threads (DMs): Only participants can read/write.
+    match /chatThreads/{threadId} {
+      allow read, write: if request.auth.uid in resource.data.participantIds;
+
+      // Messages within a thread
+      match /messages/{messageId} {
+        allow read, create: if request.auth.uid in get(/databases/$(database)/documents/chatThreads/$(threadId)).data.participantIds;
+        allow update, delete: if false; // Messages are immutable
+      }
     }
     
-    // User's office list
-    match /users/{userId}/{document=**} {
-      allow read, write: if isUser(userId);
-    }
-
-    // Chat Threads
-    match /chatThreads/{threadId} {
-      match /{document=**} {
-        allow read, write: if isAuth() && request.auth.uid in resource.data.participantIds;
-      }
-    }
-
-    // Offices
+    // Offices and their subcollections
     match /offices/{officeId} {
-      // Any authenticated user can try to create an office.
-      allow create: if isAuth();
-      // Only office owner can update office details (e.g., name, banner).
-      allow update: if isOwner(officeId);
-      // Only office owner can delete the entire office.
-      allow delete: if isOwner(officeId);
+      // Offices: Can be read by any authenticated user to find one by invite code.
+      // Create/update/delete is restricted.
+      allow get: if request.auth != null;
+      // Allow querying by invite code, but not listing all offices.
+      allow list: if request.auth != null && 'invitationCode' in request.query.where;
+      allow create: if request.auth != null; 
+      allow update, delete: if request.auth.uid == resource.data.ownerId;
 
-      // Office-level subcollections
-      
-      // Tasks
-      match /tasks/{taskId} {
-        allow get: if isMember(officeId) && (resource.data.creatorUserId == request.auth.uid || request.auth.uid in resource.data.assigneeIds);
-        allow list: if isMember(officeId);
-        allow create: if isMember(officeId);
-        allow update, delete: if isMember(officeId) && (resource.data.creatorUserId == request.auth.uid || isAdmin(officeId));
-      }
-
-      // Meetings
-      match /meetings/{meetingId} {
-        allow get: if isMember(officeId) && (resource.data.creatorUserId == request.auth.uid || request.auth.uid in resource.data.participantIds);
-        allow list: if isMember(officeId);
-        allow create: if isMember(officeId);
-        allow update, delete: if isOwner(officeId);
-      }
-      
-      // Activity Log - Members can read, no client writes
-      match /activityLog/{activityId} {
-        allow read: if isMember(officeId);
-        allow write: if false; // Server-only writes
-      }
-      
-      // Members - Can be read by any other member, updated by admin/owner
-      match /members/{memberId} {
-        // A user can check if they are a member, and members can see other members.
-        allow get: if isMember(officeId) || isUser(memberId);
-        allow list: if isMember(officeId);
+      // Office Members
+      match /members/{memberUserId} {
+        // Allow a user to read their own member document (e.g., to check if they are a member).
+        // Also allow any existing member of the office to read any other member's document.
+        allow get: if request.auth.uid == memberUserId || exists(/databases/$(database)/documents/offices/$(officeId)/members/$(request.auth.uid));
         
-        allow create: if isOwner(officeId); // Only owner can add members (via join requests)
-        allow update: if isAdmin(officeId);
-        allow delete: if isOwner(officeId) && request.auth.uid != memberId; // Owner can remove others
+        // Allow only existing members of the office to list the members collection.
+        allow list: if exists(/databases/$(database)/documents/offices/$(officeId)/members/$(request.auth.uid));
+
+        // The owner can create/update members (e.g. approve join requests, change roles).
+        allow create, update: if get(/databases/$(database)/documents/offices/$(officeId)).data.ownerId == request.auth.uid;
+        
+        // The owner can remove members, but not themselves.
+        allow delete: if get(/databases/$(database)/documents/offices/$(officeId)).data.ownerId == request.auth.uid && request.auth.uid != memberUserId;
       }
 
-      // Rooms - Readable by members, writable by owner
+      // Office Rooms
       match /rooms/{roomId} {
-        allow read: if isMember(officeId);
-        allow create, update, delete: if isOwner(officeId);
+        allow read: if exists(/databases/$(database)/documents/offices/$(officeId)/members/$(request.auth.uid));
+        allow create, delete: if get(/databases/$(database)/documents/offices/$(officeId)).data.ownerId == request.auth.uid;
+        allow update: if get(/databases/$(database)/documents/offices/$(officeId)).data.ownerId == request.auth.uid;
       }
       
-      // General Messages - Readable/writable by members
-      match /generalMessages/{messageId} {
-        allow read, write: if isMember(officeId);
+      // Activity Log
+      match /activityLog/{activityId} {
+        allow read: if exists(/databases/$(database)/documents/offices/$(officeId)/members/$(request.auth.uid));
+        allow create: if request.auth != null; // Created by backend logic (or trusted client action)
+        allow update, delete: if false;
       }
 
-      // Join Requests - Readable by owner or the user who made the request. Writable by any authenticated user (to create).
+      // Join Requests
       match /joinRequests/{requestId} {
-        // Owner can see all requests. A user can see their own request.
-        allow get: if isOwner(officeId) || (isAuth() && resource.data.requesterId == request.auth.uid);
-        // Only owner can list all requests. Users can query for their own request.
-        allow list: if isOwner(officeId);
-        allow update: if isOwner(officeId); // Only owner can approve/reject.
-        allow create: if isAuth(); // Any auth user can create a request.
+        allow create: if request.auth.uid == request.resource.data.requesterId;
+        allow read: if request.auth.uid == resource.data.requesterId || get(/databases/$(database)/documents/offices/$(officeId)).data.ownerId == request.auth.uid;
+        allow list: if get(/databases/$(database)/documents/offices/$(officeId)).data.ownerId == request.auth.uid;
+        allow update: if get(/databases/$(database)/documents/offices/$(officeId)).data.ownerId == request.auth.uid;
+        allow delete: if false;
+      }
+
+      // General Office Chat Messages
+      match /generalMessages/{messageId} {
+        allow read, create: if exists(/databases/$(database)/documents/offices/$(officeId)/members/$(request.auth.uid));
+        allow update, delete: if false;
       }
       
-       // Main office doc can be read by its members.
-      allow get: if isMember(officeId);
-      // Any authenticated user can query the offices collection to find one by invite code.
-      allow list: if isAuth();
+      // Tasks within an office
+      match /tasks/{taskId} {
+        allow list: if exists(/databases/$(database)/documents/offices/$(officeId)/members/$(request.auth.uid));
+        allow get: if request.auth.uid == resource.data.creatorUserId || request.auth.uid in resource.data.assigneeIds;
+        allow create: if request.auth.uid == request.resource.data.creatorUserId;
+        allow update: if request.auth.uid == resource.data.creatorUserId || request.auth.uid in resource.data.assigneeIds;
+        allow delete: if request.auth.uid == resource.data.creatorUserId;
+      }
+
+      // Meetings within an office
+      match /meetings/{meetingId} {
+         allow list: if exists(/databases/$(database)/documents/offices/$(officeId)/members/$(request.auth.uid));
+         allow get: if request.auth.uid == resource.data.creatorUserId || request.auth.uid in resource.data.participantIds;
+         allow create: if request.auth.uid == request.resource.data.creatorUserId;
+         allow update: if request.auth.uid == resource.data.creatorUserId;
+         allow delete: if request.auth.uid == resource.data.creatorUserId;
+      }
+    }
+    
+    // User's denormalized list of offices they are a member of
+    match /users/{userId}/memberOfOffices/{officeId} {
+        allow read, list: if request.auth.uid == userId;
+        // Creation/deletion handled by backend logic (approveJoinRequest, removeMemberFromOffice)
+        allow create, delete, update: if request.auth != null; 
+    }
+    
+    // User's Goals (now under users collection)
+    match /users/{userId}/goals/{goalId} {
+        allow read, list, create, update, delete: if request.auth.uid == userId;
+    }
+    
+    // User's Notifications (now under users collection)
+    match /users/{userId}/notifications/{notificationId} {
+        allow read, list, create, update, delete: if request.auth.uid == userId;
     }
   }
 }
