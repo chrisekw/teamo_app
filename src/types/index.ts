@@ -284,4 +284,3 @@ export interface UserNotification {
 export type UserNotificationFirestoreData = Omit<UserNotification, 'id' | 'timestamp' | 'userId'> & {
   timestamp: Timestamp;
 };
-
