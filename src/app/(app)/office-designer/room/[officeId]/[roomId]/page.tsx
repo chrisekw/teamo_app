@@ -27,7 +27,6 @@ export default function OfficeRoomPage() {
   const { user, loading: authLoading } = useAuth();
   const router = useRouter();
   const { toast } = useToast();
-  // Immediately destructure params to avoid enumeration error
   const { officeId, roomId } = useParams() as { officeId: string, roomId: string };
 
   const [officeDetails, setOfficeDetails] = useState<Office | null>(null);
@@ -299,4 +298,3 @@ export default function OfficeRoomPage() {
     </div>
   );
 }
-
