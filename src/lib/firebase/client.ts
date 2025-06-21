@@ -4,14 +4,17 @@ import { getAuth, type Auth } from "firebase/auth";
 import { getFirestore, type Firestore } from "firebase/firestore";
 import { getMessaging, getToken, onMessage, type Messaging } from "firebase/messaging";
 
+// Fallback to dummy values if environment variables are not set.
+// This allows the app to start, but Firebase services will not work
+// until valid configuration is provided in a .env file.
 const firebaseConfig = {
-  apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
-  authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
-  projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
-  storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET,
-  messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
-  appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
-  measurementId: process.env.NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID,
+  apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY || "dummy-api-key",
+  authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN || "dummy-project.firebaseapp.com",
+  projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || "dummy-project",
+  storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || "dummy-project.appspot.com",
+  messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID, // Can be undefined
+  appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID || "dummy-app-id",
+  measurementId: process.env.NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID, // Can be undefined
 };
 
 let app: FirebaseApp;
@@ -19,13 +22,17 @@ let auth: Auth;
 let db: Firestore;
 let messaging: Messaging | null = null;
 
-const missingConfigKeys = Object.entries(firebaseConfig)
-  .filter(([key, value]) => !value && key !== 'measurementId')
-  .map(([key]) => key);
-
-if (missingConfigKeys.length > 0) {
-  const message = `Missing Firebase config keys: ${missingConfigKeys.join(", ")}. Please ensure all NEXT_PUBLIC_FIREBASE_ environment variables are set.`;
-  console.warn(message);
+// Check if the configuration is still using dummy values and warn the user.
+if (firebaseConfig.apiKey === "dummy-api-key" || firebaseConfig.projectId === "dummy-project") {
+  console.warn(`
+*****************************************************************
+** WARNING: Firebase configuration is missing or incomplete.   **
+** The app is running with dummy credentials.                  **
+** Firebase features like login, chat, and data storage will   **
+** not work until you configure your .env file with valid      **
+** Firebase project details.                                   **
+*****************************************************************
+  `);
 }
 
 if (getApps().length === 0) {
