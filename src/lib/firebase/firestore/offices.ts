@@ -719,5 +719,3 @@ export async function getPendingJoinRequestsForOffice(officeId: string): Promise
   const snapshot = await getDocs(q);
   return snapshot.docs.map(doc => doc.data());
 }
-
-
