@@ -10,6 +10,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { PlusCircle, Video, Users as UsersIcon, Clock, Loader2, Trash2, CalendarDays, Briefcase, Repeat, Edit, ScreenShareOff, Mic } from "lucide-react";
 import { useState, useEffect, useCallback } from "react";
 import dynamic from 'next/dynamic';
+import Link from 'next/link';
 import { useToast } from "@/hooks/use-toast";
 import type { Meeting, OfficeMember, Office } from "@/types";
 import { useAuth } from "@/lib/firebase/auth";
