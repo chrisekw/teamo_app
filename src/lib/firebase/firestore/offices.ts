@@ -17,9 +17,9 @@ import {
   setDoc,
   orderBy,
   writeBatch,
-  onSnapshot, // Added
-  type Unsubscribe, // Added
-  deleteField, // Added for removing fields
+  onSnapshot,
+  type Unsubscribe,
+  deleteField,
   type FieldValue
 } from 'firebase/firestore';
 import type { Office, OfficeFirestoreData, Room, RoomFirestoreData, OfficeMember, OfficeMemberFirestoreData, RoomType, MemberRole, OfficeJoinRequest, OfficeJoinRequestFirestoreData, ChatUser, OfficeJoinRequestStatus } from '@/types';
@@ -86,21 +86,15 @@ const officeMemberConverter: FirestoreDataConverter<OfficeMember, OfficeMemberFi
   toFirestore: (memberInput: Partial<OfficeMember>): DocumentData => {
     const data: any = {}; 
     
-    // Only include fields that are part of the memberInput for updates
     if (memberInput.hasOwnProperty('name')) data.name = memberInput.name;
     if (memberInput.hasOwnProperty('role')) data.role = memberInput.role;
     if (memberInput.hasOwnProperty('workRole')) {
-        // If workRole is null or empty string, use deleteField() to remove it
         data.workRole = memberInput.workRole === null || memberInput.workRole === '' ? deleteField() : memberInput.workRole;
     }
     if (memberInput.hasOwnProperty('avatarUrl')) {
         data.avatarUrl = memberInput.avatarUrl === null || memberInput.avatarUrl === '' ? deleteField() : memberInput.avatarUrl;
     }
 
-    // joinedAt is typically set only at creation, not updated.
-    // If this converter is used for addDoc, joinedAt: serverTimestamp() should be in the initial object.
-    // For updateDoc, if joinedAt is not in memberInput, it's not modified.
-    // If it *is* in memberInput and is a Date, convert to Timestamp.
     if (memberInput.joinedAt instanceof Date) {
       data.joinedAt = Timestamp.fromDate(memberInput.joinedAt);
     }
@@ -113,8 +107,8 @@ const officeMemberConverter: FirestoreDataConverter<OfficeMember, OfficeMemberFi
       userId: snapshot.id,
       name: data.name,
       role: data.role as MemberRole,
-      workRole: data.workRole, // Will be undefined if not set or deleted
-      avatarUrl: data.avatarUrl, // Will be undefined if not set or deleted
+      workRole: data.workRole,
+      avatarUrl: data.avatarUrl,
       joinedAt: data.joinedAt instanceof Timestamp ? data.joinedAt.toDate() : new Date(),
     };
   }
@@ -232,6 +226,41 @@ export async function createOffice(
   return newOfficeSnap.data()!;
 }
 
+export async function deleteOffice(
+  officeId: string,
+  actorId: string
+): Promise<void> {
+  const officeRef = officeDocRef(officeId);
+  const officeSnap = await getDoc(officeRef);
+
+  if (!officeSnap.exists()) {
+    throw new Error("Office not found.");
+  }
+  if (officeSnap.data().ownerId !== actorId) {
+    throw new Error("Only the office owner can delete the office.");
+  }
+
+  const batch = writeBatch(db);
+
+  // Delete the main office document
+  batch.delete(officeRef);
+
+  // Find all users who are members of this office and delete the reference from their user record
+  const membersSnapshot = await getDocs(membersCol(officeId));
+  membersSnapshot.docs.forEach(memberDoc => {
+    const userId = memberDoc.id;
+    const userOfficeRef = doc(db, 'users', userId, 'memberOfOffices', officeId);
+    batch.delete(userOfficeRef);
+  });
+  
+  // Note: Deleting subcollections (rooms, tasks, etc.) from the client is complex and not recommended for production.
+  // This would typically be handled by a Firebase Cloud Function trigger.
+  // For this prototype, we are only deleting the office doc and membership links.
+
+  await batch.commit();
+}
+
+
 export async function requestToJoinOfficeByCode(
   invitationCode: string,
   requester: ChatUser
@@ -255,18 +284,6 @@ export async function requestToJoinOfficeByCode(
   if (memberSnap.exists()) {
     return { success: false, message: "You are already a member of this office." };
   }
-
-  // This check is removed because a non-member cannot securely query the joinRequests collection.
-  // The owner can handle duplicate requests if they occur.
-  // const existingRequestQuery = query(
-  //   joinRequestsCol(officeId),
-  //   where("requesterId", "==", requester.id),
-  //   where("status", "==", "pending")
-  // );
-  // const existingRequestSnap = await getDocs(existingRequestQuery);
-  // if (!existingRequestSnap.empty) {
-  //   return { success: false, message: "You already have a pending request for this office." };
-  // }
 
   const joinRequestData: Omit<OfficeJoinRequest, 'id' | 'requestedAt'> = {
     officeId: officeId,
@@ -572,7 +589,7 @@ export async function deleteRoomFromOffice(
   await deleteDoc(roomDocRef(officeId, roomId));
 
   addActivityLog(officeId, {
-    type: "room-new", // TODO: Consider a "room-deleted" type
+    type: "room-new", 
     title: `Room Deleted: ${roomName}`,
     description: `Deleted by ${actorName}`,
     iconName: "Trash2", 
@@ -603,7 +620,7 @@ export function onMembersUpdate(
 export async function updateMemberDetailsInOffice(
   officeId: string,
   memberUserId: string,
-  details: { role?: MemberRole; workRole?: string | null }, // workRole can be null to remove it
+  details: { role?: MemberRole; workRole?: string | null },
   actorId: string,
   actorName: string
 ): Promise<void> {
@@ -626,10 +643,9 @@ export async function updateMemberDetailsInOffice(
     changesDescription.push(`system role to ${details.role}`);
   }
 
-  // Handle workRole update, including removal if passed as null or empty string
   if (details.hasOwnProperty('workRole')) {
     const newWorkRole = details.workRole === null || details.workRole.trim() === "" ? null : details.workRole.trim();
-    if (newWorkRole !== (oldDetails?.workRole || null)) { // Compare with null if oldDetails.workRole is undefined
+    if (newWorkRole !== (oldDetails?.workRole || null)) { 
       updatePayload.workRole = newWorkRole === null ? deleteField() as unknown as string : newWorkRole;
       if (newWorkRole === null) {
         changesDescription.push(`work role removed (was "${oldDetails?.workRole || 'N/A'}")`);
@@ -646,7 +662,6 @@ export async function updateMemberDetailsInOffice(
 
   await updateDoc(memberToUpdateRef, updatePayload);
 
-  // If system role was changed, update the denormalized role in user's memberOfOffices
   if (updatePayload.role && oldDetails?.role !== updatePayload.role) {
     const userOfficeMemberRef = doc(userOfficesCol(memberUserId), officeId);
     const userOfficeMemberSnap = await getDoc(userOfficeMemberRef);
@@ -687,7 +702,6 @@ export async function removeMemberFromOffice(
     const batch = writeBatch(db);
     batch.delete(memberDocRef(officeId, memberUserId));
 
-    // Also remove the office reference from the user's "memberOfOffices" subcollection
     const userOfficeMemberRef = doc(userOfficesCol(memberUserId), officeId);
     batch.delete(userOfficeMemberRef);
     
