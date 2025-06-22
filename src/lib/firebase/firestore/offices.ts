@@ -280,10 +280,7 @@ export async function requestToJoinOfficeByCode(
   const officeId = officeDoc.id;
   const officeData = officeDoc.data();
 
-  const memberSnap = await getDoc(memberDocRef(officeId, requester.id));
-  if (memberSnap.exists()) {
-    return { success: false, message: "You are already a member of this office." };
-  }
+  // Per user request, do not check for existing membership. Just send the request.
 
   const joinRequestData: Omit<OfficeJoinRequest, 'id' | 'requestedAt'> = {
     officeId: officeId,
