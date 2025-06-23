@@ -13,11 +13,12 @@ service cloud.firestore {
              exists(/databases/$(database)/documents/offices/$(officeId)/members/$(request.auth.uid));
     }
 
-    // FIX: Rewritten to use valid boolean logic instead of invalid 'if/let' syntax.
     function isOfficeAdminOrOwner(officeId) {
-      return isOfficeMember(officeId) && (
-        get(/databases/$(database)/documents/offices/$(officeId)/members/$(request.auth.uid)).data.role in ['Admin', 'Owner']
-      );
+      if (!isOfficeMember(officeId)) {
+        return false;
+      }
+      let userRole = get(/databases/$(database)/documents/offices/$(officeId)/members/$(request.auth.uid)).data.role;
+      return userRole == 'Admin' || userRole == 'Owner';
     }
 
     function isOfficeOwner(officeId) {
@@ -31,16 +32,23 @@ service cloud.firestore {
       allow create: if isAuthenticated();
     }
 
-    match /users/{userId}/{subcollection}/{docId} {
-      // User can manage their own notifications and goals.
-      allow read, write: if request.auth.uid == userId && (subcollection == 'notifications' || subcollection == 'goals');
+    // This is the restructured block that fixes the "accept invite" and "leave office" errors.
+    match /users/{userId} {
+        match /memberOfOffices/{officeId} {
+            allow read: if request.auth.uid == userId;
+            // Admins/Owners can add a membership record to another user.
+            allow create: if isOfficeAdminOrOwner(officeId);
+            // The user themself can delete their membership record.
+            allow delete: if request.auth.uid == userId;
+        }
 
-      // Rules for the 'memberOfOffices' subcollection.
-      allow read: if request.auth.uid == userId && subcollection == 'memberOfOffices';
-      // FIX: Correctly allows Admins/Owners to add users when approving invites.
-      allow create: if subcollection == 'memberOfOffices' && isOfficeAdminOrOwner(docId);
-      // FIX: Correctly allows a user to delete their own membership record to leave an office.
-      allow delete: if subcollection == 'memberOfOffices' && request.auth.uid == userId;
+        match /notifications/{notificationId} {
+            allow read, write: if request.auth.uid == userId;
+        }
+
+        match /goals/{goalId} {
+            allow read, write: if request.auth.uid == userId;
+        }
     }
 
     // --- Top Level Chat Collection ---
@@ -55,7 +63,8 @@ service cloud.firestore {
 
       match /messages/{messageId} {
         allow read: if isParticipant();
-        // FIX: Secures message creation. User must be a participant AND the sender.
+        // FIX: This rule now correctly verifies that the person sending the message
+        // is who they say they are, fixing the DM permission error.
         allow create: if isParticipant() && request.resource.data.senderId == request.auth.uid;
         allow update, delete: if false;
       }
