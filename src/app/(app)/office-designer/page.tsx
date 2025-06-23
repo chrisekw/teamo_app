@@ -10,7 +10,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { PlusCircle, Trash2, Users, Briefcase, Coffee, Zap, Building, KeyRound, UserPlus, Copy, Settings2, ShieldCheck, UserCircle as UserIconLucide, Loader2, Edit, Info, Image as ImageIconLucide, MoreHorizontal, ExternalLink, UserCheck, UserX, CheckSquare, XSquare, Video, Tag, Layers, ImageUp, Award, LogOut } from "lucide-react";
+import { PlusCircle, Trash2, Users, Briefcase, Coffee, Zap, Building, KeyRound, UserPlus, Copy, Settings2, ShieldCheck, UserCircle as UserIconLucide, Loader2, Edit, Info, Image as ImageIconLucide, MoreHorizontal, ExternalLink, UserCheck, UserX, CheckSquare, XSquare, Video, Tag, Layers, ImageUp, Award, LogOut, Mail } from "lucide-react";
 import Image from "next/image";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -725,4 +725,3 @@ export default function OfficeDesignerPage() {
     </div>
   );
 }
-
