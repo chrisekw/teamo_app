@@ -13,11 +13,11 @@ import dynamic from 'next/dynamic';
 import { Skeleton } from "@/components/ui/skeleton";
 import type { ChartConfig } from "@/components/ui/chart";
 import { useAuth } from "@/lib/firebase/auth";
-import { onUserOfficesUpdate, onMembersUpdate, type Office } from "@/lib/firebase/firestore/offices"; // Changed
-import { onActivityLogUpdate, type ActivityLogItem } from "@/lib/firebase/firestore/activity"; // Changed
+import { onUserOfficesUpdate, onMembersUpdate, type Office } from "@/lib/firebase/firestore/offices";
+import { onActivityLogUpdate, type ActivityLogItem } from "@/lib/firebase/firestore/activity";
 import { Loader2 } from "lucide-react";
 import Link from "next/link";
-import type { Unsubscribe } from "firebase/firestore"; // Added
+import type { Unsubscribe } from "firebase/firestore";
 
 const activityIconMap: Record<string, React.ElementType> = {
   "task-new": ListChecks,
@@ -77,7 +77,7 @@ export default function DashboardPage() {
       setTeamMembersCount(0);
       setIsLoadingStats(false);
     }
-  }, [user, authLoading]); // Removed selectedOfficeForDashboard from deps
+  }, [user, authLoading, selectedOfficeForDashboard]);
 
   // Listener for members of the selected office
   useEffect(() => {

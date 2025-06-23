@@ -138,6 +138,8 @@ export interface Room {
   officeId: string;
   createdAt?: Date;
   updatedAt?: Date;
+  creatorUserId?: string;
+  participantIds?: string[];
 }
 
 export type RoomFirestoreData = Omit<Room, 'id' | 'officeId' | 'createdAt' | 'updatedAt'> & {
@@ -186,7 +188,7 @@ export type ActivityType =
   | "task-new" | "task-status-update" | "task-completed" | "task-deleted"
   | "goal-new" | "goal-progress-update" | "goal-achieved"
   | "meeting-new" | "meeting-updated" | "meeting-deleted"
-  | "office-created" | "member-join" | "room-new"
+  | "office-created" | "member-join" | "room-new" | "room-deleted"
   | "office-join-request-sent" | "office-join-request-approved" | "office-join-request-rejected"
   | "member-role-updated" | "member-removed" | "member-added";
 

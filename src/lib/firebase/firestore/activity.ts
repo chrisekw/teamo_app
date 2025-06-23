@@ -10,8 +10,8 @@ import {
   Timestamp,
   type DocumentData,
   type FirestoreDataConverter,
-  onSnapshot, // Added
-  type Unsubscribe // Added
+  onSnapshot,
+  type Unsubscribe
 } from 'firebase/firestore';
 import type { ActivityLogItem, ActivityLogItemFirestoreData, ActivityType } from '@/types';
 
@@ -54,7 +54,7 @@ export async function addActivityLog(
   }
   try {
     const activityLogCol = getActivityLogCollection(officeId);
-    await addDoc(activityLogCol, activityData);
+    await addDoc(activityLogCol, { ...activityData, officeId: officeId });
   } catch (error) {
     console.error("Failed to add activity log:", error, { officeId, activityData });
   }
@@ -67,6 +67,7 @@ export function onActivityLogUpdate(
 ): Unsubscribe {
   if (!officeId) {
     console.error("Office ID is required to listen for activity log updates.");
+    callback([]);
     return () => {};
   }
   const activityLogCol = getActivityLogCollection(officeId);

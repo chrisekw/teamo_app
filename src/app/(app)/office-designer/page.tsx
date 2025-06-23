@@ -2,7 +2,7 @@
 "use client";
 
 import { useState, useEffect, type ReactNode, useCallback, ChangeEvent } from "react";
-import { useSearchParams, useRouter } from 'next/navigation';
+import { useSearchParams, useRouter, usePathname } from 'next/navigation';
 import Link from 'next/link';
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
@@ -61,6 +61,7 @@ export default function OfficeDesignerPage() {
   const { toast } = useToast();
   const searchParams = useSearchParams();
   const router = useRouter();
+  const pathname = usePathname();
 
   const [userOffices, setUserOffices] = useState<Office[]>([]);
   const [activeOffice, setActiveOffice] = useState<Office | null>(null);
@@ -105,72 +106,71 @@ export default function OfficeDesignerPage() {
   const [selectedWorkRole, setSelectedWorkRole] = useState<string>("");
   const [processingRequestId, setProcessingRequestId] = useState<string | null>(null);
 
-  // Fetch all offices the user is a member of
+  // Fetch all offices the user is a member of (real-time)
   useEffect(() => {
     if (user && !authLoading) {
       setIsLoadingUserOffices(true);
       const unsubscribe = onUserOfficesUpdate(user.uid, (offices) => {
         setUserOffices(offices);
+        if (offices.length === 0) {
+            setActiveOffice(null);
+        } else if (!offices.find(o => o.id === activeOffice?.id)) {
+            // If current active office is no longer in the list, default to first one
+            setActiveOffice(offices[0]);
+        }
         setIsLoadingUserOffices(false);
       });
       return () => unsubscribe();
     } else if (!user && !authLoading) {
       setUserOffices([]);
+      setActiveOffice(null);
       setIsLoadingUserOffices(false);
     }
-  }, [user, authLoading]);
+  }, [user, authLoading, activeOffice?.id]);
 
-  // Set the active office based on URL or default to the first office
+
+  // Set the active office based on URL, or default to the first office in the list
   useEffect(() => {
+    const officeIdFromUrl = searchParams.get('officeId');
     if (isLoadingUserOffices || userOffices.length === 0) {
-        if (!isLoadingUserOffices) setActiveOffice(null);
         return;
     };
     
-    const officeIdFromUrl = searchParams.get('officeId');
     const officeFromUrl = userOffices.find(o => o.id === officeIdFromUrl);
+    const targetOffice = officeFromUrl || userOffices[0];
 
-    const newActiveOffice = officeFromUrl || userOffices[0];
+    if (targetOffice && targetOffice.id !== activeOffice?.id) {
+        setActiveOffice(targetOffice);
+    }
     
-    if (newActiveOffice.id !== activeOffice?.id) {
-        setActiveOffice(newActiveOffice);
+    // Ensure URL matches active office
+    if (activeOffice && officeIdFromUrl !== activeOffice.id) {
+        router.replace(`${pathname}?officeId=${activeOffice.id}`, { scroll: false });
     }
 
-    if (officeIdFromUrl !== newActiveOffice.id) {
-        router.replace(`/office-designer?officeId=${newActiveOffice.id}`, { scroll: false });
-    }
-  }, [userOffices, searchParams, isLoadingUserOffices, router, activeOffice?.id]);
+  }, [userOffices, searchParams, isLoadingUserOffices, router, pathname, activeOffice]);
 
-
-  // Fetch details (rooms, members, requests) when the active office changes
+  // Fetch details (rooms, members, requests) for the active office (real-time)
   useEffect(() => {
-    let unsubRooms: Unsubscribe = () => {};
-    let unsubMembers: Unsubscribe = () => {};
-    let unsubRequests: Unsubscribe = () => {};
-
+    const unsubscribers: Unsubscribe[] = [];
+    
     if (activeOffice && user) {
       setIsLoadingDetails(true);
       const officeId = activeOffice.id;
 
-      unsubRooms = onRoomsUpdate(officeId, (rooms) => setActiveOfficeRooms(rooms));
-      unsubMembers = onMembersUpdate(officeId, (members) => {
+      unsubscribers.push(onRoomsUpdate(officeId, setActiveOfficeRooms));
+      unsubscribers.push(onMembersUpdate(officeId, (members) => {
         setActiveOfficeMembers(members);
         const currentUserInOffice = members.find(m => m.userId === user.uid);
         const isAdminOrOwner = currentUserInOffice?.role === 'Admin' || currentUserInOffice?.role === 'Owner';
         
         if (isAdminOrOwner) {
-          unsubRequests = onPendingJoinRequestsUpdate(officeId, (requests) => {
-              setPendingJoinRequests(requests);
-              setIsLoadingDetails(false); 
-          });
+          unsubscribers.push(onPendingJoinRequestsUpdate(officeId, setPendingJoinRequests));
         } else {
           setPendingJoinRequests([]);
-          setIsLoadingDetails(false); 
-          if (typeof unsubRequests === 'function') {
-            unsubRequests(); 
-          }
         }
-      });
+        setIsLoadingDetails(false); 
+      }));
     } else {
       setActiveOfficeRooms([]);
       setActiveOfficeMembers([]);
@@ -179,16 +179,13 @@ export default function OfficeDesignerPage() {
     }
 
     return () => {
-      unsubRooms();
-      unsubMembers();
-      unsubRequests();
+      unsubscribers.forEach(unsub => unsub());
     };
   }, [activeOffice, user]);
 
-
   const handleSetActiveOffice = (officeId: string) => {
     if (officeId !== activeOffice?.id) {
-        router.push(`/office-designer?officeId=${officeId}`, { scroll: false });
+        router.push(`${pathname}?officeId=${officeId}`, { scroll: false });
     }
   };
 
@@ -232,7 +229,7 @@ export default function OfficeDesignerPage() {
 
     try {
       const newOffice = await createOffice(user.uid, user.displayName || "User", user.photoURL || undefined, newOfficeName, newOfficeSector || undefined, newOfficeCompanyName || undefined, logoUrlForCreate, bannerUrlForCreate);
-      handleSetActiveOffice(newOffice.id);
+      handleSetActiveOffice(newOffice.id); // This will trigger listeners to update state
       resetCreateOfficeForm();
       setIsCreateOfficeDialogOpen(false);
       toast({ title: "Office Created!", description: `Your new office "${newOffice.name}" is ready.` });

@@ -15,12 +15,12 @@ import {
     type DocumentData, 
     type FirestoreDataConverter,
     where,
-    or // Added for OR queries
+    or,
+    onSnapshot,
+    type Unsubscribe,
 } from 'firebase/firestore';
 import type { Task, TaskFirestoreData } from '@/types';
 import { addActivityLog } from './activity';
-// getMembersForOffice is not directly used here anymore for notifications, but kept for potential future use.
-// import { getMembersForOffice } from './offices'; 
 import { addUserNotification } from './notifications';
 
 const taskConverter: FirestoreDataConverter<Task, TaskFirestoreData> = {
@@ -49,8 +49,7 @@ const taskConverter: FirestoreDataConverter<Task, TaskFirestoreData> = {
     } else {
       delete data.assigneesDisplay; 
     }
-
-    // Ensure officeId and creatorUserId are part of the data if provided
+    
     if (taskInput.officeId) data.officeId = taskInput.officeId;
     if (taskInput.creatorUserId) data.creatorUserId = taskInput.creatorUserId;
 
@@ -60,8 +59,8 @@ const taskConverter: FirestoreDataConverter<Task, TaskFirestoreData> = {
     const data = snapshot.data(options)!;
     return {
       id: snapshot.id,
-      officeId: data.officeId, // Added
-      creatorUserId: data.creatorUserId, // Added
+      officeId: data.officeId,
+      creatorUserId: data.creatorUserId,
       name: data.name,
       assigneeIds: data.assigneeIds || [],
       assigneesDisplay: data.assigneesDisplay || "Unassigned",
@@ -76,25 +75,28 @@ const taskConverter: FirestoreDataConverter<Task, TaskFirestoreData> = {
   }
 };
 
-// Changed: Collection path is now offices/{officeId}/tasks
 const getTasksCollection = (officeId: string) => {
   if (!officeId) throw new Error("Office ID is required for task operations.");
   return collection(db, 'offices', officeId, 'tasks').withConverter(taskConverter);
 };
 
-// Changed: Document path is now offices/{officeId}/tasks/{taskId}
 const getTaskDoc = (officeId: string, taskId: string) => {
   if (!officeId || !taskId) throw new Error("Office ID and Task ID are required.");
   return doc(db, 'offices', officeId, 'tasks', taskId).withConverter(taskConverter);
 };
 
-// Renamed and refactored: Fetches tasks visible to a user within a specific office
-export async function getTasksVisibleToUserInOffice(officeId: string, currentUserId: string): Promise<Task[]> {
-  if (!officeId || !currentUserId) throw new Error("Office ID and User ID are required to fetch tasks.");
+export function onTasksUpdate(
+  officeId: string, 
+  currentUserId: string,
+  callback: (tasks: Task[]) => void
+): Unsubscribe {
+  if (!officeId || !currentUserId) {
+    console.error("Office ID and User ID are required to listen for task updates.");
+    callback([]);
+    return () => {};
+  }
   
   const tasksCol = getTasksCollection(officeId);
-  // Query for tasks where user is creator OR an assignee
-  // Firestore OR queries are limited, but this specific pattern (array-contains OR == on different fields) should work.
   const q = query(tasksCol, 
     or(
       where("creatorUserId", "==", currentUserId),
@@ -103,25 +105,20 @@ export async function getTasksVisibleToUserInOffice(officeId: string, currentUse
     orderBy("createdAt", "desc")
   );
   
-  const snapshot = await getDocs(q);
-  return snapshot.docs.map(doc => doc.data());
+  return onSnapshot(q, (snapshot) => {
+    const tasks = snapshot.docs.map(doc => doc.data());
+    callback(tasks);
+  }, (error) => {
+    console.error(`Error listening to tasks for office ${officeId}:`, error);
+    callback([]);
+  });
 }
 
-
-// Renamed and refactored: Fetches a specific task by ID from an office
-export async function getTaskByIdFromOffice(officeId: string, taskId: string): Promise<Task | null> {
-  if (!officeId || !taskId) throw new Error("Office ID and Task ID are required.");
-  const taskDocRef = getTaskDoc(officeId, taskId);
-  const docSnap = await getDoc(taskDocRef);
-  return docSnap.exists() ? docSnap.data() : null;
-}
-
-// Renamed and refactored: Adds a task to a specific office
 export async function addTaskToOffice(
   officeId: string, 
   creatorUserId: string,
   taskData: Omit<Task, 'id' | 'createdAt' | 'updatedAt' | 'officeId' | 'creatorUserId'>,
-  actorName: string, // actorName is creatorName here
+  actorName: string,
   officeName?: string
 ): Promise<Task> {
   if (!officeId || !creatorUserId) throw new Error("Office ID and Creator User ID are required to add a task.");
@@ -159,7 +156,7 @@ export async function addTaskToOffice(
             type: "task-new",
             title: `New Task in ${officeName || 'Office'}: ${newTask.name}`,
             message: `${actorName} assigned you a new task: "${newTask.name}".`,
-            link: `/tasks/${officeId}/${newTask.id}`, 
+            link: `/tasks?officeId=${officeId}`, 
             officeId: officeId,
             actorName: actorName,
             entityId: newTask.id,
@@ -174,12 +171,11 @@ export async function addTaskToOffice(
   return newTask;
 }
 
-// Renamed and refactored: Updates a task within a specific office
 export async function updateTaskInOffice(
   officeId: string, 
   taskId: string, 
   taskData: Partial<Omit<Task, 'id' | 'createdAt' | 'updatedAt' | 'officeId' | 'creatorUserId'>>,
-  actorId: string, // The user performing the update
+  actorId: string,
   actorName: string,
   officeName?: string
 ): Promise<void> {
@@ -233,9 +229,7 @@ export async function updateTaskInOffice(
   if (originalTask.creatorUserId) involvedUserIds.add(originalTask.creatorUserId);
   if (originalTask.assigneeIds) originalTask.assigneeIds.forEach(id => involvedUserIds.add(id));
   if (taskData.assigneeIds) taskData.assigneeIds.forEach(id => involvedUserIds.add(id));
-  // Also notify the new assignees if they changed
   if (updatePayload.assigneeIds) updatePayload.assigneeIds.forEach((id: string) => involvedUserIds.add(id));
-
 
   for (const notifiedUserId of involvedUserIds) {
     if (notifiedUserId !== actorId) { 
@@ -244,7 +238,7 @@ export async function updateTaskInOffice(
               type: "task-updated",
               title: `Task Update in ${officeName || 'Office'}: ${originalTask.name}`,
               message: activityDescription,
-              link: `/tasks/${officeId}/${taskId}`,
+              link: `/tasks?officeId=${officeId}`,
               officeId: officeId,
               actorName: actorName,
               entityId: taskId,
@@ -257,11 +251,10 @@ export async function updateTaskInOffice(
   }
 }
 
-// Renamed and refactored: Deletes a task from a specific office
 export async function deleteTaskFromOffice(
   officeId: string, 
   taskId: string,
-  actorId: string, // The user performing the delete
+  actorId: string,
   actorName: string
 ): Promise<void> {
   if (!officeId || !taskId || !actorId) throw new Error("Office ID, Task ID, and Actor ID are required for delete.");

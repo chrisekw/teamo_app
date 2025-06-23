@@ -13,7 +13,6 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -27,8 +26,8 @@ import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover
 import { cn } from "@/lib/utils";
 import { format } from "date-fns";
 import dynamic from 'next/dynamic';
-import { addTaskToOffice, getTasksVisibleToUserInOffice, updateTaskInOffice, deleteTaskFromOffice } from "@/lib/firebase/firestore/tasks";
-import { getOfficesForUser, getMembersForOffice } from "@/lib/firebase/firestore/offices";
+import { addTaskToOffice, onTasksUpdate, updateTaskInOffice, deleteTaskFromOffice } from "@/lib/firebase/firestore/tasks";
+import { onUserOfficesUpdate, getMembersForOffice, onMembersUpdate } from "@/lib/firebase/firestore/offices";
 import { Skeleton } from "@/components/ui/skeleton";
 import Link from "next/link";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -43,6 +42,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useSearchParams, useRouter, usePathname } from 'next/navigation';
+import type { Unsubscribe } from "firebase/firestore";
 
 const DynamicCalendar = dynamic(() => import('@/components/ui/calendar').then(mod => mod.Calendar), {
   ssr: false,
@@ -89,70 +89,76 @@ export default function TasksPage() {
   const [taskPriority, setTaskPriority] = useState<Task["priority"]>("Medium");
   const [taskProgress, setTaskProgress] = useState(0);
 
-  // Fetch all offices user is a member of
+  // Real-time listener for user's offices
   useEffect(() => {
     if (user && !authLoading) {
       setIsLoadingOfficeData(true);
-      getOfficesForUser(user.uid)
-        .then(setUserOffices)
-        .catch(() => toast({ variant: "destructive", title: "Error", description: "Could not load your offices." }))
-        .finally(() => setIsLoadingOfficeData(false));
+      const unsubscribe = onUserOfficesUpdate(user.uid, (offices) => {
+        setUserOffices(offices);
+        // If there's no active office or the active one is gone, set a default
+        if (offices.length > 0 && (!activeOffice || !offices.find(o => o.id === activeOffice.id))) {
+          const officeIdFromUrl = searchParams.get('officeId');
+          const officeFromUrl = offices.find(o => o.id === officeIdFromUrl);
+          setActiveOffice(officeFromUrl || offices[0]);
+        } else if (offices.length === 0) {
+          setActiveOffice(null);
+        }
+        setIsLoadingOfficeData(false);
+      });
+      return () => unsubscribe();
+    } else if (!user && !authLoading) {
+      setUserOffices([]);
+      setActiveOffice(null);
+      setIsLoadingOfficeData(false);
     }
-  }, [user, authLoading, toast]);
+  }, [user, authLoading]);
 
-  // Set active office from URL or default to first office
+  // Update active office based on URL if it changes
   useEffect(() => {
-    if (isLoadingOfficeData || userOffices.length === 0) {
-      if (!isLoadingOfficeData) setActiveOffice(null);
-      return;
-    }
     const officeIdFromUrl = searchParams.get('officeId');
-    const officeFromUrl = userOffices.find(o => o.id === officeIdFromUrl);
-    const newActiveOffice = officeFromUrl || userOffices[0];
-    
-    if (newActiveOffice.id !== activeOffice?.id) {
+    if (officeIdFromUrl && activeOffice?.id !== officeIdFromUrl) {
+      const newActiveOffice = userOffices.find(o => o.id === officeIdFromUrl);
+      if (newActiveOffice) {
         setActiveOffice(newActiveOffice);
+      }
     }
-    
-    if (searchParams.get('officeId') !== newActiveOffice.id) {
-        router.replace(`${pathname}?officeId=${newActiveOffice.id}`, { scroll: false });
+     // Ensure URL reflects active office
+    if (activeOffice && searchParams.get('officeId') !== activeOffice.id) {
+        router.replace(`${pathname}?officeId=${activeOffice.id}`, { scroll: false });
     }
-  }, [userOffices, searchParams, isLoadingOfficeData, router, pathname, activeOffice?.id]);
+  }, [searchParams, userOffices, activeOffice, router, pathname]);
 
-
-  // Fetch members for the active office
+  // Real-time listener for members of the active office
   useEffect(() => {
+    let unsubscribe: Unsubscribe | null = null;
     if (activeOffice) {
-      getMembersForOffice(activeOffice.id)
-        .then(setCurrentOfficeMembers)
-        .catch(() => toast({ variant: "destructive", title: "Error", description: "Could not load members for the selected office."}));
+      unsubscribe = onMembersUpdate(activeOffice.id, setCurrentOfficeMembers);
     } else {
       setCurrentOfficeMembers([]);
     }
-  }, [activeOffice, toast]);
+    return () => {
+      if (unsubscribe) unsubscribe();
+    };
+  }, [activeOffice]);
 
-  // Fetch tasks for the active office
-  const fetchTasks = useCallback(async () => {
+
+  // Real-time listener for tasks in the active office
+  useEffect(() => {
+    let unsubscribe: Unsubscribe | null = null;
     if (user && activeOffice) {
       setIsLoadingTasks(true);
-      try {
-        const userTasks = await getTasksVisibleToUserInOffice(activeOffice.id, user.uid);
+      unsubscribe = onTasksUpdate(activeOffice.id, user.uid, (userTasks) => {
         setTasks(userTasks);
-      } catch (error) {
-        console.error("Failed to fetch tasks:", error);
-        toast({ variant: "destructive", title: "Error", description: "Could not fetch tasks." });
-      } finally {
         setIsLoadingTasks(false);
-      }
+      });
     } else {
       setTasks([]);
       setIsLoadingTasks(false);
     }
-  }, [user, activeOffice, toast]);
-
-  useEffect(() => {
-    fetchTasks();
-  }, [fetchTasks]);
+    return () => {
+      if (unsubscribe) unsubscribe();
+    };
+  }, [user, activeOffice]);
 
 
   const resetForm = () => {
@@ -220,7 +226,6 @@ export default function TasksPage() {
         await addTaskToOffice(activeOffice.id, user.uid, taskData, actorName, activeOffice.name);
         toast({ title: "Task Added", description: `"${taskData.name}" has been added.` });
       }
-      fetchTasks();
       setIsTaskDialogOpen(false);
       resetForm();
     } catch (error) {
@@ -237,7 +242,6 @@ export default function TasksPage() {
     try {
       await deleteTaskFromOffice(activeOffice.id, taskId, user.uid, user.displayName || "User");
       toast({ title: "Task Deleted", description: "The task has been removed." });
-      fetchTasks();
     } catch (error) {
       console.error("Failed to delete task:", error);
       toast({ variant: "destructive", title: "Error", description: "Could not delete task." });
@@ -533,4 +537,3 @@ export default function TasksPage() {
     </div>
   );
 }
-

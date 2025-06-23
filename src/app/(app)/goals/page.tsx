@@ -21,7 +21,7 @@ import { Slider } from "@/components/ui/slider";
 import type { Goal, OfficeMember } from "@/types";
 import { useAuth } from "@/lib/firebase/auth";
 import { useToast } from "@/hooks/use-toast";
-import { addGoalForUser, getGoalsForUser, updateGoalForUser, deleteGoalForUser } from "@/lib/firebase/firestore/goals";
+import { addGoalForUser, onGoalsUpdate, updateGoalForUser, deleteGoalForUser } from "@/lib/firebase/firestore/goals";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
 import dynamic from 'next/dynamic';
 import { cn } from "@/lib/utils";
@@ -37,6 +37,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import type { Unsubscribe } from "firebase/firestore";
 
 
 const DynamicCalendar = dynamic(() => import('@/components/ui/calendar').then(mod => mod.Calendar), {
@@ -95,26 +96,25 @@ export default function GoalsPage() {
   }, [authLoading, user, fetchUserOfficesAndMembers]);
 
 
-  const fetchGoals = useCallback(async () => {
-    if (user) {
-      setIsLoadingGoals(true);
-      try {
-        const userGoals = await getGoalsForUser(user.uid);
-        setGoals(userGoals);
-      } catch (error) {
-        console.error("Failed to fetch goals:", error);
-        toast({ variant: "destructive", title: "Error", description: "Could not fetch goals." });
-      } finally {
-        setIsLoadingGoals(false);
-      }
-    }
-  }, [user, toast]);
-
+  // Real-time goal listener
   useEffect(() => {
-    if (!authLoading && user) {
-      fetchGoals();
+    let unsubscribe: Unsubscribe | null = null;
+    if (user && !authLoading) {
+      setIsLoadingGoals(true);
+      unsubscribe = onGoalsUpdate(user.uid, (userGoals) => {
+        setGoals(userGoals);
+        setIsLoadingGoals(false);
+      });
+    } else {
+      setIsLoadingGoals(false);
+      setGoals([]);
     }
-  }, [authLoading, user, fetchGoals]);
+    return () => {
+      if (unsubscribe) {
+        unsubscribe();
+      }
+    };
+  }, [user, authLoading]);
 
   const resetForm = () => {
     setGoalName("");
@@ -170,6 +170,7 @@ export default function GoalsPage() {
       deadline: goalDeadline,
       participantIds: goalParticipantIds,
       participantsDisplay: participantsDisplay,
+      creatorUserId: user.uid,
     };
     const actorName = user.displayName || user.email || "User";
     const officeForGoal = userOffices.length > 0 ? userOffices[0] : undefined;
@@ -183,7 +184,7 @@ export default function GoalsPage() {
         await addGoalForUser(user.uid, goalData, actorName, officeForGoal?.id, officeForGoal?.name);
         toast({ title: "Goal Added", description: `"${goalData.name}" has been added.` });
       }
-      fetchGoals(); 
+      // No manual fetch needed due to real-time listener
       setIsGoalDialogOpen(false);
       resetForm();
     } catch (error) {
@@ -200,7 +201,7 @@ export default function GoalsPage() {
     try {
         await deleteGoalForUser(user.uid, goalId);
         toast({ title: "Goal Deleted", description: "The goal has been removed." });
-        fetchGoals();
+        // No manual fetch needed
     } catch (error) {
         console.error("Failed to delete goal:", error);
         toast({ variant: "destructive", title: "Error", description: "Could not delete goal." });
@@ -446,5 +447,3 @@ export default function GoalsPage() {
     </div>
   );
 }
-
-    

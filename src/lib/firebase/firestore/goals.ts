@@ -14,6 +14,8 @@ import {
   Timestamp,
   type DocumentData,
   type FirestoreDataConverter,
+  onSnapshot,
+  type Unsubscribe,
 } from 'firebase/firestore';
 import type { Goal, GoalFirestoreData } from '@/types';
 import { addActivityLog } from './activity';
@@ -24,7 +26,6 @@ const goalConverter: FirestoreDataConverter<Goal, GoalFirestoreData> = {
   toFirestore: (goalInput: Partial<Goal>): DocumentData => {
     const data: any = { ...goalInput };
     delete data.id;
-    delete data.userId;
 
     if (goalInput.deadline && goalInput.deadline instanceof Date) {
       data.deadline = Timestamp.fromDate(goalInput.deadline);
@@ -66,7 +67,7 @@ const goalConverter: FirestoreDataConverter<Goal, GoalFirestoreData> = {
       participantsDisplay: data.participantsDisplay || "No participants",
       createdAt: data.createdAt instanceof Timestamp ? data.createdAt.toDate() : new Date(),
       updatedAt: data.updatedAt instanceof Timestamp ? data.updatedAt.toDate() : new Date(),
-      userId: snapshot.ref.parent.parent!.id, 
+      creatorUserId: data.creatorUserId, 
     };
   }
 };
@@ -79,24 +80,35 @@ const getGoalDoc = (userId: string, goalId: string) => {
   return doc(db, 'users', userId, 'goals', goalId).withConverter(goalConverter);
 };
 
-export async function getGoalsForUser(userId: string): Promise<Goal[]> {
-  if (!userId) throw new Error("User ID is required to fetch goals.");
+export function onGoalsUpdate(userId: string, callback: (goals: Goal[]) => void): Unsubscribe {
+  if (!userId) {
+    console.error("User ID is required to listen for goal updates.");
+    callback([]);
+    return () => {};
+  }
   const goalsCol = getGoalsCollection(userId);
   const q = query(goalsCol, orderBy("createdAt", "desc"));
-  const snapshot = await getDocs(q);
-  return snapshot.docs.map(doc => doc.data());
+  
+  return onSnapshot(q, (snapshot) => {
+    const goals = snapshot.docs.map(doc => doc.data());
+    callback(goals);
+  }, (error) => {
+    console.error("Error listening for goal updates:", error);
+    callback([]);
+  });
 }
 
 export async function addGoalForUser(
   actorUserId: string, 
-  goalData: Omit<Goal, 'id' | 'createdAt' | 'updatedAt' | 'userId'>,
+  goalData: Omit<Goal, 'id' | 'createdAt' | 'updatedAt' | 'creatorUserId'>,
   actorName: string,
   officeId?: string,
   officeName?: string
 ): Promise<Goal> {
   if (!actorUserId) throw new Error("Actor User ID is required to add a goal.");
   const goalsCol = getGoalsCollection(actorUserId);
-  const docRef = await addDoc(goalsCol, { ...goalData, userId: actorUserId } as Goal); 
+  const fullGoalData = { ...goalData, creatorUserId: actorUserId };
+  const docRef = await addDoc(goalsCol, fullGoalData as Goal); 
   
   const newDocSnap = await getDoc(docRef);
   if (!newDocSnap.exists()) {
@@ -143,7 +155,7 @@ export async function addGoalForUser(
 export async function updateGoalForUser(
   userId: string, 
   goalId: string, 
-  goalData: Partial<Omit<Goal, 'id' | 'createdAt' | 'updatedAt' | 'userId'>>,
+  goalData: Partial<Omit<Goal, 'id' | 'createdAt' | 'updatedAt' | 'creatorUserId'>>,
   actorName: string,
   officeId?: string,
   officeName?: string
@@ -223,5 +235,3 @@ export async function deleteGoalForUser(userId: string, goalId: string): Promise
   const goalDocRef = getGoalDoc(userId, goalId);
   await deleteDoc(goalDocRef);
 }
-
-    
