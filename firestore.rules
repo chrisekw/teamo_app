@@ -1,21 +1,26 @@
+
 rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
 
     // Helper functions for security rules
+    function isOfficeMember(officeId) {
+      return get(/databases/$(database)/documents/offices/$(officeId)/members/$(request.auth.uid)).exists;
+    }
+
     function isOfficeAdminOrOwner(officeId) {
       let userRole = get(/databases/$(database)/documents/offices/$(officeId)/members/$(request.auth.uid)).data.role;
       return userRole == 'Admin' || userRole == 'Owner';
     }
 
-    // User profiles can be read/created by any authenticated user, but only updated/deleted by themselves.
+    // User profiles can be created by any authenticated user, but only managed by themselves.
     match /userProfiles/{userId} {
-      allow read, create: if request.auth.uid != null;
-      allow update, delete: if request.auth.uid == userId;
+      allow read, update, delete: if request.auth.uid == userId;
+      allow create: if request.auth.uid != null;
     }
 
-    // Users can manage their own subcollections (notifications, goals).
+    // Users can manage their own subcollections (notifications, etc.)
     // Admins/Owners are granted specific permissions to write 'memberOfOffices' docs for others.
     match /users/{userId}/{collection}/{docId} {
       allow read, write, delete: if request.auth.uid == userId;
@@ -29,10 +34,11 @@ service cloud.firestore {
     // Rules for the 'offices' collection and its subcollections
     match /offices/{officeId} {
       // Allow any authenticated user to QUERY for offices (e.g., by invite code).
+      // For apps with many offices, a Cloud Function would be more secure.
       allow list: if request.auth.uid != null;
       
       // Allow members to GET their specific office details.
-      allow get: if exists(/databases/$(database)/documents/offices/$(officeId)/members/$(request.auth.uid));
+      allow get: if isOfficeMember(officeId);
       
       // Allow any authenticated user to create an office.
       allow create: if request.auth.uid != null;
@@ -43,7 +49,7 @@ service cloud.firestore {
       
       // Office member management
       match /members/{memberUserId} {
-        allow read: if exists(/databases/$(database)/documents/offices/$(officeId)/members/$(request.auth.uid));
+        allow read: if isOfficeMember(officeId);
         allow create, delete: if isOfficeAdminOrOwner(officeId);
         // Admins/Owners can change roles; users can update their own profile info but not their role.
         allow update: if isOfficeAdminOrOwner(officeId) || 
@@ -52,29 +58,29 @@ service cloud.firestore {
 
       // Office room management
       match /rooms/{roomId} {
-        allow read: if exists(/databases/$(database)/documents/offices/$(officeId)/members/$(request.auth.uid));
+        allow read: if isOfficeMember(officeId);
         allow create, update, delete: if isOfficeAdminOrOwner(officeId);
       }
       
       // Activity logs can be read by members, but created by any authenticated member (server-side validates).
       match /activityLog/{activityId} {
-        allow read: if exists(/databases/$(database)/documents/offices/$(officeId)/members/$(request.auth.uid));
+        allow read: if isOfficeMember(officeId);
         allow create: if request.auth.uid != null;
       }
 
       // Tasks can be managed by any member of the office.
       match /tasks/{taskId} {
-        allow read, write: if exists(/databases/$(database)/documents/offices/$(officeId)/members/$(request.auth.uid));
+        allow read, write: if isOfficeMember(officeId);
       }
       
       // Meetings can be managed by any member of the office.
       match /meetings/{meetingId} {
-        allow read, write: if exists(/databases/$(database)/documents/offices/$(officeId)/members/$(request.auth.uid));
+        allow read, write: if isOfficeMember(officeId);
       }
 
       // General office chat messages can be read/written by members.
       match /generalMessages/{messageId} {
-        allow read, write: if exists(/databases/$(database)/documents/offices/$(officeId)/members/$(request.auth.uid));
+        allow read, write: if isOfficeMember(officeId);
       }
 
       // Join requests can be created by anyone, but only managed by admins/owners.
