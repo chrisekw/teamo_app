@@ -20,11 +20,13 @@ import {
   onSnapshot,
   type Unsubscribe,
   deleteField,
-  type FieldValue
+  type FieldValue,
+  limit
 } from 'firebase/firestore';
-import type { Office, OfficeFirestoreData, Room, RoomFirestoreData, OfficeMember, OfficeMemberFirestoreData, RoomType, MemberRole, OfficeJoinRequest, OfficeJoinRequestFirestoreData, ChatUser, OfficeJoinRequestStatus } from '@/types';
+import type { Office, OfficeFirestoreData, Room, RoomFirestoreData, OfficeMember, OfficeMemberFirestoreData, RoomType, MemberRole, OfficeJoinRequest, OfficeJoinRequestFirestoreData, ChatUser, OfficeJoinRequestStatus, UserProfile } from '@/types';
 import { addActivityLog } from './activity';
 import { addUserNotification } from './notifications';
+import { getUserProfileByEmail } from './userProfile';
 
 const officeConverter: FirestoreDataConverter<Office, OfficeFirestoreData> = {
   toFirestore: (officeInput: Partial<Office>): DocumentData => {
@@ -260,6 +262,66 @@ export async function deleteOffice(
   await batch.commit();
 }
 
+export async function addMemberByEmail(
+  officeId: string,
+  officeName: string,
+  memberEmail: string,
+  actorId: string,
+  actorName: string
+): Promise<{ success: boolean; message: string }> {
+  if (!officeId || !memberEmail || !actorId) {
+    return { success: false, message: "Missing required information." };
+  }
+
+  const userToAdd = await getUserProfileByEmail(memberEmail);
+  if (!userToAdd) {
+    return { success: false, message: `No registered user found with email: ${memberEmail}` };
+  }
+
+  const memberRef = memberDocRef(officeId, userToAdd.id);
+  const memberSnap = await getDoc(memberRef);
+  if (memberSnap.exists()) {
+    return { success: false, message: `${userToAdd.displayName} is already a member of this office.` };
+  }
+
+  const batch = writeBatch(db);
+
+  const newMemberData: Omit<OfficeMember, 'userId' | 'joinedAt'> = {
+    name: userToAdd.displayName,
+    role: 'Member',
+    avatarUrl: userToAdd.avatarUrl
+  };
+  batch.set(memberRef, { ...newMemberData, joinedAt: serverTimestamp() });
+  
+  const userOfficeRef = doc(userOfficesCol(userToAdd.id), officeId);
+  batch.set(userOfficeRef, { officeId, officeName, role: 'Member', joinedAt: serverTimestamp() });
+
+  await batch.commit();
+  
+  addActivityLog(officeId, {
+    type: "member-added",
+    title: `Member Added: ${userToAdd.displayName}`,
+    description: `${actorName} added ${userToAdd.displayName} to the office via email invitation.`,
+    iconName: "UserPlus",
+    actorId: actorId,
+    actorName: actorName,
+    entityId: userToAdd.id,
+    entityType: "member",
+  });
+  
+  await addUserNotification(userToAdd.id, {
+    type: "office-added",
+    title: `You've been added to ${officeName}!`,
+    message: `${actorName} added you to the "${officeName}" office.`,
+    link: `/office-designer?officeId=${officeId}`,
+    actorName,
+    entityId: officeId,
+    entityType: "office",
+    officeId: officeId
+  });
+
+  return { success: true, message: `${userToAdd.displayName} has been added to the office.` };
+}
 
 export async function requestToJoinOfficeByCode(
   invitationCode: string,
@@ -269,7 +331,7 @@ export async function requestToJoinOfficeByCode(
     return { success: false, message: "User details and invitation code are required." };
   }
 
-  const q = query(officesCol(), where("invitationCode", "==", invitationCode));
+  const q = query(officesCol(), where("invitationCode", "==", invitationCode), limit(1));
   const officeSnapshot = await getDocs(q);
 
   if (officeSnapshot.empty) {

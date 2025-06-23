@@ -10,7 +10,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { PlusCircle, Trash2, Users, Briefcase, Coffee, Zap, Building, KeyRound, UserPlus, Copy, Settings2, ShieldCheck, UserCircle as UserIconLucide, Loader2, Edit, Info, Image as ImageIconLucide, MoreHorizontal, ExternalLink, UserCheck, UserX, CheckSquare, XSquare, Video, Tag, Layers, ImageUp, Award, LogOut, ChevronsUpDown } from "lucide-react";
+import { PlusCircle, Trash2, Users, Briefcase, Coffee, Zap, Building, KeyRound, UserPlus, Copy, Settings2, ShieldCheck, UserCircle as UserIconLucide, Loader2, Edit, Info, Image as ImageIconLucide, MoreHorizontal, ExternalLink, UserCheck, UserX, CheckSquare, XSquare, Video, Tag, Layers, ImageUp, Award, LogOut, ChevronsUpDown, Mail } from "lucide-react";
 import Image from "next/image";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -34,7 +34,8 @@ import {
   onPendingJoinRequestsUpdate, 
   approveJoinRequest,
   rejectJoinRequest,
-  deleteOffice
+  deleteOffice,
+  addMemberByEmail,
 } from "@/lib/firebase/firestore/offices";
 import { Textarea } from "@/components/ui/textarea";
 import type { Unsubscribe } from 'firebase/firestore'; 
@@ -78,6 +79,7 @@ export default function OfficeDesignerPage() {
   const [isJoinOfficeDialogOpen, setIsJoinOfficeDialogOpen] = useState(false);
   const [isAddRoomDialogOpen, setIsAddRoomDialogOpen] = useState(false);
   const [isManageMemberDialogOpen, setIsManageMemberDialogOpen] = useState(false);
+  const [isAddMemberDialogOpen, setIsAddMemberDialogOpen] = useState(false);
   
   const [deletingMember, setDeletingMember] = useState<OfficeMember | null>(null);
   const [deletingRoom, setDeletingRoom] = useState<Room | null>(null);
@@ -92,6 +94,7 @@ export default function OfficeDesignerPage() {
   const [bannerPreview, setBannerPreview] = useState<string | null>(null);
 
   const [joinOfficeCode, setJoinOfficeCode] = useState("");
+  const [addMemberEmail, setAddMemberEmail] = useState("");
   const [selectedRoomType, setSelectedRoomType] = useState<RoomType | undefined>();
   const [newRoomName, setNewRoomName] = useState("");
   const [newRoomCoverImageFile, setNewRoomCoverImageFile] = useState<File | null>(null);
@@ -256,6 +259,24 @@ export default function OfficeDesignerPage() {
       toast({ variant: "destructive", title: "Error Requesting Join", description: String(error.message || error) });
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  const handleAddMemberByEmail = async () => {
+    if (!user || !activeOffice) { toast({ variant: "destructive", title: "Error", description: "You must be logged in and have an active office." }); return; }
+    if (!addMemberEmail.trim()) { toast({ variant: "destructive", title: "Error", description: "Email address cannot be empty." }); return; }
+    setIsSubmitting(true);
+    try {
+        const result = await addMemberByEmail(activeOffice.id, activeOffice.name, addMemberEmail, user.uid, user.displayName || 'Office Owner');
+        toast({ title: result.success ? "Member Added!" : "Failed to Add Member", description: result.message, variant: result.success ? "default" : "destructive" });
+        if (result.success) {
+            setAddMemberEmail("");
+            setIsAddMemberDialogOpen(false);
+        }
+    } catch (error: any) {
+        toast({ variant: "destructive", title: "Error Adding Member", description: String(error.message || error) });
+    } finally {
+        setIsSubmitting(false);
     }
   };
 
@@ -604,7 +625,13 @@ export default function OfficeDesignerPage() {
 
                 <aside className="lg:col-span-1 space-y-6">
                     <Card className="shadow-md bg-card/80 backdrop-blur-sm">
-                        <CardHeader><CardTitle className="font-headline flex items-center text-xl"><Users className="mr-2 h-5 w-5"/>Team Members ({activeOfficeMembers.length})</CardTitle><CardDescription>Manage roles and access for office members.</CardDescription></CardHeader>
+                        <CardHeader>
+                            <div className="flex justify-between items-center">
+                                <CardTitle className="font-headline flex items-center text-xl"><Users className="mr-2 h-5 w-5"/>Team Members ({activeOfficeMembers.length})</CardTitle>
+                                {currentUserIsOwner && (<Button variant="outline" size="sm" onClick={() => setIsAddMemberDialogOpen(true)} disabled={isSubmitting}><UserPlus className="mr-1 h-4 w-4"/>Add</Button>)}
+                            </div>
+                            <CardDescription>Manage roles and access for office members.</CardDescription>
+                        </CardHeader>
                         <CardContent className="space-y-3 max-h-96 overflow-y-auto pr-1">
                         {activeOfficeMembers.map((member) => {
                             const RoleIcon = roleIcons[member.role] || UserIconLucide;
@@ -653,6 +680,13 @@ export default function OfficeDesignerPage() {
           <DialogContent className="sm:max-w-[425px]"><DialogHeader><DialogTitle className="font-headline">Join Existing Office</DialogTitle><DialogDescription>Enter the invitation code to request access.</DialogDescription></DialogHeader>
             <div className="space-y-4 py-4"><div className="space-y-1.5"><Label htmlFor="joinOfficeCode" className="flex items-center"><KeyRound className="mr-2 h-4 w-4"/>Invitation Code</Label><Input id="joinOfficeCode" value={joinOfficeCode} onChange={(e) => setJoinOfficeCode(e.target.value)} placeholder="e.g., XYZ-789" disabled={isSubmitting}/></div></div>
             <DialogFooter><Button variant="outline" onClick={() => setIsJoinOfficeDialogOpen(false)} disabled={isSubmitting}>Cancel</Button><Button onClick={handleRequestToJoinOffice} disabled={isSubmitting}>{isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin"/>} Request to Join</Button></DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        <Dialog open={isAddMemberDialogOpen} onOpenChange={(isOpen) => { if (!isSubmitting) setIsAddMemberDialogOpen(isOpen); if(!isOpen) setAddMemberEmail(""); }}>
+          <DialogContent className="sm:max-w-[425px]"><DialogHeader><DialogTitle className="font-headline">Add Member by Email</DialogTitle><DialogDescription>Enter the email of a registered user to add them directly to this office.</DialogDescription></DialogHeader>
+            <div className="space-y-4 py-4"><div className="space-y-1.5"><Label htmlFor="addMemberEmail" className="flex items-center"><Mail className="mr-2 h-4 w-4"/>User's Email</Label><Input id="addMemberEmail" type="email" value={addMemberEmail} onChange={(e) => setAddMemberEmail(e.target.value)} placeholder="user@example.com" disabled={isSubmitting}/></div></div>
+            <DialogFooter><Button variant="outline" onClick={() => setIsAddMemberDialogOpen(false)} disabled={isSubmitting}>Cancel</Button><Button onClick={handleAddMemberByEmail} disabled={isSubmitting}>{isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin"/>} Add Member</Button></DialogFooter>
           </DialogContent>
         </Dialog>
 

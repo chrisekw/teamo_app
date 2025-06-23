@@ -1,14 +1,19 @@
 
 import { db } from '@/lib/firebase/client';
 import {
+  collection,
   doc,
   getDoc,
+  getDocs,
   setDoc,
   updateDoc,
   serverTimestamp,
   Timestamp,
   type DocumentData,
   type FirestoreDataConverter,
+  query,
+  where,
+  limit
 } from 'firebase/firestore';
 import type { UserProfile, UserProfileFirestoreData } from '@/types';
 
@@ -60,6 +65,7 @@ const userProfileConverter: FirestoreDataConverter<UserProfile, UserProfileFires
   }
 };
 
+const userProfilesColRef = () => collection(db, 'userProfiles').withConverter(userProfileConverter);
 const userProfileDocRef = (userId: string) => {
   if (!userId || typeof userId !== 'string' || userId.trim() === "") { // Stricter check
     // console.error("UserProfile Error: Attempted to get docRef with invalid userId:", userId);
@@ -67,6 +73,16 @@ const userProfileDocRef = (userId: string) => {
   }
   return doc(db, 'userProfiles', userId).withConverter(userProfileConverter);
 };
+
+export async function getUserProfileByEmail(email: string): Promise<UserProfile | null> {
+  if (!email) return null;
+  const q = query(userProfilesColRef(), where("email", "==", email), limit(1));
+  const snapshot = await getDocs(q);
+  if (snapshot.empty) {
+    return null;
+  }
+  return snapshot.docs[0].data();
+}
 
 export async function getOrCreateUserProfile(
   userId: string, 

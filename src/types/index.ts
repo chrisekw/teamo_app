@@ -188,7 +188,7 @@ export type ActivityType =
   | "meeting-new" | "meeting-updated" | "meeting-deleted"
   | "office-created" | "member-join" | "room-new"
   | "office-join-request-sent" | "office-join-request-approved" | "office-join-request-rejected"
-  | "member-role-updated" | "member-removed";
+  | "member-role-updated" | "member-removed" | "member-added";
 
 
 export interface ActivityLogItem {
@@ -260,7 +260,7 @@ export type UserNotificationType =
   | "goal-new" | "goal-updated" 
   | "meeting-new" | "meeting-updated" 
   | "chat-new-message"
-  | "office-invite"
+  | "office-invite" | "office-added"
   | "office-join-request"
   | "office-join-approved"
   | "office-join-rejected"
