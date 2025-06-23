@@ -1,3 +1,4 @@
+
 rules_version = '2';
 
 service cloud.firestore {
@@ -10,68 +11,67 @@ service cloud.firestore {
     }
 
     function isOfficeAdminOrOwner(officeId) {
-      // Ensure the user is a member before checking role to prevent errors on non-existent docs
       if (!isOfficeMember(officeId)) {
         return false;
       }
-      let role = get(/databases/$(database)/documents/offices/$(officeId)/members/$(request.auth.uid)).data.role;
-      return role == 'Admin' || role == 'Owner';
+      let userRole = get(/databases/$(database)/documents/offices/$(officeId)/members/$(request.auth.uid)).data.role;
+      return userRole == 'Admin' || userRole == 'Owner';
     }
 
     function isOfficeOwner(officeId) {
        return request.auth.uid != null &&
               get(/databases/$(database)/documents/offices/$(officeId)).data.ownerId == request.auth.uid;
     }
-    
-    // --- Top Level Collections for Users ---
+
+    // --- Top Level User Collections ---
     match /userProfiles/{userId} {
       allow read, update, delete: if request.auth.uid == userId;
       allow create: if request.auth.uid != null;
     }
 
-    match /users/{userId}/{collection}/{docId} {
-      // Allow users to manage their own subcollections (notifications, goals)
-      allow read, write, delete: if request.auth.uid == userId;
+    match /users/{userId}/{subcollection}/{docId} {
+      // User can manage their own notifications and goals.
+      allow read, write: if request.auth.uid == userId && (subcollection == 'notifications' || subcollection == 'goals');
 
-      // Allow an office admin/owner to add a user to an office
-      allow create: if collection == 'memberOfOffices' && isOfficeAdminOrOwner(docId);
-      
-      // Allow a user to remove their own office membership (leave office)
-      allow delete: if collection == 'memberOfOffices' && request.auth.uid == userId;
+      // Rules for the 'memberOfOffices' subcollection.
+      // User can read their own list of office memberships.
+      allow read: if request.auth.uid == userId && subcollection == 'memberOfOffices';
+      // An admin/owner of an office can add a user to it.
+      allow create: if subcollection == 'memberOfOffices' && isOfficeAdminOrOwner(docId);
+      // A user can remove themselves from an office (leave).
+      allow delete: if subcollection == 'memberOfOffices' && request.auth.uid == userId;
     }
 
-    // --- Top Level Collection for Chat ---
+    // --- Top Level Chat Collection ---
     match /chatThreads/{threadId} {
-      function isParticipant() {
-          // Check the existing document data to see if the user is a participant
-          return get(/databases/$(database)/documents/chatThreads/$(threadId)).data.participantIds.hasAny([request.auth.uid]);
-      }
-      
-      // Allow read/update only if user is a participant
-      allow get, update: if isParticipant();
-      allow list: if request.auth.uid != null; // Client query filters for user's threads
+      // User must be a participant to read, update or delete a thread.
+      allow get, update, delete: if request.auth.uid in get(/databases/$(database)/documents/chatThreads/$(threadId)).data.participantIds;
+      // Allow authenticated users to query for threads (client must filter).
+      allow list: if request.auth.uid != null;
+      // Allow user to create a thread if they are a participant.
       allow create: if request.auth.uid in request.resource.data.participantIds;
-      
+
       match /messages/{messageId} {
-        // Allow read/create if user is a participant of the parent thread
-        allow read, create: if isParticipant() && request.resource.data.senderId == request.auth.uid;
-        allow update, delete: if false; // Messages are immutable
+        // Allow read/create messages only if user is a participant in the parent thread.
+        allow read, create: if get(/databases/$(database)/documents/chatThreads/$(threadId)).data.participantIds.hasAny([request.auth.uid]);
+        // Messages are immutable.
+        allow update, delete: if false;
       }
     }
-    
-    // --- Offices and Subcollections ---
+
+    // --- Top Level Offices Collection ---
     match /offices/{officeId} {
       allow list: if request.auth.uid != null;
       allow get: if isOfficeMember(officeId);
       allow create: if request.auth.uid != null;
       allow update: if isOfficeAdminOrOwner(officeId);
       allow delete: if isOfficeOwner(officeId);
-      
+
+      // Subcollections of an Office
       match /members/{memberUserId} {
         allow read, list: if isOfficeMember(officeId);
         allow create, update: if isOfficeAdminOrOwner(officeId);
-        // Admin/owner can remove others. Members can remove themselves if not the owner.
-        allow delete: if (isOfficeAdminOrOwner(officeId) && request.auth.uid != memberUserId) || 
+        allow delete: if (isOfficeAdminOrOwner(officeId) && request.auth.uid != memberUserId) ||
                          (request.auth.uid == memberUserId && !isOfficeOwner(officeId));
       }
 
@@ -79,18 +79,22 @@ service cloud.firestore {
         allow read, list: if isOfficeMember(officeId);
         allow create, update, delete: if isOfficeAdminOrOwner(officeId);
       }
-      
+
       match /activityLog/{activityId} {
         allow read, list: if isOfficeMember(officeId);
         allow write: if false; // Server-only writes
       }
 
       match /tasks/{taskId} {
-        allow read, list, write: if isOfficeMember(officeId);
+        // Query requires an index, but rule allows any office member to list.
+        // Client-side query must enforce creator/assignee visibility.
+        allow read, list, create, update, delete: if isOfficeMember(officeId);
       }
-      
+
       match /meetings/{meetingId} {
-        allow read, list, write: if isOfficeMember(officeId);
+        // Query requires an index, but rule allows any office member to list.
+        // Client-side query must enforce creator/participant visibility.
+        allow read, list, create, update, delete: if isOfficeMember(officeId);
       }
 
       match /generalMessages/{messageId} {
@@ -100,7 +104,6 @@ service cloud.firestore {
 
       match /joinRequests/{requestId} {
         allow create: if request.auth.uid != null;
-        // Admins and owners can manage join requests
         allow read, list, update, delete: if isOfficeAdminOrOwner(officeId);
       }
     }
