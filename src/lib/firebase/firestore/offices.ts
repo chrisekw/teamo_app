@@ -286,11 +286,12 @@ export async function addMemberByEmail(
 
   const batch = writeBatch(db);
 
-  const newMemberData: Omit<OfficeMember, 'userId' | 'joinedAt'> = {
+  const newMemberData: Omit<OfficeMember, 'userId' | 'joinedAt'> & { avatarUrl?: string } = {
     name: userToAdd.displayName,
     role: 'Member',
     avatarUrl: userToAdd.avatarUrl
   };
+  if(newMemberData.avatarUrl === undefined) delete newMemberData.avatarUrl; // Don't save undefined
   batch.set(memberRef, { ...newMemberData, joinedAt: serverTimestamp() });
   
   const userOfficeRef = doc(userOfficesCol(userToAdd.id), officeId);
@@ -341,8 +342,6 @@ export async function requestToJoinOfficeByCode(
   const officeDoc = officeSnapshot.docs[0];
   const officeId = officeDoc.id;
   const officeData = officeDoc.data();
-
-  // Per user request, do not check for existing membership. Just send the request.
 
   const joinRequestData: Omit<OfficeJoinRequest, 'id' | 'requestedAt'> = {
     officeId: officeId,

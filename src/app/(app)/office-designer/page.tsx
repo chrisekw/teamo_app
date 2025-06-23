@@ -165,7 +165,10 @@ export default function OfficeDesignerPage() {
       unsubRooms = onRoomsUpdate(officeId, (rooms) => setActiveOfficeRooms(rooms));
       unsubMembers = onMembersUpdate(officeId, (members) => setActiveOfficeMembers(members));
       
-      if (activeOffice.ownerId === user.uid) {
+      const userRole = activeOfficeMembers.find(m => m.userId === user.uid)?.role;
+      const isAdminOrOwner = userRole === 'Admin' || userRole === 'Owner' || activeOffice.ownerId === user.uid;
+
+      if (isAdminOrOwner) {
         unsubRequests = onPendingJoinRequestsUpdate(officeId, (requests) => {
             setPendingJoinRequests(requests);
             setIsLoadingDetails(false);
@@ -186,7 +189,7 @@ export default function OfficeDesignerPage() {
       unsubMembers();
       unsubRequests();
     };
-  }, [activeOffice, user]);
+  }, [activeOffice, user, activeOfficeMembers]); // Add activeOfficeMembers dependency
 
 
   const handleSetActiveOffice = (office: Office) => {
@@ -439,7 +442,9 @@ export default function OfficeDesignerPage() {
     return <div className="container mx-auto p-8 text-center"><Loader2 className="h-12 w-12 animate-spin text-primary"/></div>;
   }
   
-  const currentUserIsOwner = activeOffice?.ownerId === user?.uid;
+  const currentUserRole = activeOfficeMembers.find(m => m.userId === user?.uid)?.role;
+  const canManageOffice = currentUserRole === 'Owner' || currentUserRole === 'Admin';
+
 
   const PageHeader = () => (
     <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-8 gap-4">
@@ -543,7 +548,7 @@ export default function OfficeDesignerPage() {
                             </div>
                         </div>
                     </div>
-                     {currentUserIsOwner && activeOffice.invitationCode && (
+                     {canManageOffice && activeOffice.invitationCode && (
                         <div className="mt-4 pt-4 border-t border-border flex items-center text-sm text-muted-foreground">
                             <span>Invite Code: <strong className="text-foreground">{activeOffice.invitationCode}</strong></span>
                             <Button variant="ghost" size="sm" onClick={copyInviteCode} className="ml-2 px-1 py-0 h-auto">
@@ -557,7 +562,7 @@ export default function OfficeDesignerPage() {
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mt-8">
                 <section className="lg:col-span-2 space-y-8">
-                    {currentUserIsOwner && pendingJoinRequests.length > 0 && (
+                    {canManageOffice && pendingJoinRequests.length > 0 && (
                     <div>
                         <h3 className="text-2xl font-headline font-semibold mb-4">Join Requests ({pendingJoinRequests.length})</h3>
                         <Card className="shadow-md bg-card/80 backdrop-blur-sm">
@@ -585,14 +590,14 @@ export default function OfficeDesignerPage() {
                     <div>
                     <div className="flex justify-between items-center mb-4">
                         <h3 className="text-2xl font-headline font-semibold">Office Rooms ({activeOfficeRooms.length})</h3>
-                        {currentUserIsOwner && ( <Button onClick={() => {resetAddRoomForm(); setIsAddRoomDialogOpen(true);}} disabled={isSubmitting} variant="outline" size="sm"><PlusCircle className="mr-2 h-4 w-4" /> Add Room</Button>)}
+                        {canManageOffice && ( <Button onClick={() => {resetAddRoomForm(); setIsAddRoomDialogOpen(true);}} disabled={isSubmitting} variant="outline" size="sm"><PlusCircle className="mr-2 h-4 w-4" /> Add Room</Button>)}
                     </div>
                     {activeOfficeRooms.length === 0 ? (
                         <Card className="shadow-sm">
                         <CardContent className="text-center py-12 bg-muted/20 rounded-lg">
                             <Image src="https://placehold.co/300x200.png" alt="Empty office rooms" width={200} height={150} className="mx-auto mb-4 rounded-md" data-ai-hint="office blueprint plan" />
                             <p className="text-lg text-muted-foreground">This office has no rooms yet.</p>
-                            {currentUserIsOwner && <p className="text-sm text-muted-foreground">Click "Add Room" to design your virtual space.</p>}
+                            {canManageOffice && <p className="text-sm text-muted-foreground">Click "Add Room" to design your virtual space.</p>}
                         </CardContent>
                         </Card>
                     ) : (
@@ -604,7 +609,7 @@ export default function OfficeDesignerPage() {
                                 <CardHeader>
                                 <div className="flex justify-between items-start">
                                     <div className="flex-1"><CardTitle className="font-headline flex items-center text-lg"><RoomIconComponent className="mr-2 h-5 w-5 text-primary" />{room.name}</CardTitle><CardDescription>{room.type}</CardDescription></div>
-                                    {currentUserIsOwner && (<Button variant="ghost" size="icon" onClick={() => setDeletingRoom(room)} aria-label="Delete room" disabled={isSubmitting} className="h-8 w-8"><Trash2 className="h-4 w-4 text-destructive" /></Button>)}
+                                    {canManageOffice && (<Button variant="ghost" size="icon" onClick={() => setDeletingRoom(room)} aria-label="Delete room" disabled={isSubmitting} className="h-8 w-8"><Trash2 className="h-4 w-4 text-destructive" /></Button>)}
                                 </div>
                                 </CardHeader>
                                 <CardContent className="flex-grow"><div className="aspect-video bg-muted rounded-md overflow-hidden relative"><Image src={room.coverImageUrl || `https://placehold.co/400x225.png?text=${encodeURIComponent(room.name)}`} alt={room.name} layout="fill" objectFit="cover" data-ai-hint={room.coverImageUrl && !room.coverImageUrl.startsWith('https://placehold.co') ? roomTypeDetails[room.type]?.imageHint || "office room interior" : "default room image"}/></div></CardContent>
@@ -628,14 +633,13 @@ export default function OfficeDesignerPage() {
                         <CardHeader>
                             <div className="flex justify-between items-center">
                                 <CardTitle className="font-headline flex items-center text-xl"><Users className="mr-2 h-5 w-5"/>Team Members ({activeOfficeMembers.length})</CardTitle>
-                                {currentUserIsOwner && (<Button variant="outline" size="sm" onClick={() => setIsAddMemberDialogOpen(true)} disabled={isSubmitting}><UserPlus className="mr-1 h-4 w-4"/>Add</Button>)}
+                                {canManageOffice && (<Button variant="outline" size="sm" onClick={() => setIsAddMemberDialogOpen(true)} disabled={isSubmitting}><UserPlus className="mr-1 h-4 w-4"/>Add</Button>)}
                             </div>
                             <CardDescription>Manage roles and access for office members.</CardDescription>
                         </CardHeader>
                         <CardContent className="space-y-3 max-h-96 overflow-y-auto pr-1">
                         {activeOfficeMembers.map((member) => {
                             const RoleIcon = roleIcons[member.role] || UserIconLucide;
-                            const canManageMember = currentUserIsOwner; 
                             return (
                             <div key={member.userId} className="flex items-center space-x-3 p-2.5 rounded-md hover:bg-muted/50 transition-colors">
                                 <Avatar className="h-10 w-10"><AvatarImage src={member.avatarUrl || ''} alt={member.name} data-ai-hint="person avatar"/><AvatarFallback>{member.name.substring(0,2)}</AvatarFallback></Avatar>
@@ -646,7 +650,7 @@ export default function OfficeDesignerPage() {
                                         {member.workRole && <Badge variant="outline" className="text-xs bg-accent/20 border-accent/50">{member.workRole}</Badge>}
                                     </div>
                                 </div>
-                                {canManageMember && (<DropdownMenu><DropdownMenuTrigger asChild><Button variant="ghost" size="icon" className="h-8 w-8" disabled={isSubmitting}><MoreHorizontal className="h-4 w-4" /></Button></DropdownMenuTrigger><DropdownMenuContent align="end">
+                                {canManageOffice && (<DropdownMenu><DropdownMenuTrigger asChild><Button variant="ghost" size="icon" className="h-8 w-8" disabled={isSubmitting}><MoreHorizontal className="h-4 w-4" /></Button></DropdownMenuTrigger><DropdownMenuContent align="end">
                                     <DropdownMenuItem onClick={() => handleOpenManageMemberDialog(member)} disabled={isSubmitting}><Edit className="mr-2 h-4 w-4" /> Manage Member</DropdownMenuItem>
                                     {member.role !== "Owner" && (<DropdownMenuItem onClick={() => setDeletingMember(member)} className="text-destructive focus:bg-destructive/10 focus:text-destructive" disabled={isSubmitting}><Trash2 className="mr-2 h-4 w-4" /> Remove Member</DropdownMenuItem>)}
                                 </DropdownMenuContent></DropdownMenu>)}

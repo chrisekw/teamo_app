@@ -4,7 +4,7 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Helper functions to reuse logic
+    // Helper functions for security rules
     function isOfficeMember(officeId) {
       return get(/databases/$(database)/documents/offices/$(officeId)/members/$(request.auth.uid)).exists;
     }
@@ -14,80 +14,88 @@ service cloud.firestore {
       return userRole == 'Admin' || userRole == 'Owner';
     }
 
-    // User-specific data
+    // User profiles can be created by any authenticated user, but only managed by themselves.
     match /userProfiles/{userId} {
       allow read, update, delete: if request.auth.uid == userId;
       allow create: if request.auth.uid != null;
     }
 
+    // Users can manage their own subcollections (notifications, etc.)
+    // Admins/Owners are granted specific permissions to write 'memberOfOffices' docs for others.
     match /users/{userId}/{collection}/{docId} {
-      // Allow a user to manage their own subcollections (like goals, notifications)
       allow read, write, delete: if request.auth.uid == userId;
 
-      // FIX: This rule allows an office admin/owner to CREATE a 'memberOfOffices'
-      // document in another user's profile when they approve a request or add a member.
+      // FIX: This rule allows an office owner or admin to CREATE a 'memberOfOffices'
+      // document when they approve a request or add a member directly.
       // `docId` here will be the `officeId`.
       allow create: if collection == 'memberOfOffices' && isOfficeAdminOrOwner(docId);
     }
-
-    // Office data and subcollections
+    
+    // Rules for the 'offices' collection and its subcollections
     match /offices/{officeId} {
-      // Allow authenticated users to query offices (needed for "join by code")
+      // Allow any authenticated user to QUERY for offices (e.g., by invite code).
+      // For apps with many offices, a Cloud Function would be more secure.
       allow list: if request.auth.uid != null;
       
-      // Allow members to get their specific office details directly.
+      // Allow members to GET their specific office details.
       allow get: if isOfficeMember(officeId);
       
+      // Allow any authenticated user to create an office.
       allow create: if request.auth.uid != null;
       
-      // Only the owner can update or delete the office document itself.
-      allow update, delete: if get(/databases/$(database)/documents/offices/$(officeId)).data.ownerId == request.auth.uid;
-
+      // Only the office owner can update or delete their office.
+      allow update: if get(/databases/$(database)/documents/offices/$(officeId)).data.ownerId == request.auth.uid;
+      allow delete: if resource.data.ownerId == request.auth.uid;
+      
+      // Office member management
       match /members/{memberUserId} {
         allow read: if isOfficeMember(officeId);
         allow create, delete: if isOfficeAdminOrOwner(officeId);
-        // Allow users to update their own work role, but only admins can change system roles.
+        // Admins/Owners can change roles; users can update their own profile info but not their role.
         allow update: if isOfficeAdminOrOwner(officeId) || 
                        (request.auth.uid == memberUserId && !('role' in request.resource.data));
       }
 
+      // Office room management
       match /rooms/{roomId} {
         allow read: if isOfficeMember(officeId);
         allow create, update, delete: if isOfficeAdminOrOwner(officeId);
       }
       
+      // Activity logs can be read by members, but created by any authenticated member (server-side validates).
       match /activityLog/{activityId} {
         allow read: if isOfficeMember(officeId);
-        // Rely on server-side validation for creation.
         allow create: if request.auth.uid != null;
       }
 
+      // Tasks can be managed by any member of the office.
       match /tasks/{taskId} {
         allow read, write: if isOfficeMember(officeId);
       }
       
+      // Meetings can be managed by any member of the office.
       match /meetings/{meetingId} {
         allow read, write: if isOfficeMember(officeId);
       }
 
+      // General office chat messages can be read/written by members.
       match /generalMessages/{messageId} {
         allow read, write: if isOfficeMember(officeId);
       }
 
+      // Join requests can be created by anyone, but only managed by admins/owners.
       match /joinRequests/{requestId} {
-        // Any authenticated user can create a request.
         allow create: if request.auth.uid != null;
-        // Only the owner can read or process requests.
-        allow read, update, delete: if get(/databases/$(database)/documents/offices/$(officeId)).data.ownerId == request.auth.uid;
+        allow read, update, delete: if isOfficeAdminOrOwner(officeId);
       }
     }
     
-    // Direct Message (DM) chat threads
+    // Direct message threads are private to participants.
     match /chatThreads/{threadId} {
       allow read, write: if request.auth.uid in resource.data.participantIds;
       
       match /messages/{messageId} {
-        allow read, write: if get(/databases/$(database)/documents/chatThreads/$(threadId)).data.participantIds;
+        allow read, write: if request.auth.uid in get(/databases/$(database)/documents/chatThreads/$(threadId)).data.participantIds;
       }
     }
   }
