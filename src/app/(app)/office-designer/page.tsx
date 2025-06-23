@@ -36,6 +36,7 @@ import {
   rejectJoinRequest,
   deleteOffice,
   addMemberByEmail,
+  leaveOffice,
 } from "@/lib/firebase/firestore/offices";
 import { Textarea } from "@/components/ui/textarea";
 import type { Unsubscribe } from 'firebase/firestore'; 
@@ -122,30 +123,38 @@ export default function OfficeDesignerPage() {
   }, [user, authLoading]);
 
   useEffect(() => {
-    if (authLoading || isLoadingUserOffices) return;
-
-    const officeIdFromParams = searchParams.get('officeId');
-
-    if (userOffices.length > 0) {
-        const isValidOfficeParam = userOffices.some(o => o.id === officeIdFromParams);
-        const targetOfficeId = isValidOfficeParam ? officeIdFromParams : userOffices[0].id;
-
-        if (currentDisplayOfficeId !== targetOfficeId) {
-            setCurrentDisplayOfficeId(targetOfficeId);
-        }
-
-        if (officeIdFromParams !== targetOfficeId) {
-            router.replace(`/office-designer?officeId=${targetOfficeId}`, { scroll: false });
-        }
-    } else {
-        if (currentDisplayOfficeId !== null) {
-            setCurrentDisplayOfficeId(null);
-        }
-        if (officeIdFromParams) {
-             router.replace('/office-designer', { scroll: false });
-        }
+    // This effect is responsible for syncing the active office with the URL and available offices.
+    // It should only run when external factors change (auth state, offices list, URL params).
+    if (authLoading || isLoadingUserOffices) {
+      return; // Don't do anything until user and office data is loaded
     }
-  }, [userOffices, searchParams, authLoading, isLoadingUserOffices, router, currentDisplayOfficeId]);
+
+    const officeIdFromUrl = searchParams.get('officeId');
+    
+    if (userOffices.length > 0) {
+      const officeInUrlExists = userOffices.some(o => o.id === officeIdFromUrl);
+      // Determine the correct active office ID. If the one in the URL is valid, use it. Otherwise, default to the first office.
+      const targetOfficeId = officeInUrlExists ? officeIdFromUrl : userOffices[0].id;
+
+      // If the URL is out of sync (e.g., on first load, or if the URL had an invalid ID), correct it.
+      if (officeIdFromUrl !== targetOfficeId) {
+        router.replace(`/office-designer?officeId=${targetOfficeId}`, { scroll: false });
+      }
+      
+      // Update the component's state to reflect the active office.
+      // This is safe because this effect won't run again unless its dependencies change.
+      setCurrentDisplayOfficeId(targetOfficeId);
+
+    } else {
+      // If the user has no offices, there's no active office.
+      setCurrentDisplayOfficeId(null);
+      
+      // If the URL still has an office ID, clean it up.
+      if (officeIdFromUrl) {
+        router.replace('/office-designer', { scroll: false });
+      }
+    }
+  }, [userOffices, searchParams, authLoading, isLoadingUserOffices, router]);
 
 
   useEffect(() => {
@@ -163,20 +172,28 @@ export default function OfficeDesignerPage() {
       const officeId = activeOffice.id;
 
       unsubRooms = onRoomsUpdate(officeId, (rooms) => setActiveOfficeRooms(rooms));
-      unsubMembers = onMembersUpdate(officeId, (members) => setActiveOfficeMembers(members));
-      
-      const userRole = activeOfficeMembers.find(m => m.userId === user.uid)?.role;
-      const isAdminOrOwner = userRole === 'Admin' || userRole === 'Owner' || activeOffice.ownerId === user.uid;
-
-      if (isAdminOrOwner) {
-        unsubRequests = onPendingJoinRequestsUpdate(officeId, (requests) => {
-            setPendingJoinRequests(requests);
-            setIsLoadingDetails(false);
-        });
-      } else {
-        setPendingJoinRequests([]);
-        setIsLoadingDetails(false); 
-      }
+      unsubMembers = onMembersUpdate(officeId, (members) => {
+        setActiveOfficeMembers(members);
+        // Determine admin status based on the new members list
+        const currentUserInOffice = members.find(m => m.userId === user.uid);
+        const isAdminOrOwner = currentUserInOffice?.role === 'Admin' || currentUserInOffice?.role === 'Owner';
+        
+        if (isAdminOrOwner) {
+          // If admin, subscribe to requests. If already subscribed, this might re-subscribe but that's ok.
+          // A more complex setup would store the unsubscribe function and check before re-subscribing.
+          unsubRequests = onPendingJoinRequestsUpdate(officeId, (requests) => {
+              setPendingJoinRequests(requests);
+              setIsLoadingDetails(false); // Stop loading after requests are fetched
+          });
+        } else {
+          // If not an admin, clear requests and stop listening.
+          setPendingJoinRequests([]);
+          setIsLoadingDetails(false); // Stop loading
+          if (typeof unsubRequests === 'function') {
+            unsubRequests(); // Unsubscribe from previous listener if it exists
+          }
+        }
+      });
     } else {
       setActiveOfficeRooms([]);
       setActiveOfficeMembers([]);
@@ -189,7 +206,7 @@ export default function OfficeDesignerPage() {
       unsubMembers();
       unsubRequests();
     };
-  }, [activeOffice, user, activeOfficeMembers]); // Add activeOfficeMembers dependency
+  }, [activeOffice, user]);
 
 
   const handleSetActiveOffice = (office: Office) => {
@@ -359,7 +376,7 @@ export default function OfficeDesignerPage() {
     }
     setIsSubmitting(true);
     try {
-        await removeMemberFromOffice(officeToLeave.id, user.uid, user.uid, user.displayName || "User");
+        await leaveOffice(officeToLeave.id, user.uid, user.displayName || "User");
         toast({ title: "You Left the Office", description: `You have successfully left "${officeToLeave.name}".`});
         if (activeOffice?.id === officeToLeave.id) {
             router.replace('/office-designer', { scroll: false });

@@ -94,7 +94,7 @@ const officeMemberConverter: FirestoreDataConverter<OfficeMember, OfficeMemberFi
         data.workRole = memberInput.workRole === null || memberInput.workRole === '' ? deleteField() : memberInput.workRole;
     }
     if (memberInput.hasOwnProperty('avatarUrl')) {
-        data.avatarUrl = memberInput.avatarUrl === null || memberInput.avatarUrl === '' ? deleteField() : memberInput.avatarUrl;
+        data.avatarUrl = memberInput.avatarUrl === null || memberInput.avatarUrl === undefined ? deleteField() : memberInput.avatarUrl;
     }
 
     if (memberInput.joinedAt instanceof Date) {
@@ -749,6 +749,34 @@ export async function updateMemberDetailsInOffice(
   }
 }
 
+export async function leaveOffice(
+  officeId: string,
+  memberUserId: string,
+  actorName: string
+): Promise<void> {
+  const officeDocSnap = await getDoc(officeDocRef(officeId));
+  if (officeDocSnap.exists() && officeDocSnap.data().ownerId === memberUserId) {
+    throw new Error("Office owners cannot leave their own office. Please transfer ownership or delete the office.");
+  }
+
+  const batch = writeBatch(db);
+  batch.delete(memberDocRef(officeId, memberUserId));
+  const userOfficeMemberRef = doc(userOfficesCol(memberUserId), officeId);
+  batch.delete(userOfficeMemberRef);
+  await batch.commit();
+
+  addActivityLog(officeId, {
+    type: "member-removed", // Can be interpreted as "left"
+    title: `Member Left: ${actorName}`,
+    description: `${actorName} left the office.`,
+    iconName: "LogOut",
+    actorId: memberUserId,
+    actorName: actorName,
+    entityId: memberUserId,
+    entityType: "member",
+  });
+}
+
 export async function removeMemberFromOffice(
   officeId: string,
   memberUserId: string,
@@ -775,7 +803,7 @@ export async function removeMemberFromOffice(
     addActivityLog(officeId, {
       type: "member-removed",
       title: `Member Removed: ${memberName}`,
-      description: `${memberName} was removed from the office by ${actorName}`,
+      description: `${memberName} was removed from the office by ${actorName}.`,
       iconName: "UserX", 
       actorId: actorId,
       actorName: actorName,
