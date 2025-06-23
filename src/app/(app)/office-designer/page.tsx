@@ -10,7 +10,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { PlusCircle, Trash2, Users, Briefcase, Coffee, Zap, Building, KeyRound, UserPlus, Copy, Settings2, ShieldCheck, UserCircle as UserIconLucide, Loader2, Edit, Info, Image as ImageIconLucide, MoreHorizontal, ExternalLink, UserCheck, UserX, CheckSquare, XSquare, Video, Tag, Layers, ImageUp, Award, LogOut, ChevronsUpDown, Mail } from "lucide-react";
+import { PlusCircle, Trash2, Users, Briefcase, Coffee, Zap, Building, KeyRound, UserPlus, Copy, Settings2, ShieldCheck, UserCircle as UserIconLucide, Loader2, Edit, Info, Image as ImageIconLucide, MoreHorizontal, ExternalLink, UserCheck, UserX, CheckSquare, XSquare, Video, Tag, Layers, ImageUp, Award, LogOut } from "lucide-react";
 import Image from "next/image";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -71,7 +71,6 @@ export default function OfficeDesignerPage() {
   const [officeToDelete, setOfficeToDelete] = useState<Office | null>(null);
   const [officeToLeave, setOfficeToLeave] = useState<Office | null>(null);
 
-
   const [isLoadingUserOffices, setIsLoadingUserOffices] = useState(true);
   const [isLoadingDetails, setIsLoadingDetails] = useState(false); 
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -106,8 +105,7 @@ export default function OfficeDesignerPage() {
   const [selectedWorkRole, setSelectedWorkRole] = useState<string>("");
   const [processingRequestId, setProcessingRequestId] = useState<string | null>(null);
 
-  const [currentDisplayOfficeId, setCurrentDisplayOfficeId] = useState<string | null>(null);
-
+  // Fetch all offices the user is a member of
   useEffect(() => {
     if (user && !authLoading) {
       setIsLoadingUserOffices(true);
@@ -122,40 +120,29 @@ export default function OfficeDesignerPage() {
     }
   }, [user, authLoading]);
 
-  // FIX: This effect is responsible for syncing the active office with the URL and available offices.
-  // It is rewritten to avoid causing an infinite re-render loop.
+  // Set the active office based on URL or default to the first office
   useEffect(() => {
-    if (authLoading || isLoadingUserOffices) {
-      return; 
-    }
-
+    if (isLoadingUserOffices || userOffices.length === 0) {
+        if (!isLoadingUserOffices) setActiveOffice(null);
+        return;
+    };
+    
     const officeIdFromUrl = searchParams.get('officeId');
-    let targetOfficeId: string | null = null;
+    const officeFromUrl = userOffices.find(o => o.id === officeIdFromUrl);
+
+    const newActiveOffice = officeFromUrl || userOffices[0];
     
-    if (userOffices.length > 0) {
-      const officeInUrlExists = userOffices.some(o => o.id === officeIdFromUrl);
-      targetOfficeId = officeInUrlExists ? officeIdFromUrl : userOffices[0].id;
-    }
-    
-    if (currentDisplayOfficeId !== targetOfficeId) {
-      setCurrentDisplayOfficeId(targetOfficeId);
+    if (newActiveOffice.id !== activeOffice?.id) {
+        setActiveOffice(newActiveOffice);
     }
 
-    if (officeIdFromUrl !== targetOfficeId) {
-      if (targetOfficeId) {
-        router.replace(`/office-designer?officeId=${targetOfficeId}`, { scroll: false });
-      } else {
-        router.replace('/office-designer', { scroll: false });
-      }
+    if (officeIdFromUrl !== newActiveOffice.id) {
+        router.replace(`/office-designer?officeId=${newActiveOffice.id}`, { scroll: false });
     }
-  }, [userOffices, searchParams, authLoading, isLoadingUserOffices, router]);
+  }, [userOffices, searchParams, isLoadingUserOffices, router, activeOffice?.id]);
 
 
-  useEffect(() => {
-    const officeToSetActive = userOffices.find(o => o.id === currentDisplayOfficeId) || null;
-    setActiveOffice(officeToSetActive);
-  }, [currentDisplayOfficeId, userOffices]);
-
+  // Fetch details (rooms, members, requests) when the active office changes
   useEffect(() => {
     let unsubRooms: Unsubscribe = () => {};
     let unsubMembers: Unsubscribe = () => {};
@@ -199,9 +186,9 @@ export default function OfficeDesignerPage() {
   }, [activeOffice, user]);
 
 
-  const handleSetActiveOffice = (office: Office) => {
-    if (office.id !== activeOffice?.id) {
-        router.push(`/office-designer?officeId=${office.id}`, { scroll: false });
+  const handleSetActiveOffice = (officeId: string) => {
+    if (officeId !== activeOffice?.id) {
+        router.push(`/office-designer?officeId=${officeId}`, { scroll: false });
     }
   };
 
@@ -245,7 +232,7 @@ export default function OfficeDesignerPage() {
 
     try {
       const newOffice = await createOffice(user.uid, user.displayName || "User", user.photoURL || undefined, newOfficeName, newOfficeSector || undefined, newOfficeCompanyName || undefined, logoUrlForCreate, bannerUrlForCreate);
-      handleSetActiveOffice(newOffice);
+      handleSetActiveOffice(newOffice.id);
       resetCreateOfficeForm();
       setIsCreateOfficeDialogOpen(false);
       toast({ title: "Office Created!", description: `Your new office "${newOffice.name}" is ready.` });
@@ -401,7 +388,6 @@ export default function OfficeDesignerPage() {
     }
   };
 
-
   const handleDeleteMember = async () => {
     if (!activeOffice || !deletingMember || !user) return;
     if (deletingMember.userId === activeOffice.ownerId) {
@@ -452,9 +438,39 @@ export default function OfficeDesignerPage() {
   const currentUserRole = activeOfficeMembers.find(m => m.userId === user?.uid)?.role;
   const canManageOffice = currentUserRole === 'Owner' || currentUserRole === 'Admin';
 
+  const OfficeSwitcher = () => (
+    <div className="flex flex-col sm:flex-row gap-4 items-center mb-8">
+        <Select value={activeOffice?.id || ''} onValueChange={handleSetActiveOffice} disabled={userOffices.length <= 1}>
+            <SelectTrigger className="w-full sm:w-[280px]">
+                <SelectValue placeholder="Select an office" />
+            </SelectTrigger>
+            <SelectContent>
+                {userOffices.map(office => (
+                     <SelectItem key={office.id} value={office.id}>{office.name}</SelectItem>
+                ))}
+            </SelectContent>
+        </Select>
+        <div className="flex w-full sm:w-auto gap-2">
+            <Button variant="outline" className="flex-1 sm:flex-none" onClick={() => { resetCreateOfficeForm(); setIsCreateOfficeDialogOpen(true);}}>
+                <PlusCircle className="mr-2 h-4 w-4" /> Create Office
+            </Button>
+            <Button variant="outline" className="flex-1 sm:flex-none" onClick={() => setIsJoinOfficeDialogOpen(true)}>
+                <KeyRound className="mr-2 h-4 w-4" /> Join with Code
+            </Button>
+        </div>
+    </div>
+  );
 
-  const PageHeader = () => (
-    <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-8 gap-4">
+  const NoOfficeView = () => (
+    <div className="text-center py-12 bg-muted/20 rounded-lg">
+        <Image src="https://placehold.co/300x200.png" alt="Empty office" width={200} height={150} className="mx-auto mb-4 rounded-md" data-ai-hint="office blueprint plan" />
+        <h2 className="text-xl font-semibold text-foreground mb-2">Welcome to the Office Designer</h2>
+        <p className="text-muted-foreground mb-4">You are not a member of any office yet.</p>
+    </div>
+  );
+
+  return (
+    <div className="container mx-auto p-4 sm:p-6 lg:p-8 space-y-8">
         <div className="flex items-center gap-4">
             <Building className="h-10 w-10 text-primary" />
             <div>
@@ -462,71 +478,11 @@ export default function OfficeDesignerPage() {
                 <p className="text-muted-foreground">Manage, create, or join virtual offices.</p>
             </div>
         </div>
-        <div className="flex w-full sm:w-auto gap-2">
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="outline" className="w-full sm:w-48 justify-between">
-                  {activeOffice ? activeOffice.name : "Select an Office"}
-                  <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent className="w-56">
-                <DropdownMenuLabel>Your Offices</DropdownMenuLabel>
-                <DropdownMenuSeparator />
-                {userOffices.map((office) => (
-                    <DropdownMenuSub key={office.id}>
-                        <DropdownMenuSubTrigger
-                            onClick={() => handleSetActiveOffice(office)}
-                            className={cn(activeOffice?.id === office.id && "bg-accent")}
-                        >
-                          <Briefcase className="mr-2 h-4 w-4" />
-                          <span>{office.name}</span>
-                        </DropdownMenuSubTrigger>
-                        <DropdownMenuPortal>
-                        <DropdownMenuSubContent>
-                             <DropdownMenuItem onClick={() => {
-                                 if(office.ownerId === user?.uid) setOfficeToDelete(office);
-                                 else setOfficeToLeave(office);
-                              }}>
-                                 {office.ownerId === user?.uid ? <Trash2 className="mr-2 h-4 w-4 text-destructive" /> : <LogOut className="mr-2 h-4 w-4 text-destructive" />}
-                                 <span className="text-destructive">{office.ownerId === user?.uid ? "Delete Office" : "Leave Office"}</span>
-                             </DropdownMenuItem>
-                        </DropdownMenuSubContent>
-                        </DropdownMenuPortal>
-                    </DropdownMenuSub>
-                ))}
-                {userOffices.length === 0 && <DropdownMenuItem disabled>No offices found.</DropdownMenuItem>}
-                 <DropdownMenuSeparator />
-                  <DropdownMenuItem onClick={() => { resetCreateOfficeForm(); setIsCreateOfficeDialogOpen(true);}}>
-                    <PlusCircle className="mr-2 h-4 w-4" />
-                    <span>Create New Office</span>
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => setIsJoinOfficeDialogOpen(true)}>
-                    <KeyRound className="mr-2 h-4 w-4" />
-                    <span>Join with Code</span>
-                  </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-        </div>
-    </div>
-  );
-
-
-  const NoOfficeView = () => (
-    <div className="text-center py-12 bg-muted/20 rounded-lg">
-        <Image src="https://placehold.co/300x200.png" alt="Empty office" width={200} height={150} className="mx-auto mb-4 rounded-md" data-ai-hint="office blueprint plan" />
-        <h2 className="text-xl font-semibold text-foreground mb-2">Welcome to the Office Designer</h2>
-        <p className="text-muted-foreground mb-4">Select an office from the dropdown, or create/join a new one to get started.</p>
-    </div>
-  );
-
-  return (
-    <div className="container mx-auto p-4 sm:p-6 lg:p-8 space-y-8">
-        <PageHeader />
+        
+        <OfficeSwitcher />
         <Separator/>
 
         {!activeOffice && !isLoadingDetails && <NoOfficeView />}
-
         {isLoadingDetails && <div className="text-center my-8"><Loader2 className="h-10 w-10 animate-spin text-primary"/></div>}
 
         {activeOffice && !isLoadingDetails && (
@@ -540,6 +496,22 @@ export default function OfficeDesignerPage() {
                         data-ai-hint={activeOffice.bannerUrl && !activeOffice.bannerUrl.startsWith('https://placehold.co') ? "office banner" : "default office banner"}
                         priority
                     />
+                     <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="secondary" size="icon" className="absolute top-2 right-2 h-8 w-8">
+                          <MoreHorizontal className="h-4 w-4"/>
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                         <DropdownMenuItem onClick={() => {
+                            if(activeOffice.ownerId === user?.uid) setOfficeToDelete(activeOffice);
+                            else setOfficeToLeave(activeOffice);
+                         }}>
+                            {activeOffice.ownerId === user?.uid ? <Trash2 className="mr-2 h-4 w-4 text-destructive" /> : <LogOut className="mr-2 h-4 w-4 text-destructive" />}
+                            <span className="text-destructive">{activeOffice.ownerId === user?.uid ? "Delete Office" : "Leave Office"}</span>
+                         </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                 </div>
                 <CardContent className="p-4 sm:p-6">
                     <div className="flex flex-col sm:flex-row items-start sm:items-center -mt-16 sm:-mt-20">
@@ -753,3 +725,4 @@ export default function OfficeDesignerPage() {
     </div>
   );
 }
+

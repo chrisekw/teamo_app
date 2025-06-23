@@ -85,8 +85,6 @@ export default function MeetingsPage() {
   const [currentOfficeMembers, setCurrentOfficeMembers] = useState<OfficeMember[]>([]);
   const [isLoadingOfficeData, setIsLoadingOfficeData] = useState(true);
 
-
-  // Form state for new meeting
   const [newMeetingTitle, setNewMeetingTitle] = useState("");
   const [newMeetingDescription, setNewMeetingDescription] = useState("");
   const [newMeetingStartDate, setNewMeetingStartDate] = useState<Date | undefined>(new Date());
@@ -95,40 +93,59 @@ export default function MeetingsPage() {
   const [newMeetingIsRecurring, setNewMeetingIsRecurring] = useState(false);
   const [newMeetingParticipantIds, setNewMeetingParticipantIds] = useState<string[]>([]);
 
-
   const [selectedMeeting, setSelectedMeeting] = useState<Meeting | null>(null);
   const [isLoadingMeetingDetails, setIsLoadingMeetingDetails] = useState(false);
 
-  const fetchOfficeData = useCallback(async () => {
-    if (user) {
-      setIsLoadingOfficeData(true);
-      try {
-        const offices = await getOfficesForUser(user.uid);
-        setUserOffices(offices);
-        if (offices.length > 0) {
-          setActiveOffice(offices[0]); 
-          const members = await getMembersForOffice(offices[0].id);
-          setCurrentOfficeMembers(members);
-        } else {
-          setActiveOffice(null);
-          setCurrentOfficeMembers([]);
-        }
-      } catch (error) {
-        console.error("Failed to fetch office data:", error);
-        toast({ variant: "destructive", title: "Error", description: "Could not load office data."});
-      } finally {
-        setIsLoadingOfficeData(false);
-      }
-    }
-  }, [user, toast]);
-
+  // Fetch all offices user is a member of
   useEffect(() => {
-    if (!authLoading && user) {
-      fetchOfficeData();
+    if (user && !authLoading) {
+      setIsLoadingOfficeData(true);
+      getOfficesForUser(user.uid)
+        .then(setUserOffices)
+        .catch(() => toast({ variant: "destructive", title: "Error", description: "Could not load your offices." }))
+        .finally(() => setIsLoadingOfficeData(false));
     }
-  }, [authLoading, user, fetchOfficeData]);
+  }, [user, authLoading, toast]);
+
+  // Set active office from URL or default to first office
+  useEffect(() => {
+    if (isLoadingOfficeData || userOffices.length === 0) {
+      if (!isLoadingOfficeData) setActiveOffice(null);
+      return;
+    }
+    const officeIdFromUrl = searchParams.get('officeId');
+    const meetingIdFromUrl = searchParams.get('meetingId');
+    let targetOfficeId = officeIdFromUrl || userOffices[0].id;
+
+    // If there's a meeting in the URL, prioritize its office
+    if (meetingIdFromUrl && selectedMeeting) {
+        targetOfficeId = selectedMeeting.officeId;
+    }
+    
+    const newActiveOffice = userOffices.find(o => o.id === targetOfficeId) || userOffices[0];
+    
+    if (newActiveOffice?.id !== activeOffice?.id) {
+        setActiveOffice(newActiveOffice);
+    }
+
+    if (searchParams.get('officeId') !== newActiveOffice?.id) {
+        router.replace(`${pathname}?officeId=${newActiveOffice.id}${meetingIdFromUrl ? `&meetingId=${meetingIdFromUrl}`: ''}`, { scroll: false });
+    }
+  }, [userOffices, searchParams, isLoadingOfficeData, router, pathname, activeOffice?.id, selectedMeeting]);
 
 
+  // Fetch members for the active office
+  useEffect(() => {
+    if (activeOffice) {
+      getMembersForOffice(activeOffice.id)
+        .then(setCurrentOfficeMembers)
+        .catch(() => toast({ variant: "destructive", title: "Error", description: "Could not load members for the selected office."}));
+    } else {
+      setCurrentOfficeMembers([]);
+    }
+  }, [activeOffice, toast]);
+
+  // Fetch meetings for the active office
   const fetchMeetingsForActiveOffice = useCallback(async () => {
     if (user && activeOffice) {
       setIsLoadingMeetings(true);
@@ -142,28 +159,21 @@ export default function MeetingsPage() {
       } finally {
         setIsLoadingMeetings(false);
       }
-    } else if (!activeOffice) {
+    } else {
         setMeetings([]);
         setIsLoadingMeetings(false);
     }
   }, [user, activeOffice, toast]);
 
   useEffect(() => {
-    if (!authLoading && user && activeOffice) {
-      fetchMeetingsForActiveOffice();
-    } else if (!activeOffice && !isLoadingOfficeData) {
-      setMeetings([]);
-      setIsLoadingMeetings(false);
-    }
-  }, [authLoading, user, activeOffice, fetchMeetingsForActiveOffice, isLoadingOfficeData]);
+    fetchMeetingsForActiveOffice();
+  }, [fetchMeetingsForActiveOffice]);
+
 
   const handleJoinMeetingClick = useCallback((meeting: Meeting) => {
-    if (!activeOffice) {
-        toast({ variant: "destructive", title: "Error", description: "No active office selected." });
-        return;
-    }
-    router.push(`${pathname}?meetingId=${meeting.id}&officeId=${activeOffice.id}`, { scroll: false });
-  }, [activeOffice, router, pathname, toast]);
+    router.push(`${pathname}?officeId=${meeting.officeId}&meetingId=${meeting.id}`, { scroll: false });
+  }, [router, pathname]);
+
 
   useEffect(() => {
     const meetingIdFromUrl = searchParams.get('meetingId');
@@ -177,23 +187,19 @@ export default function MeetingsPage() {
           if (meetingToSelect) {
             const isParticipantOrCreator = meetingToSelect.creatorUserId === user.uid || (meetingToSelect.participantIds && meetingToSelect.participantIds.includes(user.uid));
             if (isParticipantOrCreator) {
-              if (activeOffice?.id !== officeIdFromUrl) {
-                const targetOffice = userOffices.find(o => o.id === officeIdFromUrl);
-                if (targetOffice) setActiveOffice(targetOffice);
-              }
               setSelectedMeeting(meetingToSelect);
             } else {
               toast({ variant: "destructive", title: "Access Denied", description: "You are not a participant in this meeting." });
-              router.replace(pathname, { scroll: false });
+              router.replace(`${pathname}?officeId=${officeIdFromUrl}`, { scroll: false });
             }
           } else {
             toast({ variant: "destructive", title: "Meeting Not Found", description: "The meeting link is invalid or the meeting was deleted." });
-            router.replace(pathname, { scroll: false });
+            router.replace(`${pathname}?officeId=${officeIdFromUrl}`, { scroll: false });
           }
         } catch (error) {
           console.error("Error loading meeting from URL:", error);
           toast({ variant: "destructive", title: "Error", description: "Could not load meeting details from link." });
-          router.replace(pathname, { scroll: false });
+          router.replace(`${pathname}?officeId=${officeIdFromUrl}`, { scroll: false });
         } finally {
           setIsLoadingMeetingDetails(false);
         }
@@ -207,7 +213,7 @@ export default function MeetingsPage() {
     } else {
         setSelectedMeeting(null);
     }
-  }, [searchParams, user, activeOffice?.id, userOffices, router, pathname, toast]);
+  }, [searchParams, user, router, pathname, toast]);
 
 
   useEffect(() => {
@@ -231,7 +237,7 @@ export default function MeetingsPage() {
                 type: "meeting-new",
                 title: `Meeting Starting: ${meeting.title}`,
                 message: `Your meeting "${meeting.title}" in ${activeOffice?.name || 'your office'} is starting now or in the next few minutes. Click to join.`,
-                link: `/meetings?meetingId=${meeting.id}&officeId=${meeting.officeId}`,
+                link: `/meetings?officeId=${meeting.officeId}&meetingId=${meeting.id}`,
                 actorName: "System Reminder",
                 entityId: meeting.id,
                 entityType: "meeting",
@@ -331,7 +337,7 @@ export default function MeetingsPage() {
         fetchMeetingsForActiveOffice();
         if (selectedMeeting?.id === meetingToDelete.id) {
             setSelectedMeeting(null);
-            router.replace(pathname, { scroll: false }); 
+            router.replace(`${pathname}?officeId=${activeOffice.id}`, { scroll: false }); 
         }
     } catch (error) {
         console.error("Failed to delete meeting:", error);
@@ -344,8 +350,9 @@ export default function MeetingsPage() {
 
 
   const handleLeaveMeeting = () => {
+    const officeIdParam = activeOffice?.id ? `?officeId=${activeOffice.id}` : '';
     setSelectedMeeting(null);
-    router.replace(pathname, { scroll: false }); 
+    router.replace(`${pathname}${officeIdParam}`, { scroll: false }); 
   };
   
   const calculateDuration = (start: Date, end: Date): string => {
@@ -364,6 +371,12 @@ export default function MeetingsPage() {
         .filter(Boolean) as string[];
     if (names.length > 2) return `${names.slice(0,2).join(', ')} +${names.length - 2} more`;
     return names.join(', ') || "Select Participants";
+  };
+  
+  const handleOfficeChange = (officeId: string) => {
+    if (officeId && officeId !== activeOffice?.id) {
+        router.push(`${pathname}?officeId=${officeId}`);
+    }
   };
 
   if (authLoading || isLoadingOfficeData) {
@@ -384,9 +397,9 @@ export default function MeetingsPage() {
         />
       ) : (
         <>
-          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-8">
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4">
             <h1 className="text-3xl font-headline font-bold mb-4 sm:mb-0">
-                Video Meetings {activeOffice ? `for ${activeOffice.name}` : ''}
+                Video Meetings
             </h1>
             <Dialog open={isScheduleDialogOpen} onOpenChange={(isOpen) => { if (!isSubmitting) setIsScheduleDialogOpen(isOpen); if(!isOpen) resetScheduleForm();}}>
               <DialogTrigger asChild>
@@ -529,7 +542,19 @@ export default function MeetingsPage() {
               </DialogContent>
             </Dialog>
           </div>
-
+            <div className="mb-6">
+                <Label htmlFor="office-switcher" className="text-sm font-medium text-muted-foreground">Active Office</Label>
+                <Select value={activeOffice?.id || ''} onValueChange={handleOfficeChange} disabled={userOffices.length <= 1}>
+                    <SelectTrigger id="office-switcher" className="w-full sm:w-[280px] mt-1">
+                        <SelectValue placeholder="Select an office" />
+                    </SelectTrigger>
+                    <SelectContent>
+                        {userOffices.map(office => (
+                            <SelectItem key={office.id} value={office.id}>{office.name}</SelectItem>
+                        ))}
+                    </SelectContent>
+                </Select>
+            </div>
           <div className="w-full">
             <h2 className="text-2xl font-headline font-semibold mb-4">
               All Scheduled Meetings
@@ -625,3 +650,4 @@ export default function MeetingsPage() {
     </div>
   );
 }
+

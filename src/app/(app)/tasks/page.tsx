@@ -42,6 +42,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { useSearchParams, useRouter, usePathname } from 'next/navigation';
 
 const DynamicCalendar = dynamic(() => import('@/components/ui/calendar').then(mod => mod.Calendar), {
   ssr: false,
@@ -64,6 +65,9 @@ const priorityColors: Record<Task["priority"], string> = {
 export default function TasksPage() {
   const { user, loading: authLoading } = useAuth();
   const { toast } = useToast();
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
 
   const [tasks, setTasks] = useState<Task[]>([]);
   const [isLoadingTasks, setIsLoadingTasks] = useState(true);
@@ -85,37 +89,49 @@ export default function TasksPage() {
   const [taskPriority, setTaskPriority] = useState<Task["priority"]>("Medium");
   const [taskProgress, setTaskProgress] = useState(0);
 
-
-  const fetchOfficeData = useCallback(async () => {
-    if (user) {
-      setIsLoadingOfficeData(true);
-      try {
-        const offices = await getOfficesForUser(user.uid);
-        setUserOffices(offices);
-        if (offices.length > 0) {
-          const currentActiveOffice = offices[0]; // Default to first office
-          setActiveOffice(currentActiveOffice);
-          const members = await getMembersForOffice(currentActiveOffice.id);
-          setCurrentOfficeMembers(members);
-        } else {
-          setActiveOffice(null);
-          setCurrentOfficeMembers([]);
-        }
-      } catch (error) {
-        console.error("Failed to fetch office data:", error);
-        toast({ variant: "destructive", title: "Error", description: "Could not load office data." });
-      } finally {
-        setIsLoadingOfficeData(false);
-      }
-    }
-  }, [user, toast]);
-
+  // Fetch all offices user is a member of
   useEffect(() => {
-    if (!authLoading && user) {
-      fetchOfficeData();
+    if (user && !authLoading) {
+      setIsLoadingOfficeData(true);
+      getOfficesForUser(user.uid)
+        .then(setUserOffices)
+        .catch(() => toast({ variant: "destructive", title: "Error", description: "Could not load your offices." }))
+        .finally(() => setIsLoadingOfficeData(false));
     }
-  }, [authLoading, user, fetchOfficeData]);
+  }, [user, authLoading, toast]);
 
+  // Set active office from URL or default to first office
+  useEffect(() => {
+    if (isLoadingOfficeData || userOffices.length === 0) {
+      if (!isLoadingOfficeData) setActiveOffice(null);
+      return;
+    }
+    const officeIdFromUrl = searchParams.get('officeId');
+    const officeFromUrl = userOffices.find(o => o.id === officeIdFromUrl);
+    const newActiveOffice = officeFromUrl || userOffices[0];
+    
+    if (newActiveOffice.id !== activeOffice?.id) {
+        setActiveOffice(newActiveOffice);
+    }
+    
+    if (searchParams.get('officeId') !== newActiveOffice.id) {
+        router.replace(`${pathname}?officeId=${newActiveOffice.id}`, { scroll: false });
+    }
+  }, [userOffices, searchParams, isLoadingOfficeData, router, pathname, activeOffice?.id]);
+
+
+  // Fetch members for the active office
+  useEffect(() => {
+    if (activeOffice) {
+      getMembersForOffice(activeOffice.id)
+        .then(setCurrentOfficeMembers)
+        .catch(() => toast({ variant: "destructive", title: "Error", description: "Could not load members for the selected office."}));
+    } else {
+      setCurrentOfficeMembers([]);
+    }
+  }, [activeOffice, toast]);
+
+  // Fetch tasks for the active office
   const fetchTasks = useCallback(async () => {
     if (user && activeOffice) {
       setIsLoadingTasks(true);
@@ -135,13 +151,9 @@ export default function TasksPage() {
   }, [user, activeOffice, toast]);
 
   useEffect(() => {
-    if (!authLoading && user && activeOffice) {
-      fetchTasks();
-    } else if (!activeOffice && !isLoadingOfficeData) { // if no active office and office data loading done
-        setTasks([]);
-        setIsLoadingTasks(false);
-    }
-  }, [authLoading, user, activeOffice, fetchTasks, isLoadingOfficeData]);
+    fetchTasks();
+  }, [fetchTasks]);
+
 
   const resetForm = () => {
     setTaskName("");
@@ -243,6 +255,12 @@ export default function TasksPage() {
     return names.join(', ') || "Select Assignee(s)";
   };
 
+  const handleOfficeChange = (officeId: string) => {
+    if (officeId && officeId !== activeOffice?.id) {
+        router.push(`${pathname}?officeId=${officeId}`);
+    }
+  };
+
   const taskStatuses: Task["status"][] = ["To Do", "In Progress", "Done", "Blocked"];
   const tasksByStatus = taskStatuses.reduce((acc, status) => {
     acc[status] = tasks.filter(task => task.status === status);
@@ -255,13 +273,27 @@ export default function TasksPage() {
 
   return (
     <div className="container mx-auto p-4 sm:p-6 lg:p-8">
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-8">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4">
         <h1 className="text-3xl font-headline font-bold mb-4 sm:mb-0">
-          Task Management {activeOffice ? `for ${activeOffice.name}` : ''}
+          Task Management
         </h1>
         <Button onClick={() => handleOpenDialog()} disabled={isSubmitting || !activeOffice}>
           <PlusCircle className="mr-2 h-4 w-4" /> Create New Task
         </Button>
+      </div>
+
+       <div className="mb-6">
+          <Label htmlFor="office-switcher" className="text-sm font-medium text-muted-foreground">Active Office</Label>
+          <Select value={activeOffice?.id || ''} onValueChange={handleOfficeChange} disabled={userOffices.length <= 1}>
+              <SelectTrigger id="office-switcher" className="w-full sm:w-[280px] mt-1">
+                  <SelectValue placeholder="Select an office" />
+              </SelectTrigger>
+              <SelectContent>
+                  {userOffices.map(office => (
+                      <SelectItem key={office.id} value={office.id}>{office.name}</SelectItem>
+                  ))}
+              </SelectContent>
+          </Select>
       </div>
 
       {!activeOffice && !isLoadingOfficeData && (
@@ -309,12 +341,14 @@ export default function TasksPage() {
                   <Card key={task.id} className="flex flex-col shadow-md hover:shadow-lg transition-shadow duration-300">
                     <CardHeader className="pb-3">
                       <div className="flex justify-between items-start">
-                        <CardTitle className="font-headline text-base leading-tight hover:text-primary transition-colors">
-                           <Link href={`/tasks/${activeOffice.id}/${task.id}`}>{task.name}</Link>
-                        </CardTitle>
+                         <button onClick={() => handleOpenDialog(task)} className="text-left w-full">
+                            <CardTitle className="font-headline text-base leading-tight hover:text-primary transition-colors">
+                               {task.name}
+                            </CardTitle>
+                         </button>
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" size="icon" className="h-7 w-7 -mt-1 -mr-2">
+                            <Button variant="ghost" size="icon" className="h-7 w-7 -mt-1 -mr-2 shrink-0">
                               <ChevronDown className="h-4 w-4" />
                             </Button>
                           </DropdownMenuTrigger>
@@ -499,3 +533,4 @@ export default function TasksPage() {
     </div>
   );
 }
+
