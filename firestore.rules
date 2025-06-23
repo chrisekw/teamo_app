@@ -13,12 +13,10 @@ service cloud.firestore {
              exists(/databases/$(database)/documents/offices/$(officeId)/members/$(request.auth.uid));
     }
 
+    // CORRECTED: This function uses valid rule syntax.
     function isOfficeAdminOrOwner(officeId) {
-      if (!isOfficeMember(officeId)) {
-        return false;
-      }
-      let userRole = get(/databases/$(database)/documents/offices/$(officeId)/members/$(request.auth.uid)).data.role;
-      return userRole == 'Admin' || userRole == 'Owner';
+      return isOfficeMember(officeId) &&
+             (get(/databases/$(database)/documents/offices/$(officeId)/members/$(request.auth.uid)).data.role in ['Admin', 'Owner']);
     }
 
     function isOfficeOwner(officeId) {
@@ -32,23 +30,28 @@ service cloud.firestore {
       allow create: if isAuthenticated();
     }
 
-    // This is the restructured block that fixes the "accept invite" and "leave office" errors.
+    // This block handles user-specific subcollections like their office memberships, notifications, and goals.
     match /users/{userId} {
-        match /memberOfOffices/{officeId} {
-            allow read: if request.auth.uid == userId;
-            // Admins/Owners can add a membership record to another user.
-            allow create: if isOfficeAdminOrOwner(officeId);
-            // The user themself can delete their membership record.
-            allow delete: if request.auth.uid == userId;
-        }
+      // User can manage their own notifications and goals subcollections.
+      match /notifications/{notificationId} {
+        allow read, write: if request.auth.uid == userId;
+      }
 
-        match /notifications/{notificationId} {
-            allow read, write: if request.auth.uid == userId;
-        }
-
-        match /goals/{goalId} {
-            allow read, write: if request.auth.uid == userId;
-        }
+      match /goals/{goalId} {
+        allow read, write: if request.auth.uid == userId;
+      }
+      
+      // Rules for the 'memberOfOffices' subcollection, keyed by officeId.
+      match /memberOfOffices/{officeId} {
+        // A user can read their own list of office memberships.
+        allow read: if request.auth.uid == userId;
+        // An admin/owner of an office can create a membership record for another user (accept invite).
+        allow create: if isOfficeAdminOrOwner(officeId);
+        // A user can delete their own membership record (leave office).
+        allow delete: if request.auth.uid == userId;
+        // No one should update this record directly.
+        allow update: if false;
+      }
     }
 
     // --- Top Level Chat Collection ---
@@ -63,9 +66,9 @@ service cloud.firestore {
 
       match /messages/{messageId} {
         allow read: if isParticipant();
-        // FIX: This rule now correctly verifies that the person sending the message
-        // is who they say they are, fixing the DM permission error.
+        // A user must be a participant AND the sender to create a message. This fixes the DM error.
         allow create: if isParticipant() && request.resource.data.senderId == request.auth.uid;
+        // Messages are immutable.
         allow update, delete: if false;
       }
     }
@@ -82,6 +85,7 @@ service cloud.firestore {
       match /members/{memberUserId} {
         allow read, list: if isOfficeMember(officeId);
         allow create, update: if isOfficeAdminOrOwner(officeId);
+        // An admin/owner can remove other members. A member can remove themselves (leave) unless they are the owner.
         allow delete: if (isOfficeAdminOrOwner(officeId) && request.auth.uid != memberUserId) ||
                          (request.auth.uid == memberUserId && !isOfficeOwner(officeId));
       }
@@ -93,7 +97,7 @@ service cloud.firestore {
 
       match /activityLog/{activityId} {
         allow read, list: if isOfficeMember(officeId);
-        allow write: if false; // Server-only writes
+        allow write: if false; // Writes should be server-side or via a more secure mechanism.
       }
 
       match /tasks/{taskId} {
