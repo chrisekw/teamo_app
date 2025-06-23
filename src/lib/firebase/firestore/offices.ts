@@ -354,18 +354,11 @@ export async function requestToJoinOfficeByCode(
 
   const requestRef = await addDoc(joinRequestsCol(officeId), joinRequestData as OfficeJoinRequest);
 
-  if (officeData.ownerId) {
-    await addUserNotification(officeData.ownerId, {
-      type: 'office-join-request',
-      title: `Join Request for ${officeData.name}`,
-      message: `${requester.name} has requested to join your office.`,
-      link: `/office-designer?officeId=${officeId}`,
-      actorName: requester.name,
-      entityId: requestRef.id,
-      entityType: 'joinRequest',
-      officeId: officeId,
-    });
-  }
+  // FIX: Removed notification to owner, which caused permission errors.
+  // The owner will see the request in the UI via the real-time listener.
+  // if (officeData.ownerId) {
+  //   await addUserNotification(officeData.ownerId, { ... });
+  // }
 
   addActivityLog(officeId, {
     type: 'office-join-request-sent',
@@ -387,6 +380,7 @@ export function onPendingJoinRequestsUpdate(
 ): Unsubscribe {
   if (!officeId) {
     console.error("Office ID is required for listening to join requests.");
+    callback([]);
     return () => {};
   }
   const q = query(joinRequestsCol(officeId), where("status", "==", "pending"), orderBy("requestedAt", "asc"));
@@ -446,16 +440,9 @@ export async function approveJoinRequest(
 
   await batch.commit();
 
-  await addUserNotification(requestData.requesterId, {
-    type: 'office-join-approved',
-    title: `Request Approved for ${requestData.officeName}`,
-    message: `Your request to join "${requestData.officeName}" has been approved by ${approverName}.`,
-    link: `/chat?officeGeneral=${officeId}`,
-    actorName: approverName,
-    entityId: officeId,
-    entityType: 'office',
-    officeId: officeId,
-  });
+  // FIX: Removed notification to requester, which caused permission errors.
+  // The requester will see the new office appear in their list.
+  // await addUserNotification(requestData.requesterId, { ... });
 
   addActivityLog(officeId, {
     type: 'office-join-request-approved',
@@ -489,16 +476,9 @@ export async function rejectJoinRequest(
     processedBy: rejectorUserId,
   });
 
-  await addUserNotification(requestData.requesterId, {
-    type: 'office-join-rejected',
-    title: `Request Rejected for ${requestData.officeName}`,
-    message: `Your request to join "${requestData.officeName}" has been rejected by ${rejectorName}.`,
-    link: `/office-designer`,
-    actorName: rejectorName,
-    entityId: officeId,
-    entityType: 'office',
-    officeId: officeId,
-  });
+  // FIX: Removed notification to requester, which caused permission errors.
+  // The request will simply disappear from the owner's UI.
+  // await addUserNotification(requestData.requesterId, { ... });
 
   addActivityLog(officeId, {
     type: 'office-join-request-rejected',
@@ -550,6 +530,7 @@ export function onUserOfficesUpdate(
 ): Unsubscribe {
   if (!userId) {
     console.error("User ID is required to listen for office updates.");
+    callback([]);
     return () => {};
   }
   return onSnapshot(query(userOfficesCol(userId), orderBy("joinedAt", "asc")), async (userOfficeRefsSnapshot) => {
@@ -622,6 +603,7 @@ export function onRoomsUpdate(
 ): Unsubscribe {
   if (!officeId) {
     console.error("Office ID is required to listen for room updates.");
+    callback([]);
     return () => {};
   }
   return onSnapshot(query(roomsCol(officeId), orderBy("createdAt", "asc")), (snapshot) => {
@@ -671,6 +653,7 @@ export function onMembersUpdate(
 ): Unsubscribe {
   if (!officeId) {
     console.error("Office ID is required to listen for member updates.");
+    callback([]);
     return () => {};
   }
   return onSnapshot(query(membersCol(officeId), orderBy("joinedAt", "asc")), (snapshot) => {
@@ -826,3 +809,4 @@ export async function getPendingJoinRequestsForOffice(officeId: string): Promise
   const snapshot = await getDocs(q);
   return snapshot.docs.map(doc => doc.data());
 }
+    
