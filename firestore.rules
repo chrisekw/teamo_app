@@ -13,7 +13,6 @@ service cloud.firestore {
              exists(/databases/$(database)/documents/offices/$(officeId)/members/$(request.auth.uid));
     }
 
-    // CORRECTED: This function uses valid rule syntax.
     function isOfficeAdminOrOwner(officeId) {
       return isOfficeMember(officeId) &&
              (get(/databases/$(database)/documents/offices/$(officeId)/members/$(request.auth.uid)).data.role in ['Admin', 'Owner']);
@@ -26,8 +25,12 @@ service cloud.firestore {
 
     // --- Top Level User Collections ---
     match /userProfiles/{userId} {
-      allow read, update, delete: if request.auth.uid == userId;
-      allow create: if isAuthenticated();
+      // FIX: This rule allows searching for users by email, which is needed for the "Add Member by Email" feature.
+      allow list: if isAuthenticated();
+      // Users can get, update, or delete their own profile.
+      allow get, update, delete: if request.auth.uid == userId;
+      // Users can create their own profile.
+      allow create: if request.auth.uid == userId;
     }
 
     // This block handles user-specific subcollections like their office memberships, notifications, and goals.
@@ -40,7 +43,7 @@ service cloud.firestore {
       match /goals/{goalId} {
         allow read, write: if request.auth.uid == userId;
       }
-      
+
       // Rules for the 'memberOfOffices' subcollection, keyed by officeId.
       match /memberOfOffices/{officeId} {
         // A user can read their own list of office memberships.
@@ -66,7 +69,7 @@ service cloud.firestore {
 
       match /messages/{messageId} {
         allow read: if isParticipant();
-        // A user must be a participant AND the sender to create a message. This fixes the DM error.
+        // A user must be a participant AND the sender to create a message.
         allow create: if isParticipant() && request.resource.data.senderId == request.auth.uid;
         // Messages are immutable.
         allow update, delete: if false;
