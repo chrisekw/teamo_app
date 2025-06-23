@@ -150,38 +150,59 @@ export default function OfficeDesignerPage() {
 
   }, [userOffices, searchParams, isLoadingUserOffices, router, pathname, activeOffice]);
 
-  // Fetch details (rooms, members, requests) for the active office (real-time)
-  useEffect(() => {
-    const unsubscribers: Unsubscribe[] = [];
-    
-    if (activeOffice && user) {
-      setIsLoadingDetails(true);
-      const officeId = activeOffice.id;
 
-      unsubscribers.push(onRoomsUpdate(officeId, setActiveOfficeRooms));
-      unsubscribers.push(onMembersUpdate(officeId, (members) => {
-        setActiveOfficeMembers(members);
-        const currentUserInOffice = members.find(m => m.userId === user.uid);
-        const isAdminOrOwner = currentUserInOffice?.role === 'Admin' || currentUserInOffice?.role === 'Owner';
-        
-        if (isAdminOrOwner) {
-          unsubscribers.push(onPendingJoinRequestsUpdate(officeId, setPendingJoinRequests));
-        } else {
-          setPendingJoinRequests([]);
-        }
-        setIsLoadingDetails(false); 
-      }));
-    } else {
-      setActiveOfficeRooms([]);
-      setActiveOfficeMembers([]);
+  // Listen for Rooms
+  useEffect(() => {
+    if (!activeOffice) {
+        setActiveOfficeRooms([]);
+        return;
+    }
+    setIsLoadingDetails(true);
+    const unsubscribe = onRoomsUpdate(activeOffice.id, setActiveOfficeRooms);
+    return () => unsubscribe();
+  }, [activeOffice]);
+  
+  // Listen for Members
+  useEffect(() => {
+    if (!activeOffice) {
+        setActiveOfficeMembers([]);
+        setIsLoadingDetails(false);
+        return;
+    }
+    // Set loading true for members specifically when office changes
+    setIsLoadingDetails(true);
+    const unsubscribe = onMembersUpdate(activeOffice.id, (members) => {
+      setActiveOfficeMembers(members);
+      // Considered loaded once members are fetched. Join requests are secondary.
+      setIsLoadingDetails(false); 
+    });
+    return () => unsubscribe();
+  }, [activeOffice]);
+  
+  // Listen for Join Requests, which depends on the user's role derived from the members list
+  useEffect(() => {
+    if (!activeOffice || !user || activeOfficeMembers.length === 0) {
       setPendingJoinRequests([]);
-      setIsLoadingDetails(false);
+      return;
+    };
+
+    const currentUserInOffice = activeOfficeMembers.find(m => m.userId === user.uid);
+    const canManage = currentUserInOffice?.role === 'Admin' || currentUserInOffice?.role === 'Owner';
+    
+    let unsubscribe: Unsubscribe | null = null;
+    if (canManage) {
+      unsubscribe = onPendingJoinRequestsUpdate(activeOffice.id, setPendingJoinRequests);
+    } else {
+      setPendingJoinRequests([]);
     }
 
     return () => {
-      unsubscribers.forEach(unsub => unsub());
+      if (unsubscribe) {
+        unsubscribe();
+      }
     };
-  }, [activeOffice, user]);
+  }, [activeOffice, user, activeOfficeMembers]);
+
 
   const handleSetActiveOffice = (officeId: string) => {
     if (officeId !== activeOffice?.id) {
