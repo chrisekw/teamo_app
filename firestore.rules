@@ -1,3 +1,4 @@
+
 rules_version = '2';
 
 service cloud.firestore {
@@ -23,10 +24,6 @@ service cloud.firestore {
     // Admins/Owners are granted specific permissions to write 'memberOfOffices' docs for others.
     match /users/{userId}/{collection}/{docId} {
       allow read, write, delete: if request.auth.uid == userId;
-
-      // FIX: This rule allows an office owner or admin to CREATE a 'memberOfOffices'
-      // document when they approve a request or add a member directly.
-      // `docId` here will be the `officeId`.
       allow create: if collection == 'memberOfOffices' && isOfficeAdminOrOwner(docId);
     }
     
@@ -41,8 +38,10 @@ service cloud.firestore {
       // Allow any authenticated user to create an office.
       allow create: if request.auth.uid != null;
       
-      // Only the office owner can update or delete their office.
-      allow update: if get(/databases/$(database)/documents/offices/$(officeId)).data.ownerId == request.auth.uid;
+      // Allow Admins or the Owner to update office details.
+      allow update: if isOfficeAdminOrOwner(officeId);
+      
+      // Only the office owner can delete their office.
       allow delete: if resource.data.ownerId == request.auth.uid;
       
       // Office member management
@@ -60,20 +59,34 @@ service cloud.firestore {
         allow create, update, delete: if isOfficeAdminOrOwner(officeId);
       }
       
-      // Activity logs can be read by members, but created by any authenticated member (server-side validates).
+      // Activity logs can be read by members, and created by any member.
       match /activityLog/{activityId} {
         allow read: if isOfficeMember(officeId);
-        allow create: if request.auth.uid != null;
+        allow create: if isOfficeMember(officeId);
       }
 
-      // Tasks can be managed by any member of the office.
+      // Granular rules for tasks subcollection
       match /tasks/{taskId} {
-        allow read, write: if isOfficeMember(officeId);
+        allow get: if isOfficeMember(officeId);
+        allow list: if isOfficeMember(officeId);
+        allow create: if isOfficeMember(officeId) &&
+                         request.auth.uid == request.resource.data.creatorUserId;
+        allow update: if isOfficeMember(officeId) &&
+                         (request.auth.uid == resource.data.creatorUserId || request.auth.uid in resource.data.assigneeIds || isOfficeAdminOrOwner(officeId));
+        allow delete: if isOfficeMember(officeId) &&
+                         (request.auth.uid == resource.data.creatorUserId || isOfficeAdminOrOwner(officeId));
       }
       
-      // Meetings can be managed by any member of the office.
+      // Granular rules for meetings subcollection
       match /meetings/{meetingId} {
-        allow read, write: if isOfficeMember(officeId);
+        allow get: if isOfficeMember(officeId);
+        allow list: if isOfficeMember(officeId);
+        allow create: if isOfficeMember(officeId) &&
+                         request.auth.uid == request.resource.data.creatorUserId;
+        allow update: if isOfficeMember(officeId) &&
+                         (request.auth.uid == resource.data.creatorUserId || request.auth.uid in resource.data.participantIds || isOfficeAdminOrOwner(officeId));
+        allow delete: if isOfficeMember(officeId) &&
+                         (request.auth.uid == resource.data.creatorUserId || isOfficeAdminOrOwner(officeId));
       }
 
       // General office chat messages can be read/written by members.
