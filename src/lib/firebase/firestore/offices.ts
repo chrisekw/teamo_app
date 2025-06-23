@@ -423,12 +423,19 @@ export async function approveJoinRequest(
     processedBy: approverUserId,
   });
 
-  const newMemberData = {
+  const newMemberData: {
+    name: string;
+    role: MemberRole;
+    joinedAt: FieldValue;
+    avatarUrl?: string;
+  } = {
     name: requestData.requesterName,
     role: roleToAssign,
-    avatarUrl: requestData.requesterAvatarUrl || undefined, 
     joinedAt: serverTimestamp()
   };
+  if (requestData.requesterAvatarUrl) {
+    newMemberData.avatarUrl = requestData.requesterAvatarUrl;
+  }
   batch.set(memberDocRef(officeId, requestData.requesterId), newMemberData);
 
   batch.set(doc(userOfficesCol(requestData.requesterId), officeId), {
