@@ -10,7 +10,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { PlusCircle, Trash2, Users, Briefcase, Coffee, Zap, Building, KeyRound, UserPlus, Copy, Settings2, ShieldCheck, UserCircle as UserIconLucide, Loader2, Edit, Info, Image as ImageIconLucide, MoreHorizontal, ExternalLink, UserCheck, UserX, CheckSquare, XSquare, Video, Tag, Layers, ImageUp, Award, LogOut, Mail } from "lucide-react";
+import { PlusCircle, Trash2, Users, Briefcase, Coffee, Zap, Building, KeyRound, UserPlus, Copy, Settings2, ShieldCheck, UserCircle as UserIconLucide, Loader2, Edit, Info, Image as ImageIconLucide, MoreHorizontal, ExternalLink, UserCheck, UserX, CheckSquare, XSquare, Video, Tag, Layers, ImageUp, Award, LogOut, Mail, Phone } from "lucide-react";
 import Image from "next/image";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -20,7 +20,7 @@ import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuIte
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/firebase/auth";
-import type { Office, Room, OfficeMember, RoomType, MemberRole, OfficeJoinRequest, ChatUser } from "@/types";
+import type { Office, Room, OfficeMember, RoomType, MemberRole, OfficeJoinRequest, ChatUser, UserProfile } from "@/types";
 import {
   createOffice,
   onUserOfficesUpdate, 
@@ -38,6 +38,7 @@ import {
   addMemberByEmail,
   leaveOffice,
 } from "@/lib/firebase/firestore/offices";
+import { getUserProfile } from "@/lib/firebase/firestore/userProfile";
 import { Textarea } from "@/components/ui/textarea";
 import type { Unsubscribe } from 'firebase/firestore'; 
 
@@ -82,10 +83,10 @@ export default function OfficeDesignerPage() {
   const [isAddRoomDialogOpen, setIsAddRoomDialogOpen] = useState(false);
   const [isManageMemberDialogOpen, setIsManageMemberDialogOpen] = useState(false);
   const [isAddMemberDialogOpen, setIsAddMemberDialogOpen] = useState(false);
+  const [isViewProfileDialogOpen, setIsViewProfileDialogOpen] = useState(false);
   
   const [deletingMember, setDeletingMember] = useState<OfficeMember | null>(null);
   const [deletingRoom, setDeletingRoom] = useState<Room | null>(null);
-
 
   const [newOfficeName, setNewOfficeName] = useState("");
   const [newOfficeSector, setNewOfficeSector] = useState("");
@@ -103,6 +104,8 @@ export default function OfficeDesignerPage() {
   const [newRoomCoverImagePreview, setNewRoomCoverImagePreview] = useState<string | null>(null);
 
   const [managingMember, setManagingMember] = useState<OfficeMember | null>(null);
+  const [viewingMemberProfile, setViewingMemberProfile] = useState<UserProfile | null>(null);
+  const [isLoadingProfile, setIsLoadingProfile] = useState(false);
   const [selectedSystemRole, setSelectedSystemRole] = useState<MemberRole>("Member");
   const [selectedWorkRole, setSelectedWorkRole] = useState<string>("");
   const [processingRequestId, setProcessingRequestId] = useState<string | null>(null);
@@ -115,9 +118,10 @@ export default function OfficeDesignerPage() {
         setUserOffices(offices);
         if (offices.length === 0) {
             setActiveOffice(null);
-        } else if (!offices.find(o => o.id === activeOffice?.id)) {
+        } else if (!activeOffice || !offices.find(o => o.id === activeOffice.id)) {
             // If current active office is no longer in the list, default to first one
-            setActiveOffice(offices[0]);
+            const officeIdFromUrl = searchParams.get('officeId');
+            setActiveOffice(offices.find(o => o.id === officeIdFromUrl) || offices[0]);
         }
         setIsLoadingUserOffices(false);
       });
@@ -127,7 +131,7 @@ export default function OfficeDesignerPage() {
       setActiveOffice(null);
       setIsLoadingUserOffices(false);
     }
-  }, [user, authLoading, activeOffice?.id]);
+  }, [user, authLoading, searchParams, activeOffice]);
 
 
   // Set the active office based on URL, or default to the first office in the list
@@ -152,48 +156,42 @@ export default function OfficeDesignerPage() {
   }, [userOffices, searchParams, isLoadingUserOffices, router, pathname, activeOffice]);
 
 
-  // Listen for Rooms
-  useEffect(() => {
-    if (!activeOffice) {
-        setActiveOfficeRooms([]);
-        return;
-    }
-    setIsLoadingDetails(true);
-    const unsubscribe = onRoomsUpdate(activeOffice.id, setActiveOfficeRooms);
-    return () => unsubscribe();
-  }, [activeOffice]);
-  
-  // Listen for Members and determine user role
+  // Listen for Rooms, Members, and determine user role
   useEffect(() => {
     if (!activeOffice || !user) {
-      setActiveOfficeMembers([]);
       setCanManageOffice(false);
-      setIsLoadingDetails(false);
-      return;
-    }
-    
-    setIsLoadingDetails(true);
-    const unsubscribe = onMembersUpdate(activeOffice.id, (members) => {
-      setActiveOfficeMembers(members);
-      const currentUserInOffice = members.find(m => m.userId === user.uid);
-      setCanManageOffice(currentUserInOffice?.role === 'Owner' || currentUserInOffice?.role === 'Admin');
-      setIsLoadingDetails(false); 
-    });
-
-    return () => unsubscribe();
-  }, [activeOffice, user]);
-  
-  // Listen for Join Requests based on user's role
-  useEffect(() => {
-    if (!activeOffice || !canManageOffice) {
+      setActiveOfficeRooms([]);
+      setActiveOfficeMembers([]);
       setPendingJoinRequests([]);
       return;
+    }
+
+    setIsLoadingDetails(true);
+
+    const unsubRooms = onRoomsUpdate(activeOffice.id, setActiveOfficeRooms);
+    const unsubMembers = onMembersUpdate(activeOffice.id, (members) => {
+      setActiveOfficeMembers(members);
+      const currentUserInOffice = members.find(m => m.userId === user.uid);
+      const canManage = currentUserInOffice?.role === 'Owner' || currentUserInOffice?.role === 'Admin';
+      setCanManageOffice(canManage);
+
+      // This is now dependent on canManage, so we trigger its listener here
+      if (canManage) {
+        const unsubRequests = onPendingJoinRequestsUpdate(activeOffice.id, setPendingJoinRequests);
+        // We need a way to unsubscribe from this when canManage becomes false
+        // For now, this component's full unmount will handle it.
+      } else {
+        setPendingJoinRequests([]);
+      }
+      setIsLoadingDetails(false);
+    });
+
+    return () => {
+      unsubRooms();
+      unsubMembers();
+      // Unsubscribing requests might need a stored reference if canManage changes a lot.
     };
-    
-    const unsubscribe = onPendingJoinRequestsUpdate(activeOffice.id, setPendingJoinRequests);
-    
-    return () => unsubscribe();
-  }, [activeOffice, canManageOffice]);
+  }, [activeOffice, user]);
 
 
   const handleSetActiveOffice = (officeId: string) => {
@@ -328,6 +326,32 @@ export default function OfficeDesignerPage() {
     setSelectedSystemRole(member.role);
     setSelectedWorkRole(member.workRole || "");
     setIsManageMemberDialogOpen(true);
+  };
+
+  const handleOpenViewProfileDialog = async (member: OfficeMember) => {
+    setIsLoadingProfile(true);
+    setIsViewProfileDialogOpen(true);
+    setViewingMemberProfile(null); // Clear previous profile
+    try {
+        const profile = await getUserProfile(member.userId);
+        if (profile) {
+            setViewingMemberProfile(profile);
+        } else {
+            setViewingMemberProfile({
+                id: member.userId,
+                displayName: member.name,
+                email: 'No profile email found',
+                avatarUrl: member.avatarUrl,
+            });
+            toast({ variant: "destructive", title: "Profile Not Found", description: "This user has not completed their profile." });
+        }
+    } catch (error) {
+        console.error("Error fetching profile:", error);
+        toast({ variant: "destructive", title: "Error", description: "Could not fetch member's profile." });
+        setIsViewProfileDialogOpen(false);
+    } finally {
+        setIsLoadingProfile(false);
+    }
   };
 
   const handleSaveMemberDetails = async () => {
@@ -637,7 +661,9 @@ export default function OfficeDesignerPage() {
                                     </div>
                                 </div>
                                 {canManageOffice && (<DropdownMenu><DropdownMenuTrigger asChild><Button variant="ghost" size="icon" className="h-8 w-8" disabled={isSubmitting}><MoreHorizontal className="h-4 w-4" /></Button></DropdownMenuTrigger><DropdownMenuContent align="end">
-                                    <DropdownMenuItem onClick={() => handleOpenManageMemberDialog(member)} disabled={isSubmitting}><Edit className="mr-2 h-4 w-4" /> Manage Member</DropdownMenuItem>
+                                    <DropdownMenuItem onClick={() => handleOpenViewProfileDialog(member)}><UserIconLucide className="mr-2 h-4 w-4" /> View Profile</DropdownMenuItem>
+                                    <DropdownMenuSeparator />
+                                    <DropdownMenuItem onClick={() => handleOpenManageMemberDialog(member)} disabled={isSubmitting}><Edit className="mr-2 h-4 w-4" /> Manage Roles</DropdownMenuItem>
                                     {member.role !== "Owner" && (<DropdownMenuItem onClick={() => setDeletingMember(member)} className="text-destructive focus:bg-destructive/10 focus:text-destructive" disabled={isSubmitting}><Trash2 className="mr-2 h-4 w-4" /> Remove Member</DropdownMenuItem>)}
                                 </DropdownMenuContent></DropdownMenu>)}
                             </div>
@@ -729,8 +755,44 @@ export default function OfficeDesignerPage() {
             <AlertDialogFooter><AlertDialogCancel onClick={() => setOfficeToLeave(null)} disabled={isSubmitting}>Cancel</AlertDialogCancel><AlertDialogAction onClick={handleLeaveOffice} className="bg-destructive hover:bg-destructive/90" disabled={isSubmitting}>{isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin"/>} Leave Office</AlertDialogAction></AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <Dialog open={isViewProfileDialogOpen} onOpenChange={setIsViewProfileDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+                <DialogTitle className="font-headline">Member Profile</DialogTitle>
+                <DialogDescription>
+                    Viewing the profile of {viewingMemberProfile?.displayName || '...'}.
+                </DialogDescription>
+            </DialogHeader>
+            {isLoadingProfile ? (
+                <div className="flex justify-center p-8"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div>
+            ) : viewingMemberProfile ? (
+                <div className="space-y-4 py-4">
+                    <div className="flex flex-col items-center space-y-4">
+                        <Avatar className="h-24 w-24">
+                            <AvatarImage src={viewingMemberProfile.avatarUrl || ''} alt={viewingMemberProfile.displayName} data-ai-hint="person avatar" />
+                            <AvatarFallback className="text-3xl">{viewingMemberProfile.displayName?.substring(0, 2).toUpperCase()}</AvatarFallback>
+                        </Avatar>
+                        <div className="text-center">
+                            <h3 className="text-xl font-semibold">{viewingMemberProfile.displayName}</h3>
+                            <p className="text-sm text-muted-foreground">{viewingMemberProfile.profession || 'No profession listed'}</p>
+                        </div>
+                    </div>
+                    <Separator />
+                    <div className="space-y-3 text-sm">
+                        <div className="flex items-center"><Mail className="mr-2 h-4 w-4 shrink-0 text-muted-foreground" /> <a href={`mailto:${viewingMemberProfile.email}`} className="text-primary hover:underline truncate">{viewingMemberProfile.email}</a></div>
+                        <div className="flex items-center"><Phone className="mr-2 h-4 w-4 shrink-0 text-muted-foreground" /> {viewingMemberProfile.phoneNumber || <span className="italic text-muted-foreground">No phone number</span>}</div>
+                        <div className="flex items-center"><Info className="mr-2 h-4 w-4 shrink-0 text-muted-foreground" /> <p className="leading-snug">{viewingMemberProfile.bio || <span className="italic text-muted-foreground">No bio provided.</span>}</p></div>
+                    </div>
+                </div>
+            ) : (
+                <div className="text-center p-8 text-muted-foreground">Could not load profile.</div>
+            )}
+            <DialogFooter>
+                <Button variant="outline" onClick={() => setIsViewProfileDialogOpen(false)}>Close</Button>
+            </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
-
-    
