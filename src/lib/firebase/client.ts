@@ -82,7 +82,7 @@ export const requestNotificationPermissionAndGetToken = async (): Promise<string
       const currentToken = await getToken(messaging, { vapidKey: process.env.NEXT_PUBLIC_FIREBASE_VAPID_KEY, serviceWorkerRegistration: await navigator.serviceWorker.register('/firebase-messaging-sw.js') });
       if (currentToken) {
         console.log('FCM Token:', currentToken);
-        // TODO: Send this token to your server and store it, associated with the user.
+        // The token is now saved to Firestore by the calling function in settings-page.tsx
         return currentToken;
       } else {
         console.log('No registration token available. Request permission to generate one.');

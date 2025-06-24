@@ -166,3 +166,23 @@ export async function updateUserProfile(
 
   await updateDoc(docRef, firestoreData);
 }
+
+export async function saveUserFCMToken(userId: string, token: string): Promise<void> {
+  if (!userId || !token) {
+    console.error("User ID and FCM token are required to save.");
+    return;
+  }
+  // Store the token in a subcollection, using the token itself as the document ID
+  // This automatically handles duplicates - writing the same token again just updates the timestamp.
+  const tokenDocRef = doc(db, 'userProfiles', userId, 'fcmTokens', token);
+  try {
+    await setDoc(tokenDocRef, {
+      createdAt: serverTimestamp(),
+      platform: 'web' // good practice to store the platform
+    });
+    console.log(`FCM token saved for user ${userId}`);
+  } catch (error) {
+    console.error("Failed to save FCM token:", error);
+    // Don't re-throw, just log it. The user doesn't need to know if this failed.
+  }
+}

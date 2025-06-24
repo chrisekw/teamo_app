@@ -16,12 +16,15 @@ import { useFontSize } from "@/context/font-size-context";
 import { useLanguage } from "@/context/language-context";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useAuth } from "@/lib/firebase/auth";
+import { saveUserFCMToken } from "@/lib/firebase/firestore/userProfile";
 
 export default function SettingsPage() {
   const { toast } = useToast();
   const { theme, setTheme, systemTheme } = useTheme();
   const { fontSize, setFontSize } = useFontSize();
   const { locale, setLocale, t, isLoaded } = useLanguage();
+  const { user } = useAuth(); // Get user for saving token
 
   const [mounted, setMounted] = useState(false);
   const [currentTheme, setCurrentTheme] = useState("system");
@@ -75,12 +78,15 @@ export default function SettingsPage() {
     try {
       if (!pushNotificationsEnabled && Notification.permission !== 'granted') {
         const token = await requestNotificationPermissionAndGetToken();
-        if (token) {
+        if (token && user) {
+          await saveUserFCMToken(user.uid, token);
           setPushNotificationsEnabled(true);
           toast({
             title: t('Toast.pushEnabledTitle'),
             description: t('Toast.pushEnabledDescription', { token: token.substring(0, 20) + "..." }),
           });
+        } else if (!user) {
+            toast({ variant: "destructive", title: "Not Logged In", description: "You must be logged in to enable notifications."});
         } else {
           setPushNotificationsEnabled(false);
           if (Notification.permission === 'denied') {
@@ -99,14 +105,19 @@ export default function SettingsPage() {
           }
         }
       } else if (pushNotificationsEnabled) {
+        // NOTE: This just disables the UI toggle. It does not invalidate the token.
+        // For a full implementation, you might want to call a function here
+        // to delete the token from the user's profile on the server.
         setPushNotificationsEnabled(false);
         toast({
           title: t('Toast.pushDisabledTitle'),
           description: t('Toast.pushDisabledDescription'),
         });
       } else if (!pushNotificationsEnabled && Notification.permission === 'granted') {
+          // This handles re-enabling notifications if permission was already granted.
           const token = await requestNotificationPermissionAndGetToken();
-          if (token) {
+          if (token && user) {
+               await saveUserFCMToken(user.uid, token);
                setPushNotificationsEnabled(true);
                toast({
                   title: t('Toast.pushReEnabledTitle'),
