@@ -7,7 +7,7 @@ import { Dialog, DialogTrigger, DialogContent, DialogHeader, DialogTitle, Dialog
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { PlusCircle, Video, Users as UsersIcon, Clock, Loader2, Trash2, CalendarDays, Briefcase, Repeat, Edit, ScreenShareOff, Mic } from "lucide-react";
+import { PlusCircle, Video, Users as UsersIcon, Clock, Loader2, Trash2, CalendarDays, Briefcase, Repeat, Edit, ScreenShareOff, Mic, CheckCircle } from "lucide-react";
 import { useState, useEffect, useCallback } from "react";
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
@@ -32,6 +32,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
@@ -74,7 +75,10 @@ export default function MeetingsPage() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
 
-  const [meetings, setMeetings] = useState<Meeting[]>([]);
+  const [allMeetings, setAllMeetings] = useState<Meeting[]>([]);
+  const [upcomingMeetings, setUpcomingMeetings] = useState<Meeting[]>([]);
+  const [pastMeetings, setPastMeetings] = useState<Meeting[]>([]);
+
   const [isLoadingMeetings, setIsLoadingMeetings] = useState(true);
   const [isScheduleDialogOpen, setIsScheduleDialogOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -151,16 +155,16 @@ export default function MeetingsPage() {
       setIsLoadingMeetings(true);
       try {
         const userMeetings = await getMeetingsForOfficeVisibleToUser(activeOffice.id, user.uid);
-        setMeetings(userMeetings.sort((a,b) => a.dateTime.getTime() - b.dateTime.getTime()));
+        setAllMeetings(userMeetings.sort((a,b) => a.dateTime.getTime() - b.dateTime.getTime()));
       } catch (error) {
         console.error("Failed to fetch meetings:", error);
         toast({ variant: "destructive", title: "Error", description: "Could not fetch meetings." });
-        setMeetings([]);
+        setAllMeetings([]);
       } finally {
         setIsLoadingMeetings(false);
       }
     } else {
-        setMeetings([]);
+        setAllMeetings([]);
         setIsLoadingMeetings(false);
     }
   }, [user, activeOffice, toast]);
@@ -168,6 +172,15 @@ export default function MeetingsPage() {
   useEffect(() => {
     fetchMeetingsForActiveOffice();
   }, [fetchMeetingsForActiveOffice]);
+  
+  // Filter meetings into upcoming and past
+  useEffect(() => {
+    const now = new Date();
+    const upcoming = allMeetings.filter(m => m.endDateTime >= now);
+    const past = allMeetings.filter(m => m.endDateTime < now).sort((a, b) => b.dateTime.getTime() - a.dateTime.getTime()); // Show most recent past first
+    setUpcomingMeetings(upcoming);
+    setPastMeetings(past);
+  }, [allMeetings]);
 
 
   const handleJoinMeetingClick = useCallback((meeting: Meeting) => {
@@ -217,13 +230,13 @@ export default function MeetingsPage() {
 
 
   useEffect(() => {
-    if (!user || meetings.length === 0 || isLoadingMeetings || isLoadingOfficeData) return;
+    if (!user || allMeetings.length === 0 || isLoadingMeetings || isLoadingOfficeData) return;
 
     const now = new Date();
     const reminderSentKeyPrefix = `meetingReminderSent_`;
 
     const checkAndSendReminders = async () => {
-      for (const meeting of meetings) {
+      for (const meeting of upcomingMeetings) { // Only check upcoming meetings
         const meetingTime = meeting.dateTime;
         const timeDiffMinutes = (meetingTime.getTime() - now.getTime()) / (1000 * 60);
         const reminderKey = `${reminderSentKeyPrefix}${meeting.id}`;
@@ -257,7 +270,7 @@ export default function MeetingsPage() {
     const intervalId = setInterval(checkAndSendReminders, 30 * 1000); 
     return () => clearInterval(intervalId);
 
-  }, [meetings, user, toast, isLoadingMeetings, isLoadingOfficeData, activeOffice]);
+  }, [upcomingMeetings, user, toast, isLoadingMeetings, isLoadingOfficeData, activeOffice]);
 
   const resetScheduleForm = () => {
     setNewMeetingTitle("");
@@ -378,6 +391,66 @@ export default function MeetingsPage() {
         router.push(`${pathname}?officeId=${officeId}`);
     }
   };
+
+  const renderMeetingCard = (meeting: Meeting, isPast: boolean) => (
+      <Card key={meeting.id} className="shadow-lg hover:shadow-xl transition-shadow duration-300">
+        <CardHeader>
+          <div className="flex justify-between items-start">
+              <CardTitle className="font-headline flex items-center">
+              <Video className="mr-2 h-5 w-5 text-primary" />
+              {meeting.title}
+              </CardTitle>
+              <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                      <Button variant="ghost" size="icon" onClick={() => setMeetingToDelete(meeting)} disabled={isSubmitting}>
+                          <Trash2 className="h-4 w-4 text-destructive" />
+                      </Button>
+                  </AlertDialogTrigger>
+                  {meetingToDelete && meetingToDelete.id === meeting.id && (
+                      <AlertDialogContent>
+                          <AlertDialogHeader>
+                          <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+                          <AlertDialogDescription>
+                              This action cannot be undone. This will permanently delete the meeting "{meetingToDelete.title}".
+                          </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                          <AlertDialogCancel onClick={() => setMeetingToDelete(null)} disabled={isSubmitting}>Cancel</AlertDialogCancel>
+                          <AlertDialogAction onClick={handleDeleteMeeting} className="bg-destructive hover:bg-destructive/90" disabled={isSubmitting}>
+                              {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin"/>}
+                              Delete
+                          </AlertDialogAction>
+                          </AlertDialogFooter>
+                      </AlertDialogContent>
+                  )}
+              </AlertDialog>
+          </div>
+          <CardDescription className="flex flex-col sm:flex-row sm:items-center sm:space-x-4 text-sm pt-1">
+            <span className="flex items-center mb-1 sm:mb-0"><Clock className="mr-1 h-4 w-4" /> {meeting.dateTime.toLocaleDateString()} at {meeting.dateTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} ({calculateDuration(meeting.dateTime, meeting.endDateTime)})</span>
+            {meeting.participantsDisplay && <span className="flex items-center"><UsersIcon className="mr-1 h-4 w-4" /> {meeting.participantsDisplay}</span>}
+          </CardDescription>
+        </CardHeader>
+        {meeting.description && (
+          <CardContent>
+            <p className="text-sm text-muted-foreground">{meeting.description}</p>
+          </CardContent>
+        )}
+        <CardFooter>
+          <Button 
+            className="w-full sm:w-auto" 
+            onClick={() => handleJoinMeetingClick(meeting)}
+            disabled={isLoadingMeetingDetails || isPast}
+          >
+            {isLoadingMeetingDetails && selectedMeeting?.id === meeting.id ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <Video className="mr-2 h-4 w-4" />
+            )}
+            {isLoadingMeetingDetails && selectedMeeting?.id === meeting.id ? 'Joining...' : (isPast ? 'Meeting Ended' : 'Join Meeting')}
+          </Button>
+        </CardFooter>
+      </Card>
+  );
 
   if (authLoading || isLoadingOfficeData) {
      return <div className="container mx-auto p-8 text-center"><Loader2 className="h-12 w-12 animate-spin text-primary" /></div>;
@@ -555,94 +628,63 @@ export default function MeetingsPage() {
                     </SelectContent>
                 </Select>
             </div>
-          <div className="w-full">
-            <h2 className="text-2xl font-headline font-semibold mb-4">
-              All Scheduled Meetings
-            </h2>
-            {isLoadingMeetings && <div className="text-center"><Loader2 className="h-8 w-8 animate-spin text-primary"/></div>}
-            
-            {!isLoadingMeetings && !activeOffice && (
-                  <Card className="shadow-lg">
-                      <CardContent className="text-center py-10 text-muted-foreground">
-                          <Briefcase className="mx-auto h-12 w-12 mb-3 text-gray-400" />
-                          Please create or select an office to manage meetings.
-                          <Button asChild variant="link" className="block mx-auto mt-2">
-                              <Link href="/office-designer">Go to Office Designer</Link>
-                          </Button>
-                      </CardContent>
-                  </Card>
-              )}
+          <div className="w-full space-y-8">
+            <div>
+                 <h2 className="text-2xl font-headline font-semibold mb-4">
+                    Upcoming Meetings ({upcomingMeetings.length})
+                </h2>
+                {isLoadingMeetings && <div className="text-center"><Loader2 className="h-8 w-8 animate-spin text-primary"/></div>}
 
-            {!isLoadingMeetings && activeOffice && meetings.length === 0 ? (
-              <div className="text-center py-10 bg-muted/50 rounded-md flex flex-col items-center justify-center">
-                 <Video className="mx-auto h-12 w-12 text-muted-foreground mb-3"/>
-                <p className="text-muted-foreground">No meetings scheduled yet for {activeOffice.name}.</p>
-                <p className="text-sm text-muted-foreground">Schedule a new meeting to get started.</p>
-              </div>
-            ) : null}
+                {!isLoadingMeetings && !activeOffice && (
+                    <Card className="shadow-lg">
+                        <CardContent className="text-center py-10 text-muted-foreground">
+                            <Briefcase className="mx-auto h-12 w-12 mb-3 text-gray-400" />
+                            Please create or select an office to manage meetings.
+                            <Button asChild variant="link" className="block mx-auto mt-2">
+                                <Link href="/office-designer">Go to Office Designer</Link>
+                            </Button>
+                        </CardContent>
+                    </Card>
+                )}
 
-            {!isLoadingMeetings && activeOffice && meetings.length > 0 && (
-              <div className="space-y-4">
-                {meetings.map((meeting) => (
-                  <Card key={meeting.id} className="shadow-lg hover:shadow-xl transition-shadow duration-300">
-                    <CardHeader>
-                      <div className="flex justify-between items-start">
-                          <CardTitle className="font-headline flex items-center">
-                          <Video className="mr-2 h-5 w-5 text-primary" />
-                          {meeting.title}
-                          </CardTitle>
-                          <AlertDialog>
-                              <AlertDialogTrigger asChild>
-                                  <Button variant="ghost" size="icon" onClick={() => setMeetingToDelete(meeting)} disabled={isSubmitting}>
-                                      <Trash2 className="h-4 w-4 text-destructive" />
-                                  </Button>
-                              </AlertDialogTrigger>
-                              {meetingToDelete && meetingToDelete.id === meeting.id && (
-                                  <AlertDialogContent>
-                                      <AlertDialogHeader>
-                                      <AlertDialogTitle>Are you sure?</AlertDialogTitle>
-                                      <AlertDialogDescription>
-                                          This action cannot be undone. This will permanently delete the meeting "{meetingToDelete.title}".
-                                      </AlertDialogDescription>
-                                      </AlertDialogHeader>
-                                      <AlertDialogFooter>
-                                      <AlertDialogCancel onClick={() => setMeetingToDelete(null)} disabled={isSubmitting}>Cancel</AlertDialogCancel>
-                                      <AlertDialogAction onClick={handleDeleteMeeting} className="bg-destructive hover:bg-destructive/90" disabled={isSubmitting}>
-                                          {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin"/>}
-                                          Delete
-                                      </AlertDialogAction>
-                                      </AlertDialogFooter>
-                                  </AlertDialogContent>
-                              )}
-                          </AlertDialog>
-                      </div>
-                      <CardDescription className="flex flex-col sm:flex-row sm:items-center sm:space-x-4 text-sm pt-1">
-                        <span className="flex items-center mb-1 sm:mb-0"><Clock className="mr-1 h-4 w-4" /> {meeting.dateTime.toLocaleDateString()} at {meeting.dateTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} ({calculateDuration(meeting.dateTime, meeting.endDateTime)})</span>
-                        {meeting.participantsDisplay && <span className="flex items-center"><UsersIcon className="mr-1 h-4 w-4" /> {meeting.participantsDisplay}</span>}
-                      </CardDescription>
-                    </CardHeader>
-                    {meeting.description && (
-                      <CardContent>
-                        <p className="text-sm text-muted-foreground">{meeting.description}</p>
-                      </CardContent>
-                    )}
-                    <CardFooter>
-                      <Button 
-                        className="w-full sm:w-auto" 
-                        onClick={() => handleJoinMeetingClick(meeting)}
-                        disabled={isLoadingMeetingDetails}
-                      >
-                        {isLoadingMeetingDetails && selectedMeeting?.id === meeting.id ? (
-                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                        ) : (
-                          <Video className="mr-2 h-4 w-4" />
-                        )}
-                        {isLoadingMeetingDetails && selectedMeeting?.id === meeting.id ? 'Joining...' : 'Join Meeting'}
-                      </Button>
-                    </CardFooter>
-                  </Card>
-                ))}
-              </div>
+                {!isLoadingMeetings && activeOffice && allMeetings.length === 0 ? (
+                <div className="text-center py-10 bg-muted/50 rounded-md flex flex-col items-center justify-center">
+                    <Video className="mx-auto h-12 w-12 text-muted-foreground mb-3"/>
+                    <p className="text-muted-foreground">No meetings scheduled yet for {activeOffice.name}.</p>
+                    <p className="text-sm text-muted-foreground">Schedule a new meeting to get started.</p>
+                </div>
+                ) : null}
+                
+                {!isLoadingMeetings && activeOffice && upcomingMeetings.length === 0 && allMeetings.length > 0 && (
+                     <div className="text-center py-10 bg-muted/50 rounded-md flex flex-col items-center justify-center">
+                        <Video className="mx-auto h-12 w-12 text-muted-foreground mb-3"/>
+                        <p className="text-muted-foreground">No upcoming meetings.</p>
+                    </div>
+                )}
+
+                {!isLoadingMeetings && activeOffice && upcomingMeetings.length > 0 && (
+                <div className="space-y-4">
+                    {upcomingMeetings.map(meeting => renderMeetingCard(meeting, false))}
+                </div>
+                )}
+            </div>
+
+            {pastMeetings.length > 0 && (
+              <Accordion type="single" collapsible className="w-full">
+                <AccordionItem value="past-meetings" className="border-b-0">
+                  <AccordionTrigger className="hover:no-underline border-t pt-6">
+                    <h2 className="text-2xl font-headline font-semibold flex items-center">
+                        <CheckCircle className="mr-2 h-6 w-6 text-green-500" />
+                        Completed Meetings ({pastMeetings.length})
+                    </h2>
+                  </AccordionTrigger>
+                  <AccordionContent className="pt-4">
+                     <div className="space-y-4">
+                        {pastMeetings.map(meeting => renderMeetingCard(meeting, true))}
+                     </div>
+                  </AccordionContent>
+                </AccordionItem>
+              </Accordion>
             )}
           </div>
         </>
@@ -650,4 +692,3 @@ export default function MeetingsPage() {
     </div>
   );
 }
-

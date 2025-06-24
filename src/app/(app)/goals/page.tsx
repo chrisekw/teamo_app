@@ -4,7 +4,7 @@
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
-import { PlusCircle, Target, Edit3, Trash2, CheckCircle2, Loader2, CalendarIcon as CalendarLucide, Info, Percent, Hash, Edit, Users as UsersIcon } from "lucide-react";
+import { PlusCircle, Target, Edit3, Trash2, CheckCircle2, Loader2, CalendarIcon as CalendarLucide, Info, Percent, Hash, Edit, Users as UsersIcon, Award } from "lucide-react";
 import { useState, useEffect, useCallback } from "react";
 import {
   Dialog,
@@ -36,6 +36,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import type { Unsubscribe } from "firebase/firestore";
 import { Select, SelectValue, SelectTrigger, SelectContent, SelectItem } from "@/components/ui/select";
@@ -56,7 +57,10 @@ export default function GoalsPage() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
 
-  const [goals, setGoals] = useState<Goal[]>([]);
+  const [allGoals, setAllGoals] = useState<Goal[]>([]);
+  const [activeGoals, setActiveGoals] = useState<Goal[]>([]);
+  const [completedGoals, setCompletedGoals] = useState<Goal[]>([]);
+  
   const [isLoadingGoals, setIsLoadingGoals] = useState(true);
   const [isGoalDialogOpen, setIsGoalDialogOpen] = useState(false);
   const [currentGoalToEdit, setCurrentGoalToEdit] = useState<Goal | null>(null);
@@ -119,12 +123,12 @@ export default function GoalsPage() {
     if (user && activeOffice && !authLoading) {
       setIsLoadingGoals(true);
       unsubscribe = onGoalsUpdate(activeOffice.id, user.uid, (userGoals) => {
-        setGoals(userGoals);
+        setAllGoals(userGoals);
         setIsLoadingGoals(false);
       });
     } else {
       setIsLoadingGoals(false);
-      setGoals([]);
+      setAllGoals([]);
     }
     return () => {
       if (unsubscribe) {
@@ -132,6 +136,39 @@ export default function GoalsPage() {
       }
     };
   }, [user, activeOffice, authLoading]);
+
+  const getProgressPercentage = (current: number, target: number, unit: string) => {
+    if (unit.toLowerCase().includes("lower is better")) {
+        if (target === 0 && current === 0) return 100;
+        if (current <= target) return 100;
+        if (target === 0 && current > 0) return 0; 
+        return Math.max(0, ( (target * 1.5) - current) / ( (target*1.5) - target) * 100 );
+    }
+    if (target === 0) return current > 0 ? 100 : 0;
+    return Math.min(Math.max((current / target) * 100, 0), 100);
+  };
+  
+  // Filter goals into active and completed
+  useEffect(() => {
+    const active: Goal[] = [];
+    const completed: Goal[] = [];
+
+    allGoals.forEach(goal => {
+      const isLowerBetterAchieved = goal.unit.toLowerCase().includes("lower is better") && goal.currentValue <= goal.targetValue;
+      const progress = getProgressPercentage(goal.currentValue, goal.targetValue, goal.unit);
+      const isCompletedNonLowerIsBetter = progress >= 100 && !goal.unit.toLowerCase().includes("lower is better");
+
+      if (isCompletedNonLowerIsBetter || isLowerBetterAchieved) {
+        completed.push(goal);
+      } else {
+        active.push(goal);
+      }
+    });
+
+    setActiveGoals(active);
+    setCompletedGoals(completed);
+  }, [allGoals]);
+
 
   const resetForm = () => {
     setGoalName("");
@@ -222,17 +259,6 @@ export default function GoalsPage() {
     }
   };
   
-  const getProgressPercentage = (current: number, target: number, unit: string) => {
-    if (unit.toLowerCase().includes("lower is better")) {
-        if (target === 0 && current === 0) return 100;
-        if (current <= target) return 100;
-        if (target === 0 && current > 0) return 0; 
-        return Math.max(0, ( (target * 1.5) - current) / ( (target*1.5) - target) * 100 );
-    }
-    if (target === 0) return current > 0 ? 100 : 0;
-    return Math.min(Math.max((current / target) * 100, 0), 100);
-  };
-  
   const getSelectedParticipantNamesForDialog = () => {
     if (goalParticipantIds.length === 0) return "Select Participant(s)";
     const names = goalParticipantIds
@@ -249,6 +275,65 @@ export default function GoalsPage() {
         if (newActiveOffice) setActiveOffice(newActiveOffice);
     }
   };
+  
+  const renderGoalCard = (goal: Goal) => {
+    const progress = getProgressPercentage(goal.currentValue, goal.targetValue, goal.unit);
+    const isLowerBetterAchieved = goal.unit.toLowerCase().includes("lower is better") && goal.currentValue <= goal.targetValue;
+    const isCompletedNonLowerIsBetter = progress >= 100 && !goal.unit.toLowerCase().includes("lower is better");
+    const isAchieved = isCompletedNonLowerIsBetter || isLowerBetterAchieved;
+
+    return (
+      <Card key={goal.id} className="flex flex-col shadow-lg hover:shadow-xl transition-shadow duration-300">
+        <CardHeader>
+          <div className="flex justify-between items-start">
+            <CardTitle className="font-headline flex items-center">
+              <Target className="mr-2 h-5 w-5 text-primary" />
+              {goal.name}
+            </CardTitle>
+            <div className="flex space-x-1">
+              <Button variant="ghost" size="icon" onClick={() => handleOpenDialog(goal)} disabled={isSubmitting}>
+                <Edit3 className="h-4 w-4" />
+              </Button>
+              <Button variant="ghost" size="icon" onClick={() => handleDeleteGoal(goal.id)} disabled={isSubmitting}>
+                <Trash2 className="h-4 w-4 text-destructive" />
+              </Button>
+            </div>
+          </div>
+          <CardDescription>{goal.description}</CardDescription>
+        </CardHeader>
+        <CardContent className="flex-grow">
+          <div className="mb-2">
+            <div className="flex justify-between text-sm font-medium mb-1">
+              <span>Progress</span>
+              <span>{goal.currentValue.toLocaleString()} / {goal.targetValue.toLocaleString()} {goal.unit.replace("(Lower is better)","").trim()}</span>
+            </div>
+            <Progress value={progress} className="h-3" indicatorClassName={isAchieved ? "bg-green-500" : "bg-primary"} />
+          </div>
+          {goal.deadline && (
+            <p className="text-xs text-muted-foreground">
+              Deadline: {format(goal.deadline, "PPP")}
+            </p>
+          )}
+           {goal.participantsDisplay && (
+              <p className="text-xs text-muted-foreground mt-1">
+                  Participants: {goal.participantsDisplay}
+              </p>
+          )}
+        </CardContent>
+        <CardFooter>
+          {isAchieved ? (
+            <div className="flex items-center text-green-600">
+              <CheckCircle2 className="mr-2 h-5 w-5" />
+              Goal Achieved!
+            </div>
+          ) : (
+            <Button variant="outline" className="w-full" onClick={() => handleOpenDialog(goal)} disabled={isSubmitting}>Update Progress</Button>
+          )}
+        </CardFooter>
+      </Card>
+    );
+  };
+
 
   if (authLoading || isLoadingOfficeData) {
     return <div className="container mx-auto p-8 text-center"><Loader2 className="h-12 w-12 animate-spin text-primary" /></div>;
@@ -291,73 +376,44 @@ export default function GoalsPage() {
          </Card>
        )}
 
-      {!isLoadingGoals && activeOffice && goals.length === 0 ? (
+      {!isLoadingGoals && activeOffice && allGoals.length === 0 ? (
         <div className="text-center py-12 bg-muted/10 rounded-lg">
           <Target className="mx-auto h-16 w-16 text-muted-foreground mb-4" />
           <p className="text-lg text-muted-foreground">No goals defined for {activeOffice.name}.</p>
           <p className="text-sm text-muted-foreground">Click "Add New Goal" to get started.</p>
         </div>
       ) : (
-        !isLoadingGoals && activeOffice && goals.length > 0 && (
-          <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-          {goals.map((goal) => {
-            const progress = getProgressPercentage(goal.currentValue, goal.targetValue, goal.unit);
-            const isLowerBetterAchieved = goal.unit.toLowerCase().includes("lower is better") && goal.currentValue <= goal.targetValue;
-            const isCompletedNonLowerIsBetter = progress >= 100 && !goal.unit.toLowerCase().includes("lower is better");
-            const isAchieved = isCompletedNonLowerIsBetter || isLowerBetterAchieved;
+        !isLoadingGoals && activeOffice && (
+          <div className="space-y-8">
+            <div>
+              <h2 className="text-2xl font-headline font-semibold mb-4">Active Goals ({activeGoals.length})</h2>
+              {activeGoals.length > 0 ? (
+                 <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+                    {activeGoals.map(renderGoalCard)}
+                 </div>
+              ) : (
+                <p className="text-muted-foreground">No active goals. Well done!</p>
+              )}
+            </div>
 
-            return (
-            <Card key={goal.id} className="flex flex-col shadow-lg hover:shadow-xl transition-shadow duration-300">
-              <CardHeader>
-                <div className="flex justify-between items-start">
-                  <CardTitle className="font-headline flex items-center">
-                    <Target className="mr-2 h-5 w-5 text-primary" />
-                    {goal.name}
-                  </CardTitle>
-                  <div className="flex space-x-1">
-                    <Button variant="ghost" size="icon" onClick={() => handleOpenDialog(goal)} disabled={isSubmitting}>
-                      <Edit3 className="h-4 w-4" />
-                    </Button>
-                    <Button variant="ghost" size="icon" onClick={() => handleDeleteGoal(goal.id)} disabled={isSubmitting}>
-                      <Trash2 className="h-4 w-4 text-destructive" />
-                    </Button>
-                  </div>
-                </div>
-                <CardDescription>{goal.description}</CardDescription>
-              </CardHeader>
-              <CardContent className="flex-grow">
-                <div className="mb-2">
-                  <div className="flex justify-between text-sm font-medium mb-1">
-                    <span>Progress</span>
-                    <span>{goal.currentValue.toLocaleString()} / {goal.targetValue.toLocaleString()} {goal.unit.replace("(Lower is better)","").trim()}</span>
-                  </div>
-                  <Progress value={progress} className="h-3" indicatorClassName={isAchieved ? "bg-green-500" : "bg-primary"} />
-                </div>
-                {goal.deadline && (
-                  <p className="text-xs text-muted-foreground">
-                    Deadline: {format(goal.deadline, "PPP")}
-                  </p>
-                )}
-                 {goal.participantsDisplay && (
-                    <p className="text-xs text-muted-foreground mt-1">
-                        Participants: {goal.participantsDisplay}
-                    </p>
-                )}
-              </CardContent>
-              <CardFooter>
-                {isAchieved ? (
-                  <div className="flex items-center text-green-600">
-                    <CheckCircle2 className="mr-2 h-5 w-5" />
-                    Goal Achieved!
-                  </div>
-                ) : (
-                  <Button variant="outline" className="w-full" onClick={() => handleOpenDialog(goal)} disabled={isSubmitting}>Update Progress</Button>
-                )}
-              </CardFooter>
-            </Card>
-          );
-        })}
-        </div>
+            {completedGoals.length > 0 && (
+                 <Accordion type="single" collapsible className="w-full" defaultValue="achieved-goals">
+                    <AccordionItem value="achieved-goals" className="border-none">
+                        <AccordionTrigger className="hover:no-underline border-b">
+                             <h2 className="text-2xl font-headline font-semibold flex items-center">
+                                <Award className="mr-2 h-6 w-6 text-yellow-500" />
+                                Achieved Goals ({completedGoals.length})
+                            </h2>
+                        </AccordionTrigger>
+                        <AccordionContent className="pt-6">
+                            <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+                                {completedGoals.map(renderGoalCard)}
+                            </div>
+                        </AccordionContent>
+                    </AccordionItem>
+                </Accordion>
+            )}
+          </div>
         )
       )}
 
