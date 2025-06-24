@@ -1,4 +1,3 @@
-
 rules_version = '2';
 
 service cloud.firestore {
@@ -14,6 +13,7 @@ service cloud.firestore {
              exists(/databases/$(database)/documents/offices/$(officeId)/members/$(request.auth.uid));
     }
 
+    // CORRECTED: This function uses valid rule syntax.
     function isOfficeAdminOrOwner(officeId) {
       return isOfficeMember(officeId) &&
              (get(/databases/$(database)/documents/offices/$(officeId)/members/$(request.auth.uid)).data.role in ['Admin', 'Owner']);
@@ -26,19 +26,16 @@ service cloud.firestore {
 
     // --- Top Level User Collections ---
     match /userProfiles/{userId} {
-      // Allow searching for users by email.
-      allow list: if isAuthenticated();
-      // FIX: Allow any authenticated user to view a profile.
-      allow get: if isAuthenticated();
-      // Only the profile owner can update or delete their profile.
-      allow update, delete: if request.auth.uid == userId;
-      // A user can create their own profile.
-      allow create: if request.auth.uid == userId;
+      // FIX: This rule allows any authenticated user to get a profile or list profiles.
+      // This is required for the "View Profile" and "Add by Email" features to work.
+      allow list, get: if isAuthenticated();
+
+      // Only the user themselves can create, update, or delete their own profile.
+      allow create, update, delete: if request.auth.uid == userId;
     }
 
     // This block handles user-specific subcollections like their office memberships, notifications, and goals.
     match /users/{userId} {
-      // User can manage their own notifications and goals subcollections.
       match /notifications/{notificationId} {
         allow read, write: if request.auth.uid == userId;
       }
@@ -47,15 +44,10 @@ service cloud.firestore {
         allow read, write: if request.auth.uid == userId;
       }
 
-      // Rules for the 'memberOfOffices' subcollection, keyed by officeId.
       match /memberOfOffices/{officeId} {
-        // A user can read their own list of office memberships.
         allow read: if request.auth.uid == userId;
-        // An admin/owner of an office can create a membership record for another user (accept invite).
         allow create: if isOfficeAdminOrOwner(officeId);
-        // A user can delete their own membership record (leave office).
         allow delete: if request.auth.uid == userId;
-        // No one should update this record directly.
         allow update: if false;
       }
     }
@@ -72,9 +64,7 @@ service cloud.firestore {
 
       match /messages/{messageId} {
         allow read: if isParticipant();
-        // A user must be a participant AND the sender to create a message.
         allow create: if isParticipant() && request.resource.data.senderId == request.auth.uid;
-        // Messages are immutable.
         allow update, delete: if false;
       }
     }
@@ -103,7 +93,7 @@ service cloud.firestore {
 
       match /activityLog/{activityId} {
         allow read, list: if isOfficeMember(officeId);
-        allow write: if false; // Writes should be server-side or via a more secure mechanism.
+        allow write: if false;
       }
 
       match /tasks/{taskId} {
