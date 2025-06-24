@@ -89,44 +89,48 @@ export default function TasksPage() {
   const [taskPriority, setTaskPriority] = useState<Task["priority"]>("Medium");
   const [taskProgress, setTaskProgress] = useState(0);
 
-  // Real-time listener for user's offices
+  // FIX: Refactored office loading logic to prevent loops
+  // 1. Fetch user's offices.
   useEffect(() => {
     if (user && !authLoading) {
       setIsLoadingOfficeData(true);
       const unsubscribe = onUserOfficesUpdate(user.uid, (offices) => {
         setUserOffices(offices);
-        // If there's no active office or the active one is gone, set a default
-        if (offices.length > 0 && (!activeOffice || !offices.find(o => o.id === activeOffice.id))) {
-          const officeIdFromUrl = searchParams.get('officeId');
-          const officeFromUrl = offices.find(o => o.id === officeIdFromUrl);
-          setActiveOffice(officeFromUrl || offices[0]);
-        } else if (offices.length === 0) {
-          setActiveOffice(null);
-        }
         setIsLoadingOfficeData(false);
       });
       return () => unsubscribe();
     } else if (!user && !authLoading) {
       setUserOffices([]);
-      setActiveOffice(null);
       setIsLoadingOfficeData(false);
     }
   }, [user, authLoading]);
 
-  // Update active office based on URL if it changes
+  // 2. Determine and set the active office from URL and office list.
   useEffect(() => {
+    if (isLoadingOfficeData) return; // Don't run until office list is loaded
+
     const officeIdFromUrl = searchParams.get('officeId');
-    if (officeIdFromUrl && activeOffice?.id !== officeIdFromUrl) {
-      const newActiveOffice = userOffices.find(o => o.id === officeIdFromUrl);
-      if (newActiveOffice) {
-        setActiveOffice(newActiveOffice);
+    let targetOffice: Office | null = null;
+
+    if (userOffices.length > 0) {
+      if (officeIdFromUrl) {
+        targetOffice = userOffices.find(o => o.id === officeIdFromUrl) || null;
+      }
+      // If no office from URL, or invalid ID, default to first office in list.
+      if (!targetOffice) {
+        targetOffice = userOffices[0];
       }
     }
-     // Ensure URL reflects active office
-    if (activeOffice && searchParams.get('officeId') !== activeOffice.id) {
-        router.replace(`${pathname}?officeId=${activeOffice.id}`, { scroll: false });
+    
+    // Set the determined office as active.
+    setActiveOffice(targetOffice);
+    
+    // If the active office isn't the one in the URL (e.g. we defaulted), update URL.
+    if (targetOffice && targetOffice.id !== officeIdFromUrl) {
+        router.replace(`${pathname}?officeId=${targetOffice.id}`, { scroll: false });
     }
-  }, [searchParams, userOffices, activeOffice, router, pathname]);
+
+  }, [userOffices, isLoadingOfficeData, searchParams, pathname, router]);
 
   // Real-time listener for members of the active office
   useEffect(() => {
