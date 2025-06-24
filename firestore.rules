@@ -1,3 +1,4 @@
+
 rules_version = '2';
 
 service cloud.firestore {
@@ -25,11 +26,13 @@ service cloud.firestore {
 
     // --- Top Level User Collections ---
     match /userProfiles/{userId} {
-      // FIX: This rule allows searching for users by email, which is needed for the "Add Member by Email" feature.
+      // Allow searching for users by email.
       allow list: if isAuthenticated();
-      // Users can get, update, or delete their own profile.
-      allow get, update, delete: if request.auth.uid == userId;
-      // Users can create their own profile.
+      // FIX: Allow any authenticated user to view a profile.
+      allow get: if isAuthenticated();
+      // Only the profile owner can update or delete their profile.
+      allow update, delete: if request.auth.uid == userId;
+      // A user can create their own profile.
       allow create: if request.auth.uid == userId;
     }
 
