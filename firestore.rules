@@ -21,10 +21,21 @@ service cloud.firestore {
 
     function isOfficeOwner(officeId) {
        return isAuthenticated() &&
+              resource.data.ownerId == request.auth.uid;
+    }
+    
+    function isOwnerOfExistingOffice(officeId) {
+       return isAuthenticated() &&
               get(/databases/$(database)/documents/offices/$(officeId)).data.ownerId == request.auth.uid;
     }
 
+
     // --- USER DATA (Profiles and User-Specific Subcollections) ---
+    match /users/{userId} {
+      // A user can only access their own subcollections.
+      allow read, write: if isAuthenticated() && request.auth.uid == userId;
+    }
+
     match /userProfiles/{userId} {
       // Any authenticated user can look up profiles. Required for "add by email" and "view profile".
       allow list, get: if isAuthenticated();
@@ -32,38 +43,19 @@ service cloud.firestore {
       allow create, update, delete: if request.auth.uid == userId;
     }
 
-    match /users/{userId} {
-      // This collection stores links showing which offices a user is a member of.
-      match /memberOfOffices/{officeId} {
-        // A user can see their own memberships.
-        allow read: if request.auth.uid == userId;
-        // An admin of an office can add a membership link to another user.
-        // A user who is the owner of an office can add the initial link for themselves.
-        allow create: if isOfficeAdminOrOwner(officeId) || (request.auth.uid == userId && isOfficeOwner(officeId));
-        // A user can remove their own membership link (leave office).
-        // An admin can also remove another user's link.
-        allow delete: if request.auth.uid == userId || isOfficeAdminOrOwner(officeId);
-        allow update: if false; // These are just links, they should be created/deleted, not updated.
-      }
-
-      // Only the user can read/write their own notifications.
-      match /notifications/{notificationId} {
-        allow read, write: if request.auth.uid == userId;
-      }
-    }
 
     // --- CHAT DATA ---
     match /chatThreads/{threadId} {
       function isParticipant() {
-        return request.auth.uid in get(/databases/$(database)/documents/chatThreads/$(threadId)).data.participantIds;
+        return request.auth.uid in resource.data.participantIds;
       }
 
       allow read, list, create, update, delete: if isAuthenticated() && isParticipant();
 
       match /messages/{messageId} {
-        allow read: if isParticipant();
+        allow read: if isAuthenticated() && isParticipant();
         // A user must be a participant AND the sender to create a message.
-        allow create: if isParticipant() && request.resource.data.senderId == request.auth.uid;
+        allow create: if isAuthenticated() && isParticipant() && request.resource.data.senderId == request.auth.uid;
         allow update, delete: if false; // Messages are immutable.
       }
     }
@@ -71,19 +63,19 @@ service cloud.firestore {
     // --- OFFICE DATA ---
     match /offices/{officeId} {
       allow get: if isOfficeMember(officeId);
-      allow list, create: if isAuthenticated(); // Anyone can create or list offices to find them.
+      allow list, create: if isAuthenticated();
       allow update: if isOfficeAdminOrOwner(officeId);
-      allow delete: if isOfficeOwner(officeId);
+      allow delete: if isOwnerOfExistingOffice(officeId);
 
-      // Subcollections of an Office
+      // --- Subcollections of an Office ---
       match /members/{memberUserId} {
         allow read, list: if isOfficeMember(officeId);
         // An admin can add a new member.
-        // A user who is the owner of the office can add themselves when creating the office.
+        // A user can also add themselves if they are the designated owner of the office.
         allow create: if isOfficeAdminOrOwner(officeId) || (request.auth.uid == memberUserId && isOfficeOwner(officeId));
         allow update: if isOfficeAdminOrOwner(officeId);
         // An admin can remove another member. A member can remove themselves unless they are the owner.
-        allow delete: if (isOfficeAdminOrOwner(officeId) && request.auth.uid != memberUserId) || (request.auth.uid == memberUserId && !isOfficeOwner(officeId));
+        allow delete: if (isOfficeAdminOrOwner(officeId) && request.auth.uid != memberUserId) || (request.auth.uid == memberUserId && !isOwnerOfExistingOffice(officeId));
       }
 
       match /joinRequests/{requestId} {
@@ -98,41 +90,29 @@ service cloud.firestore {
         allow update, delete: if false;
       }
 
+      // FIX: Allow any office member to create activity logs. This is required for client-side logging after successful actions (e.g., deleting a room).
       match /activityLog/{activityId} {
-        allow read, list: if isOfficeMember(officeId);
-        // FIX: Allow any office member to create log entries, but not update/delete them.
         allow create: if isOfficeMember(officeId);
-        allow update, delete: if false;
+        allow read, list: if isOfficeMember(officeId);
+        allow update, delete: if false; // Logs are immutable.
       }
-
+      
       // Default rules for collaborative office subcollections
       match /tasks/{taskId} {
-        function isCreatorOrAssignee() {
-          let taskData = get(/databases/$(database)/documents/offices/$(officeId)/tasks/$(taskId)).data;
-          return request.auth.uid == taskData.creatorUserId || request.auth.uid in taskData.assigneeIds;
-        }
-        allow read, list, create: if isOfficeMember(officeId);
-        allow update, delete: if isOfficeAdminOrOwner(officeId) || isCreatorOrAssignee();
+        allow read, list, create, update: if isOfficeMember(officeId);
+        allow delete: if isOfficeAdminOrOwner(officeId); // Only admins/owners can delete
       }
       match /goals/{goalId} {
-        function isCreatorOrParticipant() {
-          let goalData = get(/databases/$(database)/documents/offices/$(officeId)/goals/$(goalId)).data;
-          return request.auth.uid == goalData.creatorUserId || request.auth.uid in goalData.participantIds;
-        }
-        allow read, list, create: if isOfficeMember(officeId);
-        allow update, delete: if isOfficeAdminOrOwner(officeId) || isCreatorOrParticipant();
+        allow read, list, create, update: if isOfficeMember(officeId);
+        allow delete: if isOfficeAdminOrOwner(officeId); // Only admins/owners can delete
       }
       match /meetings/{meetingId} {
-         function isCreatorOrParticipant() {
-          let meetingData = get(/databases/$(database)/documents/offices/$(officeId)/meetings/$(meetingId)).data;
-          return request.auth.uid == meetingData.creatorUserId || request.auth.uid in meetingData.participantIds;
-        }
-        allow read, list, create: if isOfficeMember(officeId);
-        allow update, delete: if isOfficeAdminOrOwner(officeId) || isCreatorOrParticipant();
+        allow read, list, create, update: if isOfficeMember(officeId);
+        allow delete: if isOfficeAdminOrOwner(officeId); // Only admins/owners can delete
       }
       match /rooms/{roomId} {
-        allow read, list: if isOfficeMember(officeId);
-        allow create, update, delete: if isOfficeAdminOrOwner(officeId);
+        allow read, list, create, update: if isOfficeMember(officeId);
+        allow delete: if isOfficeAdminOrOwner(officeId); // Only admins/owners can delete
       }
     }
   }
