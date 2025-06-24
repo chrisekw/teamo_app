@@ -80,6 +80,8 @@ const roomConverter: FirestoreDataConverter<Room, RoomFirestoreData> = {
       coverImageUrl: data.coverImageUrl,
       createdAt: data.createdAt instanceof Timestamp ? data.createdAt.toDate() : new Date(),
       updatedAt: data.updatedAt instanceof Timestamp ? data.updatedAt.toDate() : new Date(),
+      creatorUserId: data.creatorUserId,
+      participantIds: data.participantIds,
     };
   }
 };
@@ -191,12 +193,21 @@ export async function createOffice(
 
   const newOfficeDocRef = await addDoc(officesCol(), newOfficeData as Office);
 
-  const ownerMemberData = {
+  const ownerMemberData: {
+    name: string;
+    role: MemberRole;
+    joinedAt: FieldValue;
+    avatarUrl?: string;
+  } = {
     name: currentUserName,
-    role: "Owner" as MemberRole,
-    avatarUrl: currentUserAvatar,
-    joinedAt: serverTimestamp() 
+    role: "Owner",
+    joinedAt: serverTimestamp(),
   };
+
+  if (currentUserAvatar) {
+    ownerMemberData.avatarUrl = currentUserAvatar;
+  }
+
   await setDoc(memberDocRef(newOfficeDocRef.id, currentUserId), ownerMemberData);
   await setDoc(doc(userOfficesCol(currentUserId), newOfficeDocRef.id), { officeId: newOfficeDocRef.id, officeName: officeName, role: "Owner", joinedAt: serverTimestamp() });
 
