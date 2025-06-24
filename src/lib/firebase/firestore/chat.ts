@@ -16,7 +16,8 @@ import {
   limit,
   setDoc,
   onSnapshot, 
-  type Unsubscribe 
+  type Unsubscribe,
+  deleteField
 } from 'firebase/firestore';
 import type { ChatMessage, ChatMessageFirestoreData, ChatThread, ChatThreadFirestoreData, ChatUser } from '@/types';
 import { addUserNotification } from './notifications';
@@ -80,6 +81,10 @@ const chatThreadConverter: FirestoreDataConverter<ChatThread, ChatThreadFirestor
         }
       }
     }
+    
+    if (chatThreadInput.hasOwnProperty('callState')) {
+        data.callState = chatThreadInput.callState;
+    }
 
     return data as DocumentData;
   },
@@ -93,6 +98,7 @@ const chatThreadConverter: FirestoreDataConverter<ChatThread, ChatThreadFirestor
       lastMessageSenderName: data.lastMessageSenderName,
       lastMessageTimestamp: data.lastMessageTimestamp instanceof Timestamp ? data.lastMessageTimestamp.toDate() : undefined,
       updatedAt: data.updatedAt instanceof Timestamp ? data.updatedAt.toDate() : new Date(),
+      callState: data.callState,
     };
   }
 };
@@ -339,3 +345,31 @@ export function onGeneralOfficeMessagesUpdate(
   });
 }
 
+export function onChatThreadDocUpdate(
+  threadId: string,
+  callback: (thread: ChatThread | null) => void
+): Unsubscribe {
+  if (!threadId) {
+    console.error("Thread ID is required to listen for thread updates.");
+    return () => {};
+  }
+  const threadRef = chatThreadDocRef(threadId);
+  return onSnapshot(threadRef, (doc) => {
+    callback(doc.exists() ? doc.data() : null);
+  }, (error) => {
+    console.error(`Error listening to thread ${threadId}:`, error);
+    callback(null);
+  });
+}
+
+export async function updateCallState(
+    threadId: string,
+    callState: { active: boolean; initiatedBy: string } | null
+): Promise<void> {
+    const threadRef = chatThreadDocRef(threadId);
+    if (callState) {
+        await updateDoc(threadRef, { callState });
+    } else {
+        await updateDoc(threadRef, { callState: deleteField() });
+    }
+}

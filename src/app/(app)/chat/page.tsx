@@ -7,7 +7,7 @@ import { useSearchParams, useRouter } from 'next/navigation';
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Paperclip, Send, Users, MessageSquareText, ArrowLeft, Loader2, Video, PhoneOff, Mic, Square, Play, Pause, AlertTriangle } from "lucide-react";
+import { Paperclip, Send, Users, MessageSquareText, ArrowLeft, Loader2, Video, PhoneOff, Mic, Square, Play, Pause, AlertTriangle, VideoOff } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
@@ -22,12 +22,14 @@ import { getOfficesForUser, getMembersForOffice } from '@/lib/firebase/firestore
 import {
   getOrCreateDmThread,
   addChatMessageAndNotify,
-  onMessagesUpdate, // Changed
+  onMessagesUpdate,
   addGeneralOfficeMessage,
-  onGeneralOfficeMessagesUpdate // Changed
+  onGeneralOfficeMessagesUpdate,
+  onChatThreadDocUpdate,
+  updateCallState
 } from '@/lib/firebase/firestore/chat';
 import { markNotificationsAsReadByLink } from '@/lib/firebase/firestore/notifications';
-import { doc, getDoc, type Unsubscribe } from 'firebase/firestore'; // Added Unsubscribe
+import { doc, getDoc, type Unsubscribe } from 'firebase/firestore'; 
 import { db } from '@/lib/firebase/client';
 
 
@@ -42,6 +44,7 @@ export default function ChatPage() {
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
   const [activeChatType, setActiveChatType] = useState<'dm' | 'general' | null>(null);
   const [activeChatTargetUser, setActiveChatTargetUser] = useState<ChatUser | null>(null);
+  const [activeThreadDetails, setActiveThreadDetails] = useState<ChatThread | null>(null);
 
   const [allMessages, setAllMessages] = useState<Record<string, ChatMessage[]>>({});
   const [newMessage, setNewMessage] = useState("");
@@ -54,7 +57,7 @@ export default function ChatPage() {
   const [isLoadingMessages, setIsLoadingMessages] = useState(false);
   const [isSendingMessage, setIsSendingMessage] = useState(false);
 
-  const [isCallActiveForChat, setIsCallActiveForChat] = useState<Record<string, boolean>>({});
+  const isCallActive = activeChatType === 'dm' && !!activeThreadDetails?.callState?.active;
 
   const [isRecordingVoiceNote, setIsRecordingVoiceNote] = useState(false);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -139,26 +142,32 @@ export default function ChatPage() {
 
   // Real-time message listener
   useEffect(() => {
-    if (!activeChatId || !activeChatType) {
-      return () => {};
-    }
+    if (!activeChatId) return;
 
-    setIsLoadingMessages(true);
     let unsubscribe: Unsubscribe = () => {};
+    let unsubscribeThread: Unsubscribe = () => {};
+    
+    setIsLoadingMessages(true);
 
     if (activeChatType === 'dm') {
       unsubscribe = onMessagesUpdate(activeChatId, (messages) => {
         setAllMessages(prev => ({ ...prev, [activeChatId]: messages }));
         setIsLoadingMessages(false);
       });
+      unsubscribeThread = onChatThreadDocUpdate(activeChatId, setActiveThreadDetails);
+
     } else if (activeChatType === 'general' && activeOfficeForChat) {
       unsubscribe = onGeneralOfficeMessagesUpdate(activeOfficeForChat.id, (messages) => {
         setAllMessages(prev => ({ ...prev, [`general-${activeOfficeForChat.id}`]: messages }));
         setIsLoadingMessages(false);
       });
+      setActiveThreadDetails(null); // No call state for general chat
     }
 
-    return () => unsubscribe();
+    return () => {
+        unsubscribe();
+        unsubscribeThread();
+    };
   }, [activeChatId, activeChatType, activeOfficeForChat?.id]);
 
 
@@ -359,21 +368,33 @@ export default function ChatPage() {
     };
     setAllMessages(prev => ({ ...prev, [chatId]: [...(prev[chatId] || []), systemMessage] }));
   };
+  
+  const handleStartVideoCall = async () => {
+    if (!activeChatId || !currentUserForChat || activeChatType !== 'dm') return;
+    try {
+        await updateCallState(activeChatId, {
+            active: true,
+            initiatedBy: currentUserForChat.id,
+        });
+        addSystemMessage(activeChatId, "You started a video call.");
+        toast({ title: "Video Call Started", description: "The video call is now active." });
+    } catch(error) {
+        console.error("Error starting video call:", error);
+        toast({ variant: "destructive", title: "Call Error", description: "Could not start video call." });
+    }
+  };
 
-  const handleToggleVideoCall = () => {
-    if (!activeChatId || activeChatType !== 'dm' || !activeChatTargetUser) return;
-    const callActive = !!isCallActiveForChat[activeChatId];
-    const targetName = activeChatTargetUser.name;
-
-    if (callActive) {
-      const mockDuration = `${Math.floor(Math.random() * 5) + 1}:${String(Math.floor(Math.random() * 60)).padStart(2, '0')}`;
-      addSystemMessage(activeChatId, `Video call with ${targetName} ended.`, mockDuration);
-      setIsCallActiveForChat(prev => ({ ...prev, [activeChatId]: false }));
-      toast({ title: "Video Call Ended", description: `Call with ${targetName} has ended.` });
-    } else {
-      addSystemMessage(activeChatId, `Video call started with ${targetName}.`);
-      setIsCallActiveForChat(prev => ({ ...prev, [activeChatId]: true }));
-      toast({ title: "Video Call Started", description: `Attempting to call ${targetName}...` });
+  const handleEndVideoCall = async () => {
+    if (!activeChatId || activeChatType !== 'dm') return;
+    try {
+        await updateCallState(activeChatId, null); // This will delete the field
+        const targetName = activeChatTargetUser?.name || 'the other person';
+        const mockDuration = `${Math.floor(Math.random() * 5) + 1}:${String(Math.floor(Math.random() * 60)).padStart(2, '0')}`;
+        addSystemMessage(activeChatId, `Video call with ${targetName} ended.`, mockDuration);
+        toast({ title: "Video Call Ended" });
+    } catch(error) {
+        console.error("Error ending video call:", error);
+        toast({ variant: "destructive", title: "Call Error", description: "Could not end video call." });
     }
   };
 
@@ -486,6 +507,23 @@ export default function ChatPage() {
   if (authLoading || !currentUserForChat || activeOfficeForChat === undefined) {
     return <div className="flex items-center justify-center h-full"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div>;
   }
+  
+  const VideoCallInterface = () => (
+    <div className="flex flex-col items-center justify-center h-full bg-muted/50 p-4 text-center">
+        <Video className="h-16 w-16 text-primary mb-4" />
+        <h3 className="text-2xl font-bold font-headline">Video Call in Progress</h3>
+        <p className="text-muted-foreground mt-2">
+            This is a placeholder for the real-time video stream.
+        </p>
+        <p className="text-sm mt-1 text-muted-foreground">
+            You are in a call with {activeChatTargetUser?.name}.
+        </p>
+        <div className="mt-6 flex gap-4">
+            <Button variant="outline"><Mic className="mr-2 h-4 w-4" /> Mute</Button>
+            <Button variant="outline"><VideoOff className="mr-2 h-4 w-4" /> Stop Video</Button>
+        </div>
+    </div>
+  );
 
   const renderChatList = (isMobileLayout: boolean) => {
     return (
@@ -550,65 +588,69 @@ export default function ChatPage() {
                   <CardTitle className={cn("font-headline", isMobileLayout ? "text-lg" : "text-xl")}>{getChatTitle()}</CardTitle>
               </div>
               {activeChatId && activeChatType === 'dm' && (
-                  <Button variant="ghost" size="icon" onClick={handleToggleVideoCall} aria-label={isCallActiveForChat[activeChatId] ? "End Call" : "Start Video Call"}>
-                      {isCallActiveForChat[activeChatId] ? <PhoneOff className="h-5 w-5 text-destructive" /> : <Video className="h-5 w-5 text-primary" />}
+                  <Button variant="ghost" size="icon" onClick={isCallActive ? handleEndVideoCall : handleStartVideoCall} aria-label={isCallActive ? "End Call" : "Start Video Call"}>
+                      {isCallActive ? <PhoneOff className="h-5 w-5 text-destructive" /> : <Video className="h-5 w-5 text-primary" />}
                   </Button>
               )}
           </CardHeader>
           <CardContent className="flex-1 p-0 overflow-hidden">
-          <ScrollArea className="h-full p-4" ref={scrollAreaRef}>
-              <div className="space-y-4">
-              {isLoadingMessages && <div className="flex justify-center py-4"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>}
-              {!isLoadingMessages && displayedMessages.map((msg) => {
-                const isUserSender = msg.senderId === currentUserForChat?.id;
-                return (
-                  <div key={msg.id} className={`flex items-end space-x-2 ${isUserSender ? 'justify-end' : ''}`}>
-                  {!isUserSender && msg.senderId !== 'system' && (<Avatar className="h-8 w-8"><AvatarImage src={msg.avatarUrl} alt={msg.senderName} data-ai-hint="person avatar"/><AvatarFallback>{msg.senderName?.substring(0,1) || 'S'}</AvatarFallback></Avatar>)}
-                  <div className={`max-w-xs lg:max-w-md px-3 py-2 sm:px-4 sm:py-2 rounded-lg shadow ${isUserSender ? 'bg-primary text-primary-foreground' : msg.senderId === 'system' ? 'bg-transparent w-full text-center' : 'bg-muted'}`}>
-                      {!isUserSender && msg.senderId !== 'system' && <p className="text-xs font-semibold mb-1">{msg.senderName}</p>}
+            {isCallActive ? (
+                <VideoCallInterface />
+            ) : (
+                <ScrollArea className="h-full p-4" ref={scrollAreaRef}>
+                    <div className="space-y-4">
+                    {isLoadingMessages && <div className="flex justify-center py-4"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>}
+                    {!isLoadingMessages && displayedMessages.map((msg) => {
+                        const isUserSender = msg.senderId === currentUserForChat?.id;
+                        return (
+                        <div key={msg.id} className={`flex items-end space-x-2 ${isUserSender ? 'justify-end' : ''}`}>
+                        {!isUserSender && msg.senderId !== 'system' && (<Avatar className="h-8 w-8"><AvatarImage src={msg.avatarUrl} alt={msg.senderName} data-ai-hint="person avatar"/><AvatarFallback>{msg.senderName?.substring(0,1) || 'S'}</AvatarFallback></Avatar>)}
+                        <div className={`max-w-xs lg:max-w-md px-3 py-2 sm:px-4 sm:py-2 rounded-lg shadow ${isUserSender ? 'bg-primary text-primary-foreground' : msg.senderId === 'system' ? 'bg-transparent w-full text-center' : 'bg-muted'}`}>
+                            {!isUserSender && msg.senderId !== 'system' && <p className="text-xs font-semibold mb-1">{msg.senderName}</p>}
 
-                      {msg.type === 'voice_note' && msg.audioDataUrl ? (
-                        <div className="flex items-center space-x-2">
-                          <audio
-                            ref={el => { if (el) audioElementsRef.current[msg.id] = el; }}
-                            src={msg.audioDataUrl}
-                            onEnded={() => handleAudioEnded(msg.id)}
-                            className="hidden"
-                           />
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-7 w-7"
-                            onClick={() => currentlyPlayingAudioId === msg.id ? pauseAudio(msg.id) : playAudio(msg.id)}
-                          >
-                            {currentlyPlayingAudioId === msg.id ? <Pause className="h-4 w-4"/> : <Play className="h-4 w-4"/>}
-                          </Button>
-                          <span className="text-sm">{msg.voiceNoteDuration || "Voice Note"}</span>
+                            {msg.type === 'voice_note' && msg.audioDataUrl ? (
+                                <div className="flex items-center space-x-2">
+                                <audio
+                                    ref={el => { if (el) audioElementsRef.current[msg.id] = el; }}
+                                    src={msg.audioDataUrl}
+                                    onEnded={() => handleAudioEnded(msg.id)}
+                                    className="hidden"
+                                />
+                                <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-7 w-7"
+                                    onClick={() => currentlyPlayingAudioId === msg.id ? pauseAudio(msg.id) : playAudio(msg.id)}
+                                >
+                                    {currentlyPlayingAudioId === msg.id ? <Pause className="h-4 w-4"/> : <Play className="h-4 w-4"/>}
+                                </Button>
+                                <span className="text-sm">{msg.voiceNoteDuration || "Voice Note"}</span>
+                                </div>
+                            ) : msg.type === 'call_event' ? (
+                                <p className="text-sm italic text-muted-foreground/80">{msg.text} {msg.callDuration && `(Duration: ${msg.callDuration})`}</p>
+                            ) : (
+                                <p className="text-sm whitespace-pre-wrap">{msg.text}</p>
+                            )}
+
+                            {msg.senderId !== 'system' && <p className={`text-xs mt-1 ${isUserSender ? 'text-primary-foreground/70' : 'text-muted-foreground/70'}`}>{new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>}
                         </div>
-                      ) : msg.type === 'call_event' ? (
-                        <p className="text-sm italic text-muted-foreground/80">{msg.text} {msg.callDuration && `(Duration: ${msg.callDuration})`}</p>
-                      ) : (
-                        <p className="text-sm whitespace-pre-wrap">{msg.text}</p>
-                      )}
-
-                      {msg.senderId !== 'system' && <p className={`text-xs mt-1 ${isUserSender ? 'text-primary-foreground/70' : 'text-muted-foreground/70'}`}>{new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>}
-                  </div>
-                  {isUserSender && (<Avatar className="h-8 w-8"><AvatarImage src={msg.avatarUrl} alt={msg.senderName} data-ai-hint="person avatar"/><AvatarFallback>{currentUserForChat?.name.substring(0,1)}</AvatarFallback></Avatar>)}
-                  </div>
-                );
-              })}
-              {!isLoadingMessages && displayedMessages.length === 0 && activeChatId && (
-                  <div className="text-center text-muted-foreground flex flex-col items-center justify-center h-full pt-10">
-                      <MessageSquareText className="h-12 w-12 mb-2"/><p>No messages in this chat yet.</p><p className="text-xs">Start the conversation!</p>
-                  </div>
-              )}
-              {!activeChatId && !isLoadingMessages && (
-                  <div className="text-center text-muted-foreground flex flex-col items-center justify-center h-full pt-10">
-                      <MessageSquareText className="h-12 w-12 mb-2"/><p>Select a chat to begin.</p>
-                  </div>
-              )}
-              </div>
-          </ScrollArea>
+                        {isUserSender && (<Avatar className="h-8 w-8"><AvatarImage src={msg.avatarUrl} alt={msg.senderName} data-ai-hint="person avatar"/><AvatarFallback>{currentUserForChat?.name.substring(0,1)}</AvatarFallback></Avatar>)}
+                        </div>
+                        );
+                    })}
+                    {!isLoadingMessages && displayedMessages.length === 0 && activeChatId && (
+                        <div className="text-center text-muted-foreground flex flex-col items-center justify-center h-full pt-10">
+                            <MessageSquareText className="h-12 w-12 mb-2"/><p>No messages in this chat yet.</p><p className="text-xs">Start the conversation!</p>
+                        </div>
+                    )}
+                    {!activeChatId && !isLoadingMessages && (
+                        <div className="text-center text-muted-foreground flex flex-col items-center justify-center h-full pt-10">
+                            <MessageSquareText className="h-12 w-12 mb-2"/><p>Select a chat to begin.</p>
+                        </div>
+                    )}
+                    </div>
+                </ScrollArea>
+            )}
           </CardContent>
           <div className={cn("border-t bg-background", isMobileLayout ? "p-2" : "p-4")}>
               <div className="flex items-center space-x-2">

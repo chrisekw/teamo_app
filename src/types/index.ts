@@ -248,11 +248,19 @@ export interface ChatThread {
   lastMessageSenderName?: string;
   lastMessageTimestamp?: Date;
   updatedAt: Date;
+  callState?: {
+    active: boolean;
+    initiatedBy: string;
+  };
 }
 
 export type ChatThreadFirestoreData = Omit<ChatThread, 'id' | 'lastMessageTimestamp' | 'updatedAt'> & {
   lastMessageTimestamp?: Timestamp;
   updatedAt: Timestamp;
+  callState?: {
+    active: boolean;
+    initiatedBy: string;
+  };
 };
 
 
