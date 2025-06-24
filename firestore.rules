@@ -13,7 +13,6 @@ service cloud.firestore {
              exists(/databases/$(database)/documents/offices/$(officeId)/members/$(request.auth.uid));
     }
 
-    // CORRECTED: This function uses valid rule syntax.
     function isOfficeAdminOrOwner(officeId) {
       return isOfficeMember(officeId) &&
              (get(/databases/$(database)/documents/offices/$(officeId)/members/$(request.auth.uid)).data.role in ['Admin', 'Owner']);
@@ -26,15 +25,10 @@ service cloud.firestore {
 
     // --- Top Level User Collections ---
     match /userProfiles/{userId} {
-      // FIX: This rule allows any authenticated user to get a profile or list profiles.
-      // This is required for the "View Profile" and "Add by Email" features to work.
       allow list, get: if isAuthenticated();
-
-      // Only the user themselves can create, update, or delete their own profile.
       allow create, update, delete: if request.auth.uid == userId;
     }
 
-    // This block handles user-specific subcollections like their office memberships, notifications, and goals.
     match /users/{userId} {
       match /notifications/{notificationId} {
         allow read, write: if request.auth.uid == userId;
@@ -46,7 +40,8 @@ service cloud.firestore {
 
       match /memberOfOffices/{officeId} {
         allow read: if request.auth.uid == userId;
-        allow create: if isOfficeAdminOrOwner(officeId);
+        // FIX: Allow creating a membership link if you are an admin OR if you are the owner creating your own link.
+        allow create: if isOfficeAdminOrOwner(officeId) || (request.auth.uid == userId && isOfficeOwner(officeId));
         allow delete: if request.auth.uid == userId;
         allow update: if false;
       }
@@ -80,8 +75,9 @@ service cloud.firestore {
       // Subcollections of an Office
       match /members/{memberUserId} {
         allow read, list: if isOfficeMember(officeId);
-        allow create, update: if isOfficeAdminOrOwner(officeId);
-        // An admin/owner can remove other members. A member can remove themselves (leave) unless they are the owner.
+        // FIX: Allow creating a member if you are an admin OR if you are the owner creating your own initial membership.
+        allow create: if isOfficeAdminOrOwner(officeId) || (request.auth.uid == memberUserId && isOfficeOwner(officeId));
+        allow update: if isOfficeAdminOrOwner(officeId);
         allow delete: if (isOfficeAdminOrOwner(officeId) && request.auth.uid != memberUserId) ||
                          (request.auth.uid == memberUserId && !isOfficeOwner(officeId));
       }
