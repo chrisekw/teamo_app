@@ -7,21 +7,14 @@ import Link from 'next/link';
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Loader2, Video, VideoOff, Mic, MicOff, ScreenShare, ScreenShareOff, PhoneOff, ArrowLeft, Users, ShieldCheck, Settings2, UserCircle as UserIconLucide } from "lucide-react";
 import { useAuth } from "@/lib/firebase/auth";
 import { useToast } from "@/hooks/use-toast";
-import type { Office, Room, OfficeMember, MemberRole } from "@/types";
+import type { Office, Room, OfficeMember } from "@/types";
 import { getOfficeDetails, getRoomDetails, getMembersForOffice } from "@/lib/firebase/firestore/offices";
 import { Skeleton } from '@/components/ui/skeleton';
 import { ParticipantVideo } from '@/components/meetings/participant-video';
 import { cn } from '@/lib/utils';
-
-const roleIcons: Record<MemberRole, React.ElementType> = {
-  "Owner": ShieldCheck,
-  "Admin": Settings2,
-  "Member": UserIconLucide,
-};
 
 export default function OfficeRoomPage() {
   const { user, loading: authLoading } = useAuth();
@@ -90,8 +83,8 @@ export default function OfficeRoomPage() {
       }
       setOfficeDetails(officeData);
       setRoomDetails(roomData);
-      const participants = membersData.filter(member => roomData.participantIds?.includes(member.userId) || roomData.creatorUserId === member.userId);
-      setOfficeMembers(participants.length > 0 ? participants : membersData || []);
+      const roomParticipants = membersData.filter(member => roomData.participantIds?.includes(member.userId) || roomData.creatorUserId === member.userId);
+      setOfficeMembers(roomParticipants.length > 0 ? roomParticipants : membersData || []);
 
 
     } catch (error) {
