@@ -48,14 +48,17 @@ if (typeof window !== 'undefined' && 'Notification' in window && 'serviceWorker'
   try {
     messaging = getMessaging(app);
     // Optional: Handle foreground messages (app is open and active tab)
-    // onMessage(messaging, (payload) => {
-    //   console.log('Message received in foreground. ', payload);
-    //   // Customize notification handling here
-    //   // new Notification(payload.notification?.title || 'New Message', {
-    //   //   body: payload.notification?.body,
-    //   //   icon: payload.notification?.icon
-    //   // });
-    // });
+    onMessage(messaging, (payload) => {
+      console.log('Message received in foreground. ', payload);
+      // Let's show a toast for foreground messages
+      const { toast } = (window as any).TeamoToast; // A bit of a hack to access toast
+      if (toast && payload.notification) {
+        toast({
+            title: payload.notification.title,
+            description: payload.notification.body,
+        });
+      }
+    });
   } catch (error) {
     console.error("Failed to initialize Firebase Messaging:", error);
     messaging = null;
@@ -65,7 +68,6 @@ if (typeof window !== 'undefined' && 'Notification' in window && 'serviceWorker'
 export const requestNotificationPermissionAndGetToken = async (): Promise<string | null> => {
   if (!messaging) {
     console.warn("Firebase Messaging is not initialized or not supported in this environment.");
-    // alert("Push notifications are not supported on this browser or device.");
     return null;
   }
 
@@ -75,10 +77,9 @@ export const requestNotificationPermissionAndGetToken = async (): Promise<string
       console.log('Notification permission granted.');
       if (!process.env.NEXT_PUBLIC_FIREBASE_VAPID_KEY) {
         console.error("VAPID key is not configured. Please set NEXT_PUBLIC_FIREBASE_VAPID_KEY in your environment variables.");
-        // alert("Push notification setup error: VAPID key missing.");
         return null;
       }
-      const currentToken = await getToken(messaging, { vapidKey: process.env.NEXT_PUBLIC_FIREBASE_VAPID_KEY });
+      const currentToken = await getToken(messaging, { vapidKey: process.env.NEXT_PUBLIC_FIREBASE_VAPID_KEY, serviceWorkerRegistration: await navigator.serviceWorker.register('/firebase-messaging-sw.js') });
       if (currentToken) {
         console.log('FCM Token:', currentToken);
         // TODO: Send this token to your server and store it, associated with the user.

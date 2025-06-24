@@ -46,6 +46,13 @@ export default function SettingsPage() {
     }
   }, [theme, systemTheme]);
 
+  // Expose toast to window for foreground message handler
+  useEffect(() => {
+    (window as any).TeamoToast = { toast };
+    return () => { delete (window as any).TeamoToast };
+  }, [toast]);
+
+
   const handleSaveChanges = () => {
     toast({
       title: t('Toast.settingsSavedTitle'),
