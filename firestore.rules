@@ -9,6 +9,10 @@ service cloud.firestore {
       return request.auth != null;
     }
 
+    function isTheUser(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
     function isOfficeMember(officeId) {
       return isAuthenticated() &&
              exists(/databases/$(database)/documents/offices/$(officeId)/members/$(request.auth.uid));
@@ -18,12 +22,14 @@ service cloud.firestore {
       return isOfficeMember(officeId) &&
              (get(/databases/$(database)/documents/offices/$(officeId)/members/$(request.auth.uid)).data.role in ['Admin', 'Owner']);
     }
-
-    function isOfficeOwner(officeId) {
+    
+    // Used for office creation, where the office doc doesn't exist yet but is part of the same write operation.
+    function isOwnerOfNewOffice() {
        return isAuthenticated() &&
-              resource.data.ownerId == request.auth.uid;
+              request.resource.data.ownerId == request.auth.uid;
     }
     
+    // Used for existing offices.
     function isOwnerOfExistingOffice(officeId) {
        return isAuthenticated() &&
               get(/databases/$(database)/documents/offices/$(officeId)).data.ownerId == request.auth.uid;
@@ -33,24 +39,25 @@ service cloud.firestore {
     // --- USER DATA (Profiles and User-Specific Subcollections) ---
     match /users/{userId} {
       // A user can only access their own subcollections.
-      allow read, write: if isAuthenticated() && request.auth.uid == userId;
+      allow read, write: if isTheUser(userId);
     }
 
     match /userProfiles/{userId} {
       // Any authenticated user can look up profiles. Required for "add by email" and "view profile".
       allow list, get: if isAuthenticated();
       // A user can only create, update, or delete their own profile.
-      allow create, update, delete: if request.auth.uid == userId;
+      allow create, update, delete: if isTheUser(userId);
     }
 
 
     // --- CHAT DATA ---
     match /chatThreads/{threadId} {
       function isParticipant() {
-        return request.auth.uid in resource.data.participantIds;
+        // Use `resource.data` for create/update rules, and `get()` for read/delete.
+        return request.auth.uid in (request.resource.data.participantIds != null ? request.resource.data.participantIds : get(/databases/$(database)/documents/chatThreads/$(threadId)).data.participantIds);
       }
 
-      allow read, list, create, update, delete: if isAuthenticated() && isParticipant();
+      allow read, write: if isAuthenticated() && isParticipant();
 
       match /messages/{messageId} {
         allow read: if isAuthenticated() && isParticipant();
@@ -63,7 +70,8 @@ service cloud.firestore {
     // --- OFFICE DATA ---
     match /offices/{officeId} {
       allow get: if isOfficeMember(officeId);
-      allow list, create: if isAuthenticated();
+      allow list: if isAuthenticated();
+      allow create: if isAuthenticated() && isOwnerOfNewOffice();
       allow update: if isOfficeAdminOrOwner(officeId);
       allow delete: if isOwnerOfExistingOffice(officeId);
 
@@ -72,10 +80,10 @@ service cloud.firestore {
         allow read, list: if isOfficeMember(officeId);
         // An admin can add a new member.
         // A user can also add themselves if they are the designated owner of the office.
-        allow create: if isOfficeAdminOrOwner(officeId) || (request.auth.uid == memberUserId && isOfficeOwner(officeId));
+        allow create: if isOfficeAdminOrOwner(officeId) || (isTheUser(memberUserId) && isOwnerOfExistingOffice(officeId));
         allow update: if isOfficeAdminOrOwner(officeId);
         // An admin can remove another member. A member can remove themselves unless they are the owner.
-        allow delete: if (isOfficeAdminOrOwner(officeId) && request.auth.uid != memberUserId) || (request.auth.uid == memberUserId && !isOwnerOfExistingOffice(officeId));
+        allow delete: if (isOfficeAdminOrOwner(officeId) && request.auth.uid != memberUserId) || (isTheUser(memberUserId) && !isOwnerOfExistingOffice(officeId));
       }
 
       match /joinRequests/{requestId} {
@@ -90,10 +98,8 @@ service cloud.firestore {
         allow update, delete: if false;
       }
 
-      // FIX: Allow any office member to create activity logs. This is required for client-side logging after successful actions (e.g., deleting a room).
       match /activityLog/{activityId} {
-        allow create: if isOfficeMember(officeId);
-        allow read, list: if isOfficeMember(officeId);
+        allow create, read, list: if isOfficeMember(officeId);
         allow update, delete: if false; // Logs are immutable.
       }
       
