@@ -98,10 +98,8 @@ export function onTasksUpdate(
   
   const tasksCol = getTasksCollection(officeId);
   const q = query(tasksCol, 
-    or(
-      where("creatorUserId", "==", currentUserId),
-      where("assigneeIds", "array-contains", currentUserId)
-    ),
+    // This query fetches all tasks for the office. 
+    // Client-side can filter if needed, or more complex rules/queries can be built.
     orderBy("createdAt", "desc")
   );
   
@@ -143,7 +141,7 @@ export async function addTaskToOffice(
     description: `Assigned to: ${newTask.assigneesDisplay || 'Unassigned'}. Created by ${actorName}.`,
     iconName: "ListChecks",
     actorId: creatorUserId,
-    actorName: actorName,
+    actorName,
     entityId: newTask.id,
     entityType: "task",
   });

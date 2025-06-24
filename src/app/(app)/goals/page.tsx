@@ -21,12 +21,12 @@ import { Slider } from "@/components/ui/slider";
 import type { Goal, OfficeMember } from "@/types";
 import { useAuth } from "@/lib/firebase/auth";
 import { useToast } from "@/hooks/use-toast";
-import { addGoalForUser, onGoalsUpdate, updateGoalForUser, deleteGoalForUser } from "@/lib/firebase/firestore/goals";
+import { addGoalToOffice, onGoalsUpdate, updateGoalInOffice, deleteGoalFromOffice } from "@/lib/firebase/firestore/goals";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
 import dynamic from 'next/dynamic';
 import { cn } from "@/lib/utils";
 import { format } from "date-fns";
-import { getOfficesForUser, getMembersForOffice, type Office } from "@/lib/firebase/firestore/offices";
+import { getOfficesForUser, getMembersForOffice, type Office, onUserOfficesUpdate } from "@/lib/firebase/firestore/offices";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   DropdownMenu,
@@ -38,6 +38,9 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import type { Unsubscribe } from "firebase/firestore";
+import { Select, SelectValue, SelectTrigger, SelectContent, SelectItem } from "@/components/ui/select";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import Link from "next/link";
 
 
 const DynamicCalendar = dynamic(() => import('@/components/ui/calendar').then(mod => mod.Calendar), {
@@ -49,15 +52,20 @@ const DynamicCalendar = dynamic(() => import('@/components/ui/calendar').then(mo
 export default function GoalsPage() {
   const { user, loading: authLoading } = useAuth();
   const { toast } = useToast();
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
 
   const [goals, setGoals] = useState<Goal[]>([]);
   const [isLoadingGoals, setIsLoadingGoals] = useState(true);
   const [isGoalDialogOpen, setIsGoalDialogOpen] = useState(false);
   const [currentGoalToEdit, setCurrentGoalToEdit] = useState<Goal | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  
   const [userOffices, setUserOffices] = useState<Office[]>([]);
+  const [activeOffice, setActiveOffice] = useState<Office | null>(null);
   const [currentOfficeMembers, setCurrentOfficeMembers] = useState<OfficeMember[]>([]);
-  const [isLoadingOfficeMembers, setIsLoadingOfficeMembers] = useState(false);
+  const [isLoadingOfficeData, setIsLoadingOfficeData] = useState(true);
 
 
   const [goalName, setGoalName] = useState("");
@@ -68,40 +76,49 @@ export default function GoalsPage() {
   const [goalDeadline, setGoalDeadline] = useState<Date | undefined>();
   const [goalParticipantIds, setGoalParticipantIds] = useState<string[]>([]); 
 
-  const fetchUserOfficesAndMembers = useCallback(async () => {
-    if (user) {
-      const offices = await getOfficesForUser(user.uid);
-      setUserOffices(offices);
-      if (offices.length > 0) {
-        setIsLoadingOfficeMembers(true);
-        try {
-          const members = await getMembersForOffice(offices[0].id); // Assuming first office
-          setCurrentOfficeMembers(members);
-        } catch (error) {
-          console.error("Failed to fetch office members:", error);
-          toast({ variant: "destructive", title: "Error", description: "Could not load office members."});
-        } finally {
-          setIsLoadingOfficeMembers(false);
-        }
-      } else {
-        setCurrentOfficeMembers([]);
-      }
-    }
-  }, [user, toast]);
-
   useEffect(() => {
-    if (!authLoading && user) {
-      fetchUserOfficesAndMembers();
+    if (user && !authLoading) {
+      setIsLoadingOfficeData(true);
+      const unsubscribe = onUserOfficesUpdate(user.uid, (offices) => {
+        setUserOffices(offices);
+        if (offices.length > 0 && (!activeOffice || !offices.find(o => o.id === activeOffice.id))) {
+          const officeIdFromUrl = searchParams.get('officeId');
+          const officeFromUrl = offices.find(o => o.id === officeIdFromUrl);
+          setActiveOffice(officeFromUrl || offices[0]);
+        } else if (offices.length === 0) {
+          setActiveOffice(null);
+        }
+        setIsLoadingOfficeData(false);
+      });
+      return () => unsubscribe();
+    } else if (!user && !authLoading) {
+      setUserOffices([]);
+      setActiveOffice(null);
+      setIsLoadingOfficeData(false);
     }
-  }, [authLoading, user, fetchUserOfficesAndMembers]);
+  }, [user, authLoading]);
+
+  // Update URL to reflect active office
+  useEffect(() => {
+    if (activeOffice && searchParams.get('officeId') !== activeOffice.id) {
+        router.replace(`${pathname}?officeId=${activeOffice.id}`, { scroll: false });
+    }
+  }, [activeOffice, searchParams, router, pathname]);
+
+  // Fetch members when active office changes
+  useEffect(() => {
+    if (activeOffice) {
+      getMembersForOffice(activeOffice.id).then(setCurrentOfficeMembers);
+    }
+  }, [activeOffice]);
 
 
   // Real-time goal listener
   useEffect(() => {
     let unsubscribe: Unsubscribe | null = null;
-    if (user && !authLoading) {
+    if (user && activeOffice && !authLoading) {
       setIsLoadingGoals(true);
-      unsubscribe = onGoalsUpdate(user.uid, (userGoals) => {
+      unsubscribe = onGoalsUpdate(activeOffice.id, user.uid, (userGoals) => {
         setGoals(userGoals);
         setIsLoadingGoals(false);
       });
@@ -114,7 +131,7 @@ export default function GoalsPage() {
         unsubscribe();
       }
     };
-  }, [user, authLoading]);
+  }, [user, activeOffice, authLoading]);
 
   const resetForm = () => {
     setGoalName("");
@@ -144,8 +161,8 @@ export default function GoalsPage() {
   };
 
   const handleSaveGoal = async () => {
-    if (!user) {
-      toast({ variant: "destructive", title: "Error", description: "You must be logged in." });
+    if (!user || !activeOffice) {
+      toast({ variant: "destructive", title: "Error", description: "You must select an office." });
       return;
     }
     if (!goalName.trim()) {
@@ -161,7 +178,7 @@ export default function GoalsPage() {
     const participantsDisplay = selectedParticipantNames.join(', ') || "No participants";
 
 
-    const goalData: Omit<Goal, 'id' | 'createdAt' | 'updatedAt' | 'userId'> = {
+    const goalData: Omit<Goal, 'id' | 'createdAt' | 'updatedAt' | 'officeId' | 'creatorUserId'> = {
       name: goalName,
       description: goalDescription,
       targetValue: goalTargetValue,
@@ -170,21 +187,17 @@ export default function GoalsPage() {
       deadline: goalDeadline,
       participantIds: goalParticipantIds,
       participantsDisplay: participantsDisplay,
-      creatorUserId: user.uid,
     };
     const actorName = user.displayName || user.email || "User";
-    const officeForGoal = userOffices.length > 0 ? userOffices[0] : undefined;
-
 
     try {
       if (currentGoalToEdit) {
-        await updateGoalForUser(user.uid, currentGoalToEdit.id, goalData, actorName, officeForGoal?.id, officeForGoal?.name);
+        await updateGoalInOffice(activeOffice.id, currentGoalToEdit.id, goalData, user.uid, actorName, activeOffice.name);
         toast({ title: "Goal Updated", description: `"${goalData.name}" has been updated.` });
       } else {
-        await addGoalForUser(user.uid, goalData, actorName, officeForGoal?.id, officeForGoal?.name);
+        await addGoalToOffice(activeOffice.id, user.uid, goalData, actorName, activeOffice.name);
         toast({ title: "Goal Added", description: `"${goalData.name}" has been added.` });
       }
-      // No manual fetch needed due to real-time listener
       setIsGoalDialogOpen(false);
       resetForm();
     } catch (error) {
@@ -196,12 +209,11 @@ export default function GoalsPage() {
   };
 
   const handleDeleteGoal = async (goalId: string) => {
-    if (!user) return;
+    if (!user || !activeOffice) return;
     setIsSubmitting(true); 
     try {
-        await deleteGoalForUser(user.uid, goalId);
+        await deleteGoalFromOffice(activeOffice.id, goalId, user.uid, user.displayName || "User");
         toast({ title: "Goal Deleted", description: "The goal has been removed." });
-        // No manual fetch needed
     } catch (error) {
         console.error("Failed to delete goal:", error);
         toast({ variant: "destructive", title: "Error", description: "Could not delete goal." });
@@ -230,28 +242,64 @@ export default function GoalsPage() {
     return names.join(', ') || "Select Participant(s)";
   };
 
+  const handleOfficeChange = (officeId: string) => {
+    if (officeId && officeId !== activeOffice?.id) {
+        router.push(`${pathname}?officeId=${officeId}`);
+        const newActiveOffice = userOffices.find(o => o.id === officeId);
+        if (newActiveOffice) setActiveOffice(newActiveOffice);
+    }
+  };
 
-  if (authLoading || isLoadingGoals) {
+  if (authLoading || isLoadingOfficeData) {
     return <div className="container mx-auto p-8 text-center"><Loader2 className="h-12 w-12 animate-spin text-primary" /></div>;
   }
 
   return (
     <div className="container mx-auto p-4 sm:p-6 lg:p-8">
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-8">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4">
         <h1 className="text-3xl font-headline font-bold mb-4 sm:mb-0">Goal Tracker</h1>
-        <Button onClick={() => handleOpenDialog()} disabled={isSubmitting}>
+        <Button onClick={() => handleOpenDialog()} disabled={isSubmitting || !activeOffice}>
           <PlusCircle className="mr-2 h-4 w-4" /> Add New Goal
         </Button>
       </div>
 
-      {goals.length === 0 ? (
+       <div className="mb-6">
+          <Label htmlFor="office-switcher" className="text-sm font-medium text-muted-foreground">Active Office</Label>
+          <Select value={activeOffice?.id || ''} onValueChange={handleOfficeChange} disabled={userOffices.length <= 1}>
+              <SelectTrigger id="office-switcher" className="w-full sm:w-[280px] mt-1">
+                  <SelectValue placeholder="Select an office" />
+              </SelectTrigger>
+              <SelectContent>
+                  {userOffices.map(office => (
+                      <SelectItem key={office.id} value={office.id}>{office.name}</SelectItem>
+                  ))}
+              </SelectContent>
+          </Select>
+      </div>
+
+      {isLoadingGoals && <div className="text-center py-12"><Loader2 className="h-10 w-10 animate-spin text-primary" /></div>}
+
+      {!isLoadingGoals && !activeOffice && (
+         <Card className="shadow-lg">
+             <CardContent className="text-center py-10 text-muted-foreground">
+                 <Briefcase className="mx-auto h-12 w-12 mb-3 text-gray-400" />
+                 Please create or select an office to manage goals.
+                 <Button asChild variant="link" className="block mx-auto mt-2">
+                     <Link href="/office-designer">Go to Office Designer</Link>
+                 </Button>
+             </CardContent>
+         </Card>
+       )}
+
+      {!isLoadingGoals && activeOffice && goals.length === 0 ? (
         <div className="text-center py-12 bg-muted/10 rounded-lg">
           <Target className="mx-auto h-16 w-16 text-muted-foreground mb-4" />
-          <p className="text-lg text-muted-foreground">No goals defined yet.</p>
+          <p className="text-lg text-muted-foreground">No goals defined for {activeOffice.name}.</p>
           <p className="text-sm text-muted-foreground">Click "Add New Goal" to get started.</p>
         </div>
       ) : (
-        <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+        !isLoadingGoals && activeOffice && goals.length > 0 && (
+          <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
           {goals.map((goal) => {
             const progress = getProgressPercentage(goal.currentValue, goal.targetValue, goal.unit);
             const isLowerBetterAchieved = goal.unit.toLowerCase().includes("lower is better") && goal.currentValue <= goal.targetValue;
@@ -310,6 +358,7 @@ export default function GoalsPage() {
           );
         })}
         </div>
+        )
       )}
 
       <Dialog open={isGoalDialogOpen} onOpenChange={(isOpen) => {if (!isSubmitting) setIsGoalDialogOpen(isOpen); if(!isOpen) resetForm();}}>
@@ -317,7 +366,7 @@ export default function GoalsPage() {
           <DialogHeader>
             <DialogTitle className="font-headline">{currentGoalToEdit ? "Edit Goal" : "Add New Goal"}</DialogTitle>
             <DialogDescription>
-              {currentGoalToEdit ? "Update the details for this goal." : "Define a new goal for your team."}
+              {currentGoalToEdit ? "Update the details for this goal." : `Define a new goal for ${activeOffice?.name || 'your team'}.`}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4 max-h-[70vh] overflow-y-auto pr-2">
@@ -378,9 +427,8 @@ export default function GoalsPage() {
               <Label htmlFor="goalParticipantIds" className="flex items-center text-sm font-medium text-muted-foreground"><UsersIcon className="mr-2 h-4 w-4 text-muted-foreground"/>Participants (Optional)</Label>
               <DropdownMenu>
                   <DropdownMenuTrigger asChild>
-                  <Button variant="outline" id="goalParticipantIds" className="w-full justify-start text-left font-normal h-auto min-h-10 py-2" disabled={isSubmitting || isLoadingOfficeMembers}>
-                      {isLoadingOfficeMembers ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                      {getSelectedParticipantNamesForDialog()}
+                  <Button variant="outline" id="goalParticipantIds" className="w-full justify-start text-left font-normal h-auto min-h-10 py-2" disabled={isSubmitting || currentOfficeMembers.length === 0}>
+                      {currentOfficeMembers.length === 0 && !isLoadingOfficeData ? "No members in office" : getSelectedParticipantNamesForDialog()}
                   </Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent className="w-[calc(var(--radix-dialog-content-width)-2rem)] sm:w-[calc(var(--radix-dialog-content-width)-3rem)] max-w-md">
@@ -396,18 +444,12 @@ export default function GoalsPage() {
                           setGoalParticipantIds([]);
                           }
                       }}
-                      disabled={isLoadingOfficeMembers}
                       >
                       Select All ({currentOfficeMembers.length})
                       </DropdownMenuCheckboxItem>
                   )}
                   <DropdownMenuSeparator />
-                  {isLoadingOfficeMembers ? (
-                      <div className="flex justify-center p-2"><Loader2 className="h-5 w-5 animate-spin" /></div>
-                  ) : currentOfficeMembers.length === 0 ? (
-                      <div className="p-2 text-sm text-muted-foreground text-center">No other members in your primary office.</div>
-                  ) : (
-                      <div className="max-h-48 overflow-y-auto">
+                   <div className="max-h-48 overflow-y-auto">
                       {currentOfficeMembers.map((member) => (
                       <DropdownMenuCheckboxItem
                           key={member.userId}
@@ -429,8 +471,7 @@ export default function GoalsPage() {
                           </div>
                       </DropdownMenuCheckboxItem>
                       ))}
-                      </div>
-                  )}
+                    </div>
                   </DropdownMenuContent>
               </DropdownMenu>
             </div>

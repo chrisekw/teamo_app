@@ -62,7 +62,7 @@ export type TaskFirestoreData = Omit<Task, 'id' | 'dueDate' | 'createdAt' | 'upd
 // --- Goal Tracker Types ---
 export interface Goal {
   id: string;
-  officeId?: string; // Office association for goals
+  officeId: string; 
   creatorUserId: string;
   name: string;
   description: string;
@@ -72,6 +72,8 @@ export interface Goal {
   deadline?: Date;
   participantIds?: string[];
   participantsDisplay?: string; 
+  status: "On Track" | "At Risk" | "Done"; // Simplified status for goals
+  progress: number;
   createdAt?: Date;
   updatedAt?: Date;
 }

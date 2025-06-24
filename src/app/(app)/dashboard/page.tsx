@@ -15,6 +15,7 @@ import type { ChartConfig } from "@/components/ui/chart";
 import { useAuth } from "@/lib/firebase/auth";
 import { onUserOfficesUpdate, onMembersUpdate, type Office } from "@/lib/firebase/firestore/offices";
 import { onActivityLogUpdate, type ActivityLogItem } from "@/lib/firebase/firestore/activity";
+import { onGoalsUpdate } from "@/lib/firebase/firestore/goals"; // Import goals listener
 import { Loader2 } from "lucide-react";
 import Link from "next/link";
 import type { Unsubscribe } from "firebase/firestore";
@@ -47,6 +48,7 @@ export default function DashboardPage() {
   const { user, loading: authLoading } = useAuth();
   const [activeOfficesCount, setActiveOfficesCount] = useState(0);
   const [teamMembersCount, setTeamMembersCount] = useState(0);
+  const [activeGoalsCount, setActiveGoalsCount] = useState(0); // New state for goals count
   const [activityFeed, setActivityFeed] = useState<ActivityLogItem[]>([]);
   const [isLoadingStats, setIsLoadingStats] = useState(true);
   const [isLoadingActivity, setIsLoadingActivity] = useState(true);
@@ -59,22 +61,22 @@ export default function DashboardPage() {
       const unsubscribeOffices = onUserOfficesUpdate(user.uid, (offices) => {
         setActiveOfficesCount(offices.length);
         if (offices.length > 0) {
-          // If selectedOfficeForDashboard is not set or different from the first office, update it
           if (!selectedOfficeForDashboard || selectedOfficeForDashboard.id !== offices[0].id) {
             setSelectedOfficeForDashboard(offices[0]);
           }
         } else {
           setSelectedOfficeForDashboard(null);
-          setTeamMembersCount(0); // No office, no members
+          setTeamMembersCount(0);
+          setActiveGoalsCount(0);
         }
         setIsLoadingStats(false);
       });
       return () => unsubscribeOffices();
     } else if (!user && !authLoading) {
-      // Reset if user logs out
       setActiveOfficesCount(0);
       setSelectedOfficeForDashboard(null);
       setTeamMembersCount(0);
+      setActiveGoalsCount(0);
       setIsLoadingStats(false);
     }
   }, [user, authLoading, selectedOfficeForDashboard]);
@@ -89,10 +91,23 @@ export default function DashboardPage() {
       });
       return () => unsubscribeMembers();
     } else {
-      setTeamMembersCount(0); // No selected office, so no members
-      if (!isLoadingStats) setIsLoadingStats(false); // Ensure loading is off if no office
+      setTeamMembersCount(0);
+      if (!isLoadingStats) setIsLoadingStats(false);
     }
-  }, [selectedOfficeForDashboard]); // Only depends on selectedOfficeForDashboard
+  }, [selectedOfficeForDashboard]);
+
+   // Listener for goals of the selected office
+   useEffect(() => {
+    if (selectedOfficeForDashboard && user) {
+      const unsubscribeGoals = onGoalsUpdate(selectedOfficeForDashboard.id, user.uid, (goals) => {
+        setActiveGoalsCount(goals.filter(g => g.status !== 'Done').length); // Example: Count non-completed goals
+      });
+      return () => unsubscribeGoals();
+    } else {
+      setActiveGoalsCount(0);
+    }
+   }, [selectedOfficeForDashboard, user]);
+
 
   // Listener for activity feed of the selected office
   useEffect(() => {
@@ -104,7 +119,7 @@ export default function DashboardPage() {
       }, 7);
       return () => unsubscribeActivity();
     } else {
-      setActivityFeed([]); // No selected office, clear activity
+      setActivityFeed([]);
       setIsLoadingActivity(false);
     }
   }, [selectedOfficeForDashboard]);
@@ -136,7 +151,7 @@ export default function DashboardPage() {
          <h1 className="text-3xl font-headline font-bold">Team Dashboard</h1>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
         <Card className="shadow-lg hover:shadow-xl transition-shadow duration-300">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Active Offices</CardTitle>
@@ -155,6 +170,19 @@ export default function DashboardPage() {
           </CardHeader>
           <CardContent>
             {isLoadingStats && teamMembersCount === 0 && selectedOfficeForDashboard ? <Skeleton className="h-8 w-1/4" /> : <div className="text-2xl font-bold">{teamMembersCount}</div>}
+            <p className="text-xs text-muted-foreground">
+              {selectedOfficeForDashboard ? `In "${selectedOfficeForDashboard.name}"` : "No active office selected"}
+            </p>
+          </CardContent>
+        </Card>
+        
+        <Card className="shadow-lg hover:shadow-xl transition-shadow duration-300">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Active Goals</CardTitle>
+            <Target className="h-5 w-5 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            {isLoadingStats && activeGoalsCount === 0 && selectedOfficeForDashboard ? <Skeleton className="h-8 w-1/4" /> : <div className="text-2xl font-bold">{activeGoalsCount}</div>}
             <p className="text-xs text-muted-foreground">
               {selectedOfficeForDashboard ? `In "${selectedOfficeForDashboard.name}"` : "No active office selected"}
             </p>

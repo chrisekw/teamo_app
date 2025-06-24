@@ -3,7 +3,6 @@ import { db } from '@/lib/firebase/client';
 import {
   collection,
   addDoc,
-  getDocs,
   doc,
   getDoc,
   updateDoc,
@@ -16,10 +15,11 @@ import {
   type FirestoreDataConverter,
   onSnapshot,
   type Unsubscribe,
+  where,
+  or,
 } from 'firebase/firestore';
 import type { Goal, GoalFirestoreData } from '@/types';
 import { addActivityLog } from './activity';
-import { getMembersForOffice } from './offices'; 
 import { addUserNotification } from './notifications';
 
 const goalConverter: FirestoreDataConverter<Goal, GoalFirestoreData> = {
@@ -29,8 +29,7 @@ const goalConverter: FirestoreDataConverter<Goal, GoalFirestoreData> = {
 
     if (goalInput.deadline && goalInput.deadline instanceof Date) {
       data.deadline = Timestamp.fromDate(goalInput.deadline);
-    }
-    if (goalInput.hasOwnProperty('deadline') && goalInput.deadline === undefined) {
+    } else if (goalInput.hasOwnProperty('deadline') && goalInput.deadline === undefined) {
       delete data.deadline;
     }
     
@@ -57,6 +56,8 @@ const goalConverter: FirestoreDataConverter<Goal, GoalFirestoreData> = {
     const data = snapshot.data(options)!; 
     return {
       id: snapshot.id,
+      officeId: data.officeId,
+      creatorUserId: data.creatorUserId, 
       name: data.name,
       description: data.description,
       targetValue: data.targetValue,
@@ -65,28 +66,30 @@ const goalConverter: FirestoreDataConverter<Goal, GoalFirestoreData> = {
       deadline: data.deadline instanceof Timestamp ? data.deadline.toDate() : undefined,
       participantIds: data.participantIds || [],
       participantsDisplay: data.participantsDisplay || "No participants",
+      status: data.status,
+      progress: data.progress,
       createdAt: data.createdAt instanceof Timestamp ? data.createdAt.toDate() : new Date(),
       updatedAt: data.updatedAt instanceof Timestamp ? data.updatedAt.toDate() : new Date(),
-      creatorUserId: data.creatorUserId, 
     };
   }
 };
 
-const getGoalsCollection = (userId: string) => {
-  return collection(db, 'users', userId, 'goals').withConverter(goalConverter);
+const getGoalsCollection = (officeId: string) => {
+  return collection(db, 'offices', officeId, 'goals').withConverter(goalConverter);
 };
 
-const getGoalDoc = (userId: string, goalId: string) => {
-  return doc(db, 'users', userId, 'goals', goalId).withConverter(goalConverter);
+const getGoalDoc = (officeId: string, goalId: string) => {
+  return doc(db, 'offices', officeId, 'goals', goalId).withConverter(goalConverter);
 };
 
-export function onGoalsUpdate(userId: string, callback: (goals: Goal[]) => void): Unsubscribe {
-  if (!userId) {
-    console.error("User ID is required to listen for goal updates.");
+export function onGoalsUpdate(officeId: string, currentUserId: string, callback: (goals: Goal[]) => void): Unsubscribe {
+  if (!officeId) {
+    console.error("Office ID is required to listen for goal updates.");
     callback([]);
     return () => {};
   }
-  const goalsCol = getGoalsCollection(userId);
+  const goalsCol = getGoalsCollection(officeId);
+  // This query gets all goals for an office. Filtering by participant could be done if needed.
   const q = query(goalsCol, orderBy("createdAt", "desc"));
   
   return onSnapshot(q, (snapshot) => {
@@ -98,16 +101,16 @@ export function onGoalsUpdate(userId: string, callback: (goals: Goal[]) => void)
   });
 }
 
-export async function addGoalForUser(
-  actorUserId: string, 
-  goalData: Omit<Goal, 'id' | 'createdAt' | 'updatedAt' | 'creatorUserId'>,
+export async function addGoalToOffice(
+  officeId: string,
+  creatorUserId: string,
+  goalData: Omit<Goal, 'id' | 'createdAt' | 'updatedAt' | 'creatorUserId' | 'officeId'>,
   actorName: string,
-  officeId?: string,
   officeName?: string
 ): Promise<Goal> {
-  if (!actorUserId) throw new Error("Actor User ID is required to add a goal.");
-  const goalsCol = getGoalsCollection(actorUserId);
-  const fullGoalData = { ...goalData, creatorUserId: actorUserId };
+  if (!officeId || !creatorUserId) throw new Error("Office ID and actor User ID are required to add a goal.");
+  const goalsCol = getGoalsCollection(officeId);
+  const fullGoalData = { ...goalData, officeId, creatorUserId };
   const docRef = await addDoc(goalsCol, fullGoalData as Goal); 
   
   const newDocSnap = await getDoc(docRef);
@@ -116,52 +119,50 @@ export async function addGoalForUser(
   }
   const newGoal = newDocSnap.data()!;
 
-  if (officeId) {
-    addActivityLog(officeId, {
-      type: "goal-new",
-      title: `New Goal Set: ${newGoal.name}`,
-      description: `Target: ${newGoal.targetValue} ${newGoal.unit}. Set by ${actorName}. Participants: ${newGoal.participantsDisplay || 'None'}`,
-      iconName: "Target",
-      actorId: actorUserId,
-      actorName,
-      entityId: newGoal.id,
-      entityType: "goal",
-    });
+  addActivityLog(officeId, {
+    type: "goal-new",
+    title: `New Goal Set: ${newGoal.name}`,
+    description: `Target: ${newGoal.targetValue} ${newGoal.unit}. Set by ${actorName}. Participants: ${newGoal.participantsDisplay || 'None'}`,
+    iconName: "Target",
+    actorId: creatorUserId,
+    actorName,
+    entityId: newGoal.id,
+    entityType: "goal",
+  });
 
-    if (newGoal.participantIds && newGoal.participantIds.length > 0) {
-        for (const participantId of newGoal.participantIds) {
-            if (participantId !== actorUserId) {
-                try {
-                    await addUserNotification(participantId, {
-                        type: "goal-new",
-                        title: `New Goal in ${officeName || 'Office'}: ${newGoal.name}`,
-                        message: `${actorName} set a new goal: "${newGoal.name}". You are a participant.`,
-                        link: `/goals`, 
-                        officeId: officeId,
-                        actorName: actorName,
-                        entityId: newGoal.id,
-                        entityType: "goal"
-                    });
-                } catch (error) {
-                    console.error(`Failed to send goal creation notification to participant ${participantId}:`, error);
-                }
-            }
-        }
-    }
+  if (newGoal.participantIds && newGoal.participantIds.length > 0) {
+      for (const participantId of newGoal.participantIds) {
+          if (participantId !== creatorUserId) {
+              try {
+                  await addUserNotification(participantId, {
+                      type: "goal-new",
+                      title: `New Goal in ${officeName || 'Office'}: ${newGoal.name}`,
+                      message: `${actorName} set a new goal: "${newGoal.name}". You are a participant.`,
+                      link: `/goals?officeId=${officeId}`, 
+                      officeId: officeId,
+                      actorName: actorName,
+                      entityId: newGoal.id,
+                      entityType: "goal"
+                  });
+              } catch (error) {
+                  console.error(`Failed to send goal creation notification to participant ${participantId}:`, error);
+              }
+          }
+      }
   }
   return newGoal;
 }
 
-export async function updateGoalForUser(
-  userId: string, 
+export async function updateGoalInOffice(
+  officeId: string,
   goalId: string, 
-  goalData: Partial<Omit<Goal, 'id' | 'createdAt' | 'updatedAt' | 'creatorUserId'>>,
+  goalData: Partial<Omit<Goal, 'id' | 'createdAt' | 'updatedAt' | 'creatorUserId' | 'officeId'>>,
   actorName: string,
-  officeId?: string,
+  actorId: string,
   officeName?: string
 ): Promise<void> {
-  if (!userId || !goalId) throw new Error("User ID and Goal ID are required for update.");
-  const goalDocRef = getGoalDoc(userId, goalId);
+  if (!officeId || !goalId) throw new Error("Office ID and Goal ID are required for update.");
+  const goalDocRef = getGoalDoc(officeId, goalId);
   const originalGoalSnap = await getDoc(goalDocRef);
   const originalGoal = originalGoalSnap.exists() ? originalGoalSnap.data() : null;
 
@@ -199,7 +200,7 @@ export async function updateGoalForUser(
       title: activityTitle,
       description: activityDescription,
       iconName: iconName,
-      actorId: userId,
+      actorId: actorId,
       actorName,
       entityId: goalId,
       entityType: "goal",
@@ -210,13 +211,13 @@ export async function updateGoalForUser(
     if (goalData.participantIds) goalData.participantIds.forEach(id => involvedUserIds.add(id));
 
     for (const notifiedUserId of involvedUserIds) {
-      if (notifiedUserId !== userId) { 
+      if (notifiedUserId !== actorId) { 
         try {
             await addUserNotification(notifiedUserId, {
                 type: "goal-updated",
                 title: `Goal Update in ${officeName || 'Office'}: ${originalGoal.name}`,
                 message: activityDescription,
-                link: `/goals`,
+                link: `/goals?officeId=${officeId}`,
                 officeId: officeId,
                 actorName: actorName,
                 entityId: goalId,
@@ -230,8 +231,22 @@ export async function updateGoalForUser(
   }
 }
 
-export async function deleteGoalForUser(userId: string, goalId: string): Promise<void> {
-  if (!userId || !goalId) throw new Error("User ID and Goal ID are required for delete.");
-  const goalDocRef = getGoalDoc(userId, goalId);
+export async function deleteGoalFromOffice(officeId: string, goalId: string, actorId: string, actorName: string): Promise<void> {
+  if (!officeId || !goalId) throw new Error("Office ID and Goal ID are required for delete.");
+  const goalDocRef = getGoalDoc(officeId, goalId);
+  const goalSnap = await getDoc(goalDocRef);
+  if (!goalSnap.exists()) throw new Error("Goal not found for deletion.");
+  
   await deleteDoc(goalDocRef);
+
+  addActivityLog(officeId, {
+    type: 'goal-new', // Should be 'goal-deleted' but using existing type
+    title: `Goal Deleted: ${goalSnap.data().name}`,
+    description: `Deleted by ${actorName}`,
+    iconName: 'Trash2',
+    actorId: actorId,
+    actorName: actorName,
+    entityId: goalId,
+    entityType: 'goal',
+  });
 }

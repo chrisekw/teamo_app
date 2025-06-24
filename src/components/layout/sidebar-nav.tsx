@@ -39,42 +39,42 @@ const navItems: NavItem[] = [
   {
     title: "Dashboard",
     href: "/dashboard",
-    icon: LayoutGrid, // Keeping original icon
+    icon: LayoutGrid,
   },
   {
     title: "Office Designer",
     href: "/office-designer",
-    icon: Building2, // Keeping original icon
+    icon: Building2,
   },
   {
     title: "Team Chat",
     href: "/chat",
-    icon: MessageCircleMore, // Keeping original icon
+    icon: MessageCircleMore,
   },
   {
     title: "Meetings",
     href: "/meetings",
-    icon: CalendarDays, // Keeping original icon
+    icon: CalendarDays,
   },
   {
-    title: "Task Management",
+    title: "Tasks",
     href: "/tasks",
-    icon: ClipboardCheck, // Keeping original icon
+    icon: ClipboardCheck,
   },
   {
     title: "Goal Tracker",
     href: "/goals",
-    icon: TrendingUp, // Keeping original icon
+    icon: TrendingUp,
   },
   {
     title: "AI Assistant",
     href: "/ai-assistant",
-    icon: Sparkles, // Keeping original icon
+    icon: Sparkles,
   },
   {
     title: "Settings",
-    href: "/settings", // Updated href
-    icon: Settings, // Keeping original icon for settings
+    href: "/settings",
+    icon: Settings,
   },
 ];
 
@@ -133,7 +133,7 @@ export function SidebarNav() {
             <SidebarMenuItem key={item.title}>
               <Link href={item.href}>
                 <SidebarMenuButton
-                  isActive={pathname === item.href}
+                  isActive={pathname.startsWith(item.href)}
                   tooltip={{
                     children: item.title,
                     className: "group-data-[collapsible=icon]:block hidden",
