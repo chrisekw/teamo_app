@@ -31,6 +31,8 @@ import {
 import { markNotificationsAsReadByLink } from '@/lib/firebase/firestore/notifications';
 import { doc, getDoc, type Unsubscribe } from 'firebase/firestore'; 
 import { db } from '@/lib/firebase/client';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Label } from "@/components/ui/label";
 
 
 export default function ChatPage() {
@@ -502,6 +504,15 @@ export default function ChatPage() {
     }
   };
 
+  const handleOfficeChange = (officeId: string) => {
+    const newActiveOffice = userOfficesList.find(o => o.id === officeId);
+    if (newActiveOffice && newActiveOffice.id !== activeOfficeForChat?.id) {
+        setActiveOfficeForChat(newActiveOffice);
+        selectChat(`general-${newActiveOffice.id}`, 'general');
+        router.replace(`/chat?officeGeneral=${newActiveOffice.id}`, { scroll: false });
+    }
+  };
+
   const displayedMessages = activeChatId ? (allMessages[activeChatId] || []) : [];
 
   if (authLoading || !currentUserForChat || activeOfficeForChat === undefined) {
@@ -528,8 +539,23 @@ export default function ChatPage() {
   const renderChatList = (isMobileLayout: boolean) => {
     return (
       <Card className={cn("flex flex-col", isMobileLayout ? "flex-1 rounded-none border-0" : "w-64 sm:w-72 md:w-1/4 lg:w-1/5 mr-2 shadow-lg")}>
-        <CardHeader className="p-3 border-b">
-          <CardTitle className="font-headline text-lg">{activeOfficeForChat ? `${activeOfficeForChat.name} Chats` : "Chats"}</CardTitle>
+        <CardHeader className="p-3 border-b space-y-2">
+          <CardTitle className="font-headline text-lg">Chats</CardTitle>
+           {userOfficesList.length > 0 && (
+            <div>
+              <Label htmlFor="office-chat-switcher" className="text-xs text-muted-foreground">Active Office</Label>
+              <Select value={activeOfficeForChat?.id || ''} onValueChange={handleOfficeChange} disabled={userOfficesList.length <= 1}>
+                <SelectTrigger id="office-chat-switcher" className="h-9 mt-1">
+                  <SelectValue placeholder="Select an office" />
+                </SelectTrigger>
+                <SelectContent>
+                  {userOfficesList.map(office => (
+                      <SelectItem key={office.id} value={office.id}>{office.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
         </CardHeader>
         <ScrollArea className="flex-1">
           <CardContent className="p-2 space-y-1">
@@ -563,7 +589,7 @@ export default function ChatPage() {
               </>
             ) : userOfficesList.length > 0 ? (
                  <div className="text-sm text-muted-foreground p-4 text-center">
-                     <p>Select an office or chat.</p>
+                     <p>Select an office to view chats.</p>
                  </div>
             ) : (
               <div className="text-sm text-muted-foreground p-4 text-center">
@@ -681,3 +707,5 @@ export default function ChatPage() {
     </div>
   );
 }
+
+    
