@@ -41,6 +41,8 @@ import {
 import { getUserProfile } from "@/lib/firebase/firestore/userProfile";
 import { Textarea } from "@/components/ui/textarea";
 import type { Unsubscribe } from 'firebase/firestore'; 
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+
 
 const roomTypeDetails: Record<RoomType, { icon: React.ElementType; defaultName: string, imageHint: string, iconName: string }> = {
   "Team Hub": { icon: Users, defaultName: "Team Hub", imageHint: "team collaboration", iconName: "Users" },
@@ -110,7 +112,6 @@ export default function OfficeDesignerPage() {
   const [selectedWorkRole, setSelectedWorkRole] = useState<string>("");
   const [processingRequestId, setProcessingRequestId] = useState<string | null>(null);
 
-  // Fetch all offices the user is a member of (real-time)
   useEffect(() => {
     if (user && !authLoading) {
       setIsLoadingUserOffices(true);
@@ -119,7 +120,6 @@ export default function OfficeDesignerPage() {
         if (offices.length === 0) {
             setActiveOffice(null);
         } else if (!activeOffice || !offices.find(o => o.id === activeOffice.id)) {
-            // If current active office is no longer in the list, default to first one
             const officeIdFromUrl = searchParams.get('officeId');
             setActiveOffice(offices.find(o => o.id === officeIdFromUrl) || offices[0]);
         }
@@ -133,66 +133,48 @@ export default function OfficeDesignerPage() {
     }
   }, [user, authLoading, searchParams, activeOffice]);
 
-
-  // Set the active office based on URL, or default to the first office in the list
   useEffect(() => {
     const officeIdFromUrl = searchParams.get('officeId');
-    if (isLoadingUserOffices || userOffices.length === 0) {
-        return;
-    };
-    
+    if (isLoadingUserOffices || userOffices.length === 0) return;
     const officeFromUrl = userOffices.find(o => o.id === officeIdFromUrl);
     const targetOffice = officeFromUrl || userOffices[0];
-
     if (targetOffice && targetOffice.id !== activeOffice?.id) {
         setActiveOffice(targetOffice);
     }
-    
-    // Ensure URL matches active office
     if (activeOffice && officeIdFromUrl !== activeOffice.id) {
         router.replace(`${pathname}?officeId=${activeOffice.id}`, { scroll: false });
     }
-
   }, [userOffices, searchParams, isLoadingUserOffices, router, pathname, activeOffice]);
 
-
-  // Listen for Rooms, Members, and determine user role
   useEffect(() => {
     if (!activeOffice || !user) {
-      setCanManageOffice(false);
       setActiveOfficeRooms([]);
       setActiveOfficeMembers([]);
-      setPendingJoinRequests([]);
+      setCanManageOffice(false);
       return;
     }
-
     setIsLoadingDetails(true);
-
     const unsubRooms = onRoomsUpdate(activeOffice.id, setActiveOfficeRooms);
     const unsubMembers = onMembersUpdate(activeOffice.id, (members) => {
       setActiveOfficeMembers(members);
       const currentUserInOffice = members.find(m => m.userId === user.uid);
-      const canManage = currentUserInOffice?.role === 'Owner' || currentUserInOffice?.role === 'Admin';
-      setCanManageOffice(canManage);
-
-      // This is now dependent on canManage, so we trigger its listener here
-      if (canManage) {
-        const unsubRequests = onPendingJoinRequestsUpdate(activeOffice.id, setPendingJoinRequests);
-        // We need a way to unsubscribe from this when canManage becomes false
-        // For now, this component's full unmount will handle it.
-      } else {
-        setPendingJoinRequests([]);
-      }
+      setCanManageOffice(currentUserInOffice?.role === 'Owner' || currentUserInOffice?.role === 'Admin');
       setIsLoadingDetails(false);
     });
-
     return () => {
       unsubRooms();
       unsubMembers();
-      // Unsubscribing requests might need a stored reference if canManage changes a lot.
     };
   }, [activeOffice, user]);
 
+  useEffect(() => {
+    if (!activeOffice || !canManageOffice) {
+      setPendingJoinRequests([]);
+      return;
+    }
+    const unsubRequests = onPendingJoinRequestsUpdate(activeOffice.id, setPendingJoinRequests);
+    return () => unsubRequests();
+  }, [activeOffice, canManageOffice]);
 
   const handleSetActiveOffice = (officeId: string) => {
     if (officeId !== activeOffice?.id) {
@@ -240,7 +222,7 @@ export default function OfficeDesignerPage() {
 
     try {
       const newOffice = await createOffice(user.uid, user.displayName || "User", user.photoURL || undefined, newOfficeName, newOfficeSector || undefined, newOfficeCompanyName || undefined, logoUrlForCreate, bannerUrlForCreate);
-      handleSetActiveOffice(newOffice.id); // This will trigger listeners to update state
+      handleSetActiveOffice(newOffice.id);
       resetCreateOfficeForm();
       setIsCreateOfficeDialogOpen(false);
       toast({ title: "Office Created!", description: `Your new office "${newOffice.name}" is ready.` });
@@ -331,7 +313,7 @@ export default function OfficeDesignerPage() {
   const handleOpenViewProfileDialog = async (member: OfficeMember) => {
     setIsLoadingProfile(true);
     setIsViewProfileDialogOpen(true);
-    setViewingMemberProfile(null); // Clear previous profile
+    setViewingMemberProfile(null);
     try {
         const profile = await getUserProfile(member.userId);
         if (profile) {
@@ -527,22 +509,6 @@ export default function OfficeDesignerPage() {
                         data-ai-hint={activeOffice.bannerUrl && !activeOffice.bannerUrl.startsWith('https://placehold.co') ? "office banner" : "default office banner"}
                         priority
                     />
-                     <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="secondary" size="icon" className="absolute top-2 right-2 h-8 w-8">
-                          <MoreHorizontal className="h-4 w-4"/>
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                         <DropdownMenuItem onClick={() => {
-                            if(activeOffice.ownerId === user?.uid) setOfficeToDelete(activeOffice);
-                            else setOfficeToLeave(activeOffice);
-                         }}>
-                            {activeOffice.ownerId === user?.uid ? <Trash2 className="mr-2 h-4 w-4 text-destructive" /> : <LogOut className="mr-2 h-4 w-4 text-destructive" />}
-                            <span className="text-destructive">{activeOffice.ownerId === user?.uid ? "Delete Office" : "Leave Office"}</span>
-                         </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
                 </div>
                 <CardContent className="p-4 sm:p-6">
                     <div className="flex flex-col sm:flex-row items-start sm:items-center -mt-16 sm:-mt-20">
@@ -558,25 +524,68 @@ export default function OfficeDesignerPage() {
                             </div>
                         </div>
                     </div>
-                     {canManageOffice && activeOffice.invitationCode && (
-                        <div className="mt-4 pt-4 border-t border-border flex items-center text-sm text-muted-foreground">
-                            <span>Invite Code: <strong className="text-foreground">{activeOffice.invitationCode}</strong></span>
-                            <Button variant="ghost" size="sm" onClick={copyInviteCode} className="ml-2 px-1 py-0 h-auto">
-                            <Copy className="h-3 w-3 mr-1" /> Copy
-                            </Button>
-                        </div>
-                    )}
                 </CardContent>
             </Card>
 
+            <Tabs defaultValue="rooms" className="mt-8">
+                <TabsList className="grid w-full grid-cols-3">
+                    <TabsTrigger value="rooms">Rooms ({activeOfficeRooms.length})</TabsTrigger>
+                    <TabsTrigger value="members">
+                        Members ({activeOfficeMembers.length})
+                        {canManageOffice && pendingJoinRequests.length > 0 && 
+                            <Badge className="ml-2">{pendingJoinRequests.length}</Badge>
+                        }
+                    </TabsTrigger>
+                    <TabsTrigger value="settings">Settings</TabsTrigger>
+                </TabsList>
 
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mt-8">
-                <section className="lg:col-span-2 space-y-8">
+                <TabsContent value="rooms" className="mt-6">
+                    <Card>
+                        <CardHeader className="flex flex-row justify-between items-center">
+                            <CardTitle className="font-headline">Office Rooms</CardTitle>
+                             {canManageOffice && ( <Button onClick={() => {resetAddRoomForm(); setIsAddRoomDialogOpen(true);}} disabled={isSubmitting} variant="outline" size="sm"><PlusCircle className="mr-2 h-4 w-4" /> Add Room</Button>)}
+                        </CardHeader>
+                        <CardContent>
+                        {activeOfficeRooms.length === 0 ? (
+                            <div className="text-center py-12 bg-muted/20 rounded-lg">
+                                <Image src="https://placehold.co/300x200.png" alt="Empty office rooms" width={200} height={150} className="mx-auto mb-4 rounded-md" data-ai-hint="office blueprint plan" />
+                                <p className="text-lg text-muted-foreground">This office has no rooms yet.</p>
+                                {canManageOffice && <p className="text-sm text-muted-foreground">Click "Add Room" to design your virtual space.</p>}
+                            </div>
+                        ) : (
+                            <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+                            {activeOfficeRooms.map((room) => {
+                                const RoomIconComponent = lucideIcons[room.iconName] || Building;
+                                return (
+                                <Card key={room.id} className="flex flex-col shadow-sm hover:shadow-lg transition-shadow duration-300">
+                                    <CardHeader>
+                                        <div className="flex justify-between items-start">
+                                            <div className="flex-1"><CardTitle className="font-headline flex items-center text-lg"><RoomIconComponent className="mr-2 h-5 w-5 text-primary" />{room.name}</CardTitle><CardDescription>{room.type}</CardDescription></div>
+                                            {canManageOffice && (<Button variant="ghost" size="icon" onClick={() => setDeletingRoom(room)} aria-label="Delete room" disabled={isSubmitting} className="h-8 w-8"><Trash2 className="h-4 w-4 text-destructive" /></Button>)}
+                                        </div>
+                                    </CardHeader>
+                                    <CardContent className="flex-grow"><div className="aspect-video bg-muted rounded-md overflow-hidden relative"><Image src={room.coverImageUrl || `https://placehold.co/400x225.png?text=${encodeURIComponent(room.name)}`} alt={room.name} layout="fill" objectFit="cover" data-ai-hint={room.coverImageUrl && !room.coverImageUrl.startsWith('https://placehold.co') ? roomTypeDetails[room.type]?.imageHint || "office room interior" : "default room image"}/></div></CardContent>
+                                    <CardFooter>
+                                      {room.type === "Meeting Room" && activeOffice ? (
+                                        <Button variant="outline" className="w-full" asChild>
+                                          <Link href={`/office-designer/room/${activeOffice.id}/${room.id}`}><Video className="mr-2 h-4 w-4" /> Enter Meeting Room</Link>
+                                        </Button>
+                                      ) : ( <Button variant="outline" className="w-full" disabled><ExternalLink className="mr-2 h-4 w-4" /> Enter Room (Future)</Button> )}
+                                    </CardFooter>
+                                </Card>
+                                )
+                            })}
+                            </div>
+                        )}
+                        </CardContent>
+                    </Card>
+                </TabsContent>
+                
+                <TabsContent value="members" className="mt-6 space-y-6">
                     {canManageOffice && pendingJoinRequests.length > 0 && (
-                    <div>
-                        <h3 className="text-2xl font-headline font-semibold mb-4">Join Requests ({pendingJoinRequests.length})</h3>
-                        <Card className="shadow-md bg-card/80 backdrop-blur-sm">
-                            <CardContent className="p-4 space-y-3">
+                        <Card>
+                            <CardHeader><CardTitle className="font-headline">Join Requests ({pendingJoinRequests.length})</CardTitle></CardHeader>
+                            <CardContent className="space-y-3">
                                 {pendingJoinRequests.map(request => (
                                     <div key={request.id} className="flex items-center justify-between p-3 bg-background rounded-md shadow-sm">
                                         <div className="flex items-center space-x-3">
@@ -594,85 +603,71 @@ export default function OfficeDesignerPage() {
                                 ))}
                             </CardContent>
                         </Card>
-                    </div>
                     )}
-
-                    <div>
-                    <div className="flex justify-between items-center mb-4">
-                        <h3 className="text-2xl font-headline font-semibold">Office Rooms ({activeOfficeRooms.length})</h3>
-                        {canManageOffice && ( <Button onClick={() => {resetAddRoomForm(); setIsAddRoomDialogOpen(true);}} disabled={isSubmitting} variant="outline" size="sm"><PlusCircle className="mr-2 h-4 w-4" /> Add Room</Button>)}
-                    </div>
-                    {activeOfficeRooms.length === 0 ? (
-                        <Card className="shadow-sm">
-                        <CardContent className="text-center py-12 bg-muted/20 rounded-lg">
-                            <Image src="https://placehold.co/300x200.png" alt="Empty office rooms" width={200} height={150} className="mx-auto mb-4 rounded-md" data-ai-hint="office blueprint plan" />
-                            <p className="text-lg text-muted-foreground">This office has no rooms yet.</p>
-                            {canManageOffice && <p className="text-sm text-muted-foreground">Click "Add Room" to design your virtual space.</p>}
-                        </CardContent>
-                        </Card>
-                    ) : (
-                        <div className="grid gap-6 md:grid-cols-2">
-                        {activeOfficeRooms.map((room) => {
-                            const RoomIconComponent = lucideIcons[room.iconName] || Building;
-                            return (
-                            <Card key={room.id} className="flex flex-col shadow-md hover:shadow-lg transition-shadow duration-300 bg-card/80 backdrop-blur-sm">
-                                <CardHeader>
-                                <div className="flex justify-between items-start">
-                                    <div className="flex-1"><CardTitle className="font-headline flex items-center text-lg"><RoomIconComponent className="mr-2 h-5 w-5 text-primary" />{room.name}</CardTitle><CardDescription>{room.type}</CardDescription></div>
-                                    {canManageOffice && (<Button variant="ghost" size="icon" onClick={() => setDeletingRoom(room)} aria-label="Delete room" disabled={isSubmitting} className="h-8 w-8"><Trash2 className="h-4 w-4 text-destructive" /></Button>)}
-                                </div>
-                                </CardHeader>
-                                <CardContent className="flex-grow"><div className="aspect-video bg-muted rounded-md overflow-hidden relative"><Image src={room.coverImageUrl || `https://placehold.co/400x225.png?text=${encodeURIComponent(room.name)}`} alt={room.name} layout="fill" objectFit="cover" data-ai-hint={room.coverImageUrl && !room.coverImageUrl.startsWith('https://placehold.co') ? roomTypeDetails[room.type]?.imageHint || "office room interior" : "default room image"}/></div></CardContent>
-                                <CardFooter>
-                                  {room.type === "Meeting Room" && activeOffice ? (
-                                    <Button variant="outline" className="w-full" asChild>
-                                      <Link href={`/office-designer/room/${activeOffice.id}/${room.id}`}><Video className="mr-2 h-4 w-4" /> Enter Meeting Room</Link>
-                                    </Button>
-                                  ) : ( <Button variant="outline" className="w-full" disabled><ExternalLink className="mr-2 h-4 w-4" /> Enter Room (Future)</Button> )}
-                                </CardFooter>
-                            </Card>
-                            )
-                        })}
-                        </div>
-                    )}
-                    </div>
-                </section>
-
-                <aside className="lg:col-span-1 space-y-6">
-                    <Card className="shadow-md bg-card/80 backdrop-blur-sm">
-                        <CardHeader>
-                            <div className="flex justify-between items-center">
-                                <CardTitle className="font-headline flex items-center text-xl"><Users className="mr-2 h-5 w-5"/>Team Members ({activeOfficeMembers.length})</CardTitle>
-                                {canManageOffice && (<Button variant="outline" size="sm" onClick={() => setIsAddMemberDialogOpen(true)} disabled={isSubmitting}><UserPlus className="mr-1 h-4 w-4"/>Add</Button>)}
-                            </div>
-                            <CardDescription>Manage roles and access for office members.</CardDescription>
+                    <Card>
+                        <CardHeader className="flex flex-row justify-between items-center">
+                            <CardTitle className="font-headline">Team Members</CardTitle>
+                             {canManageOffice && (<Button variant="outline" size="sm" onClick={() => setIsAddMemberDialogOpen(true)} disabled={isSubmitting}><UserPlus className="mr-1 h-4 w-4"/>Add Member</Button>)}
                         </CardHeader>
-                        <CardContent className="space-y-3 max-h-96 overflow-y-auto pr-1">
-                        {activeOfficeMembers.map((member) => {
-                            const RoleIcon = roleIcons[member.role] || UserIconLucide;
-                            return (
-                            <div key={member.userId} className="flex items-center space-x-3 p-2.5 rounded-md hover:bg-muted/50 transition-colors">
-                                <Avatar className="h-10 w-10"><AvatarImage src={member.avatarUrl || ''} alt={member.name} data-ai-hint="person avatar"/><AvatarFallback>{member.name.substring(0,2)}</AvatarFallback></Avatar>
-                                <div className="flex-1">
-                                    <p className="font-medium text-sm">{member.name}</p>
-                                    <div className="flex items-center space-x-2">
-                                        <Badge variant={member.role === "Owner" ? "default" : member.role === "Admin" ? "secondary" : "outline"} className="text-xs"><RoleIcon className="mr-1 h-3 w-3" />{member.role}</Badge>
-                                        {member.workRole && <Badge variant="outline" className="text-xs bg-accent/20 border-accent/50">{member.workRole}</Badge>}
+                        <CardContent className="space-y-3">
+                            {activeOfficeMembers.map((member) => {
+                                const RoleIcon = roleIcons[member.role] || UserIconLucide;
+                                return (
+                                <div key={member.userId} className="flex items-center space-x-3 p-2.5 rounded-md hover:bg-muted/50 transition-colors">
+                                    <Avatar className="h-10 w-10"><AvatarImage src={member.avatarUrl || ''} alt={member.name} data-ai-hint="person avatar"/><AvatarFallback>{member.name.substring(0,2)}</AvatarFallback></Avatar>
+                                    <div className="flex-1">
+                                        <p className="font-medium text-sm">{member.name}</p>
+                                        <div className="flex items-center space-x-2">
+                                            <Badge variant={member.role === "Owner" ? "default" : member.role === "Admin" ? "secondary" : "outline"} className="text-xs"><RoleIcon className="mr-1 h-3 w-3" />{member.role}</Badge>
+                                            {member.workRole && <Badge variant="outline" className="text-xs bg-accent/20 border-accent/50">{member.workRole}</Badge>}
+                                        </div>
                                     </div>
+                                    {canManageOffice && (<DropdownMenu><DropdownMenuTrigger asChild><Button variant="ghost" size="icon" className="h-8 w-8" disabled={isSubmitting}><MoreHorizontal className="h-4 w-4" /></Button></DropdownMenuTrigger><DropdownMenuContent align="end">
+                                        <DropdownMenuItem onClick={() => handleOpenViewProfileDialog(member)}><UserIconLucide className="mr-2 h-4 w-4" /> View Profile</DropdownMenuItem>
+                                        <DropdownMenuSeparator />
+                                        <DropdownMenuItem onClick={() => handleOpenManageMemberDialog(member)} disabled={isSubmitting}><Edit className="mr-2 h-4 w-4" /> Manage Roles</DropdownMenuItem>
+                                        {member.role !== "Owner" && (<DropdownMenuItem onClick={() => setDeletingMember(member)} className="text-destructive focus:bg-destructive/10 focus:text-destructive" disabled={isSubmitting}><Trash2 className="mr-2 h-4 w-4" /> Remove Member</DropdownMenuItem>)}
+                                    </DropdownMenuContent></DropdownMenu>)}
                                 </div>
-                                {canManageOffice && (<DropdownMenu><DropdownMenuTrigger asChild><Button variant="ghost" size="icon" className="h-8 w-8" disabled={isSubmitting}><MoreHorizontal className="h-4 w-4" /></Button></DropdownMenuTrigger><DropdownMenuContent align="end">
-                                    <DropdownMenuItem onClick={() => handleOpenViewProfileDialog(member)}><UserIconLucide className="mr-2 h-4 w-4" /> View Profile</DropdownMenuItem>
-                                    <DropdownMenuSeparator />
-                                    <DropdownMenuItem onClick={() => handleOpenManageMemberDialog(member)} disabled={isSubmitting}><Edit className="mr-2 h-4 w-4" /> Manage Roles</DropdownMenuItem>
-                                    {member.role !== "Owner" && (<DropdownMenuItem onClick={() => setDeletingMember(member)} className="text-destructive focus:bg-destructive/10 focus:text-destructive" disabled={isSubmitting}><Trash2 className="mr-2 h-4 w-4" /> Remove Member</DropdownMenuItem>)}
-                                </DropdownMenuContent></DropdownMenu>)}
-                            </div>
-                            )
-                        })}
+                                )
+                            })}
                         </CardContent>
                     </Card>
-                </aside>
-                </div>
+                </TabsContent>
+
+                <TabsContent value="settings" className="mt-6 space-y-6">
+                    <Card>
+                        <CardHeader><CardTitle className="font-headline">Office Settings</CardTitle><CardDescription>Manage general settings and invitations for your office.</CardDescription></CardHeader>
+                        <CardContent className="space-y-4">
+                            <Label htmlFor="invite-code">Invite Code</Label>
+                            <div className="flex items-center space-x-2">
+                                <Input id="invite-code" value={activeOffice.invitationCode} readOnly />
+                                <Button variant="outline" size="sm" onClick={copyInviteCode}><Copy className="h-4 w-4 mr-2"/> Copy</Button>
+                            </div>
+                        </CardContent>
+                    </Card>
+                     <Card className="border-destructive">
+                        <CardHeader><CardTitle className="text-destructive font-headline">Danger Zone</CardTitle></CardHeader>
+                        <CardContent>
+                             <Button
+                                variant="destructive"
+                                onClick={() => {
+                                    if(activeOffice.ownerId === user?.uid) setOfficeToDelete(activeOffice);
+                                    else setOfficeToLeave(activeOffice);
+                                }}
+                            >
+                                {activeOffice.ownerId === user?.uid ? <Trash2 className="mr-2 h-4 w-4" /> : <LogOut className="mr-2 h-4 w-4" />}
+                                {activeOffice.ownerId === user?.uid ? "Delete This Office" : "Leave This Office"}
+                            </Button>
+                            <p className="text-xs text-muted-foreground mt-2">
+                                {activeOffice.ownerId === user?.uid
+                                 ? "This action is permanent and cannot be undone."
+                                 : "You will lose access to this office unless re-invited."}
+                            </p>
+                        </CardContent>
+                    </Card>
+                </TabsContent>
+            </Tabs>
             </>
         )}
 
