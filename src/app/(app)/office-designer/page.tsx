@@ -38,7 +38,7 @@ import {
   addMemberByEmail,
   leaveOffice,
 } from "@/lib/firebase/firestore/offices";
-import { getUserProfile } from "@/lib/firebase/firestore/userProfile";
+import { getUserProfile, getUserProfileByEmail } from "@/lib/firebase/firestore/userProfile";
 import { Textarea } from "@/components/ui/textarea";
 import type { Unsubscribe } from 'firebase/firestore'; 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -112,45 +112,61 @@ export default function OfficeDesignerPage() {
   const [selectedWorkRole, setSelectedWorkRole] = useState<string>("");
   const [processingRequestId, setProcessingRequestId] = useState<string | null>(null);
 
+  // Effect 1: Fetch user's offices.
   useEffect(() => {
     if (user && !authLoading) {
       setIsLoadingUserOffices(true);
       const unsubscribe = onUserOfficesUpdate(user.uid, (offices) => {
         setUserOffices(offices);
-        if (offices.length === 0) {
-            setActiveOffice(null);
-        } else if (!activeOffice || !offices.find(o => o.id === activeOffice.id)) {
-            const officeIdFromUrl = searchParams.get('officeId');
-            setActiveOffice(offices.find(o => o.id === officeIdFromUrl) || offices[0]);
-        }
         setIsLoadingUserOffices(false);
       });
       return () => unsubscribe();
     } else if (!user && !authLoading) {
       setUserOffices([]);
-      setActiveOffice(null);
       setIsLoadingUserOffices(false);
     }
-  }, [user, authLoading, searchParams, activeOffice]);
+  }, [user, authLoading]);
 
+  // Effect 2: Determine and set the active office from the list and URL.
   useEffect(() => {
+    // Don't run until the list of offices has been loaded.
+    if (isLoadingUserOffices) {
+      return;
+    }
+    
     const officeIdFromUrl = searchParams.get('officeId');
-    if (isLoadingUserOffices || userOffices.length === 0) return;
-    const officeFromUrl = userOffices.find(o => o.id === officeIdFromUrl);
-    const targetOffice = officeFromUrl || userOffices[0];
-    if (targetOffice && targetOffice.id !== activeOffice?.id) {
-        setActiveOffice(targetOffice);
-    }
-    if (activeOffice && officeIdFromUrl !== activeOffice.id) {
-        router.replace(`${pathname}?officeId=${activeOffice.id}`, { scroll: false });
-    }
-  }, [userOffices, searchParams, isLoadingUserOffices, router, pathname, activeOffice]);
+    let targetOffice: Office | null = null;
 
+    if (userOffices.length > 0) {
+      // If there's an office ID in the URL, try to find it in the user's list.
+      if (officeIdFromUrl) {
+        targetOffice = userOffices.find(o => o.id === officeIdFromUrl) || null;
+      }
+      // If no valid office was found from the URL, or if there was no ID in the URL,
+      // default to the first office in the user's list.
+      if (!targetOffice) {
+        targetOffice = userOffices[0];
+      }
+    }
+    
+    // Set the determined office as active.
+    setActiveOffice(targetOffice);
+    
+    // If the active office is not the one in the URL (e.g., we defaulted),
+    // update the URL to match the active state.
+    if (targetOffice && targetOffice.id !== officeIdFromUrl) {
+        router.replace(`${pathname}?officeId=${targetOffice.id}`, { scroll: false });
+    }
+
+  }, [userOffices, isLoadingUserOffices, searchParams, pathname, router]);
+
+  // Effect 3: Fetch details for the active office
   useEffect(() => {
     if (!activeOffice || !user) {
       setActiveOfficeRooms([]);
       setActiveOfficeMembers([]);
       setCanManageOffice(false);
+      setIsLoadingDetails(false); // Ensure loading is off if there's no office
       return;
     }
     setIsLoadingDetails(true);
@@ -159,7 +175,7 @@ export default function OfficeDesignerPage() {
       setActiveOfficeMembers(members);
       const currentUserInOffice = members.find(m => m.userId === user.uid);
       setCanManageOffice(currentUserInOffice?.role === 'Owner' || currentUserInOffice?.role === 'Admin');
-      setIsLoadingDetails(false);
+      setIsLoadingDetails(false); // Details are loaded
     });
     return () => {
       unsubRooms();
@@ -167,6 +183,7 @@ export default function OfficeDesignerPage() {
     };
   }, [activeOffice, user]);
 
+  // Effect 4: Fetch join requests if the user has permission
   useEffect(() => {
     if (!activeOffice || !canManageOffice) {
       setPendingJoinRequests([]);
@@ -175,6 +192,7 @@ export default function OfficeDesignerPage() {
     const unsubRequests = onPendingJoinRequestsUpdate(activeOffice.id, setPendingJoinRequests);
     return () => unsubRequests();
   }, [activeOffice, canManageOffice]);
+
 
   const handleSetActiveOffice = (officeId: string) => {
     if (officeId !== activeOffice?.id) {
@@ -222,7 +240,7 @@ export default function OfficeDesignerPage() {
 
     try {
       const newOffice = await createOffice(user.uid, user.displayName || "User", user.photoURL || undefined, newOfficeName, newOfficeSector || undefined, newOfficeCompanyName || undefined, logoUrlForCreate, bannerUrlForCreate);
-      handleSetActiveOffice(newOffice.id);
+      handleSetActiveOffice(newOffice.id); // This will trigger URL change and useEffects
       resetCreateOfficeForm();
       setIsCreateOfficeDialogOpen(false);
       toast({ title: "Office Created!", description: `Your new office "${newOffice.name}" is ready.` });
@@ -496,7 +514,7 @@ export default function OfficeDesignerPage() {
         <Separator/>
 
         {!activeOffice && !isLoadingDetails && <NoOfficeView />}
-        {isLoadingDetails && <div className="text-center my-8"><Loader2 className="h-10 w-10 animate-spin text-primary"/></div>}
+        {(isLoadingDetails || (isLoadingUserOffices && !activeOffice)) && <div className="text-center my-8"><Loader2 className="h-10 w-10 animate-spin text-primary"/></div>}
 
         {activeOffice && !isLoadingDetails && (
             <>
