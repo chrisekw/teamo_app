@@ -6,9 +6,8 @@ import { SidebarTrigger } from "@/components/ui/sidebar";
 import { UserNav } from "./user-nav";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { Button } from "@/components/ui/button";
-import { Building2 } from "lucide-react";
+import { Building2, PanelLeft } from "lucide-react";
 import { NotificationDropdown } from "./notification-dropdown"; 
-import { Logo } from "@/components/icons";
 
 export function Header() {
   const isMobile = useIsMobile();
@@ -19,7 +18,7 @@ export function Header() {
         <div className="mr-4 flex">
           {isMobile && (
             <SidebarTrigger className="mr-2 h-8 w-8">
-              <Logo className="h-6 w-6" />
+              <PanelLeft className="h-6 w-6" />
             </SidebarTrigger>
           )}
         </div>
