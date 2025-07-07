@@ -2,7 +2,7 @@ import * as React from 'react';
 
 export const APP_LOGO_BLUE = "#007FFF"; // A vibrant blue for the logo - EXPORTED
 
-// Internal component for the graphical icon part
+// Internal component for the graphical icon part - kept for the icon-only logo
 const IconElement = () => (
   <>
     {/* Central circle */}
@@ -29,23 +29,19 @@ export const Logo = (props: React.SVGProps<SVGSVGElement>) => (
   </svg>
 );
 
-// Exported component for the full logo (ICON + TEXT)
-// Accepts a textToDisplay prop for animation
-export const TeamoTextLogo = ({ textToDisplay, ...rest }: React.SVGProps<SVGSVGElement> & { textToDisplay?: string }) => (
-  <svg viewBox="0 0 150 40" xmlns="http://www.w3.org/2000/svg" {...rest}>
-    <g transform="translate(0, 4) scale(0.5)">
-      <IconElement />
-    </g>
+// Exported component for the text logo ONLY
+export const TeamoTextLogo = (props: React.SVGProps<SVGSVGElement>) => (
+  <svg viewBox="0 0 110 40" xmlns="http://www.w3.org/2000/svg" {...props}>
     <text
-      x="40"
+      x="0"
       y="29.5"
       fontFamily="Space Grotesk, sans-serif"
       fontSize="28"
       fontWeight="bold"
       fill={APP_LOGO_BLUE}
-      textAnchor="start" // Explicitly set text-anchor
+      textAnchor="start"
     >
-      {textToDisplay === undefined ? "Teamo" : textToDisplay}
+      Teamo
     </text>
   </svg>
 );
