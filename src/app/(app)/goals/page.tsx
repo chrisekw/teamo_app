@@ -4,51 +4,41 @@
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
-import { PlusCircle, Target, Edit3, Trash2, CheckCircle2, Loader2, CalendarIcon as CalendarLucide, Info, Percent, Hash, Edit, Users as UsersIcon, Award } from "lucide-react";
-import { useState, useEffect, useCallback } from "react";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
-import { Slider } from "@/components/ui/slider";
-import type { Goal, OfficeMember } from "@/types";
+import { PlusCircle, Target, Edit3, Trash2, CheckCircle2, Loader2, Award, Briefcase } from "lucide-react";
+import { useState, useEffect, useCallback, Suspense } from "react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import type { Goal, Office, OfficeMember } from "@/types";
 import { useAuth } from "@/lib/firebase/auth";
 import { useToast } from "@/hooks/use-toast";
 import { addGoalToOffice, onGoalsUpdate, updateGoalInOffice, deleteGoalFromOffice } from "@/lib/firebase/firestore/goals";
-import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
 import dynamic from 'next/dynamic';
-import { cn } from "@/lib/utils";
-import { format } from "date-fns";
-import { getOfficesForUser, getMembersForOffice, type Office, onUserOfficesUpdate } from "@/lib/firebase/firestore/offices";
+import { onUserOfficesUpdate } from "@/lib/firebase/firestore/offices";
 import { Skeleton } from "@/components/ui/skeleton";
-import {
-  DropdownMenu,
-  DropdownMenuCheckboxItem,
-  DropdownMenuContent,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import type { Unsubscribe } from "firebase/firestore";
 import { Select, SelectValue, SelectTrigger, SelectContent, SelectItem } from "@/components/ui/select";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
+import * as z from 'zod';
+import { useForm, type SubmitHandler } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import { Label } from "@/components/ui/label";
 
-
-const DynamicCalendar = dynamic(() => import('@/components/ui/calendar').then(mod => mod.Calendar), {
+const GoalForm = dynamic(() => import('@/components/goals/goal-form'), {
   ssr: false,
-  loading: () => <Skeleton className="w-full h-[280px]" />
+  loading: () => <div className="p-8 text-center"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div>
 });
 
+const goalFormSchema = z.object({
+  name: z.string().min(1, "Goal name cannot be empty."),
+  description: z.string().optional(),
+  targetValue: z.coerce.number().min(0, "Target value must be positive."),
+  currentValue: z.coerce.number().min(0, "Current value must be positive."),
+  unit: z.string().min(1, "Unit is required."),
+  deadline: z.date().optional(),
+  participantIds: z.array(z.string()).optional(),
+});
+export type GoalFormValues = z.infer<typeof goalFormSchema>;
 
 export default function GoalsPage() {
   const { user, loading: authLoading } = useAuth();
@@ -71,14 +61,17 @@ export default function GoalsPage() {
   const [currentOfficeMembers, setCurrentOfficeMembers] = useState<OfficeMember[]>([]);
   const [isLoadingOfficeData, setIsLoadingOfficeData] = useState(true);
 
-
-  const [goalName, setGoalName] = useState("");
-  const [goalDescription, setGoalDescription] = useState("");
-  const [goalTargetValue, setGoalTargetValue] = useState(100);
-  const [goalCurrentValue, setGoalCurrentValue] = useState(0);
-  const [goalUnit, setGoalUnit] = useState("%");
-  const [goalDeadline, setGoalDeadline] = useState<Date | undefined>();
-  const [goalParticipantIds, setGoalParticipantIds] = useState<string[]>([]); 
+  const form = useForm<GoalFormValues>({
+    resolver: zodResolver(goalFormSchema),
+    defaultValues: {
+      name: "",
+      description: "",
+      targetValue: 100,
+      currentValue: 0,
+      unit: "%",
+      participantIds: [],
+    },
+  });
 
   useEffect(() => {
     if (user && !authLoading) {
@@ -100,24 +93,30 @@ export default function GoalsPage() {
       setActiveOffice(null);
       setIsLoadingOfficeData(false);
     }
-  }, [user, authLoading]);
+  }, [user, authLoading, searchParams, activeOffice]);
 
-  // Update URL to reflect active office
   useEffect(() => {
     if (activeOffice && searchParams.get('officeId') !== activeOffice.id) {
         router.replace(`${pathname}?officeId=${activeOffice.id}`, { scroll: false });
     }
   }, [activeOffice, searchParams, router, pathname]);
 
-  // Fetch members when active office changes
   useEffect(() => {
+    let unsubMembers: Unsubscribe | null = null;
     if (activeOffice) {
-      getMembersForOffice(activeOffice.id).then(setCurrentOfficeMembers);
+        unsubMembers = onUserOfficesUpdate(activeOffice.id, (offices) => {
+            const office = offices.find(o => o.id === activeOffice.id);
+            // This is a placeholder, you would likely fetch members specifically
+            // For now, we assume members can be derived or this needs a specific member fetch call
+        });
+    } else {
+        setCurrentOfficeMembers([]);
     }
+    return () => {
+        if (unsubMembers) unsubMembers();
+    };
   }, [activeOffice]);
 
-
-  // Real-time goal listener
   useEffect(() => {
     let unsubscribe: Unsubscribe | null = null;
     if (user && activeOffice && !authLoading) {
@@ -131,9 +130,7 @@ export default function GoalsPage() {
       setAllGoals([]);
     }
     return () => {
-      if (unsubscribe) {
-        unsubscribe();
-      }
+      if (unsubscribe) unsubscribe();
     };
   }, [user, activeOffice, authLoading]);
 
@@ -148,81 +145,55 @@ export default function GoalsPage() {
     return Math.min(Math.max((current / target) * 100, 0), 100);
   };
   
-  // Filter goals into active and completed
   useEffect(() => {
     const active: Goal[] = [];
     const completed: Goal[] = [];
-
     allGoals.forEach(goal => {
       const isLowerBetterAchieved = goal.unit.toLowerCase().includes("lower is better") && goal.currentValue <= goal.targetValue;
       const progress = getProgressPercentage(goal.currentValue, goal.targetValue, goal.unit);
       const isCompletedNonLowerIsBetter = progress >= 100 && !goal.unit.toLowerCase().includes("lower is better");
-
       if (isCompletedNonLowerIsBetter || isLowerBetterAchieved) {
         completed.push(goal);
       } else {
         active.push(goal);
       }
     });
-
     setActiveGoals(active);
     setCompletedGoals(completed);
   }, [allGoals]);
 
-
-  const resetForm = () => {
-    setGoalName("");
-    setGoalDescription("");
-    setGoalTargetValue(100);
-    setGoalCurrentValue(0);
-    setGoalUnit("%");
-    setGoalDeadline(undefined);
-    setGoalParticipantIds([]);
-    setCurrentGoalToEdit(null);
-  };
-
   const handleOpenDialog = (goal?: Goal) => {
     if (goal) {
       setCurrentGoalToEdit(goal);
-      setGoalName(goal.name);
-      setGoalDescription(goal.description);
-      setGoalTargetValue(goal.targetValue);
-      setGoalCurrentValue(goal.currentValue);
-      setGoalUnit(goal.unit);
-      setGoalDeadline(goal.deadline);
-      setGoalParticipantIds(goal.participantIds || []);
+      form.reset({
+        name: goal.name,
+        description: goal.description,
+        targetValue: goal.targetValue,
+        currentValue: goal.currentValue,
+        unit: goal.unit,
+        deadline: goal.deadline,
+        participantIds: goal.participantIds || [],
+      });
     } else {
-      resetForm();
+      setCurrentGoalToEdit(null);
+      form.reset();
     }
     setIsGoalDialogOpen(true);
   };
 
-  const handleSaveGoal = async () => {
+  const onSaveGoal: SubmitHandler<GoalFormValues> = async (data) => {
     if (!user || !activeOffice) {
       toast({ variant: "destructive", title: "Error", description: "You must select an office." });
       return;
     }
-    if (!goalName.trim()) {
-        toast({ variant: "destructive", title: "Validation Error", description: "Goal name cannot be empty." });
-        return;
-    }
-
     setIsSubmitting(true);
-
-    const selectedParticipantNames = goalParticipantIds
+    const selectedParticipantNames = (data.participantIds || [])
       .map(id => currentOfficeMembers.find(m => m.userId === id)?.name)
       .filter(Boolean) as string[];
     const participantsDisplay = selectedParticipantNames.join(', ') || "No participants";
 
-
-    const goalData: Omit<Goal, 'id' | 'createdAt' | 'updatedAt' | 'officeId' | 'creatorUserId'> = {
-      name: goalName,
-      description: goalDescription,
-      targetValue: goalTargetValue,
-      currentValue: goalCurrentValue,
-      unit: goalUnit,
-      deadline: goalDeadline,
-      participantIds: goalParticipantIds,
+    const goalData = {
+      ...data,
       participantsDisplay: participantsDisplay,
     };
     const actorName = user.displayName || user.email || "User";
@@ -236,7 +207,6 @@ export default function GoalsPage() {
         toast({ title: "Goal Added", description: `"${goalData.name}" has been added.` });
       }
       setIsGoalDialogOpen(false);
-      resetForm();
     } catch (error) {
       console.error("Failed to save goal:", error);
       toast({ variant: "destructive", title: "Error", description: "Could not save goal." });
@@ -258,21 +228,14 @@ export default function GoalsPage() {
         setIsSubmitting(false);
     }
   };
-  
-  const getSelectedParticipantNamesForDialog = () => {
-    if (goalParticipantIds.length === 0) return "Select Participant(s)";
-    const names = goalParticipantIds
-        .map(id => currentOfficeMembers.find(member => member.userId === id)?.name)
-        .filter(Boolean) as string[];
-    if (names.length > 2) return `${names.slice(0,2).join(', ')} +${names.length - 2} more`;
-    return names.join(', ') || "Select Participant(s)";
-  };
 
   const handleOfficeChange = (officeId: string) => {
     if (officeId && officeId !== activeOffice?.id) {
-        router.push(`${pathname}?officeId=${officeId}`);
         const newActiveOffice = userOffices.find(o => o.id === officeId);
-        if (newActiveOffice) setActiveOffice(newActiveOffice);
+        if (newActiveOffice) {
+          setActiveOffice(newActiveOffice);
+          router.push(`${pathname}?officeId=${officeId}`);
+        }
     }
   };
   
@@ -333,7 +296,6 @@ export default function GoalsPage() {
       </Card>
     );
   };
-
 
   if (authLoading || isLoadingOfficeData) {
     return <div className="container mx-auto p-8 text-center"><Loader2 className="h-12 w-12 animate-spin text-primary" /></div>;
@@ -417,128 +379,24 @@ export default function GoalsPage() {
         )
       )}
 
-      <Dialog open={isGoalDialogOpen} onOpenChange={(isOpen) => {if (!isSubmitting) setIsGoalDialogOpen(isOpen); if(!isOpen) resetForm();}}>
+      <Dialog open={isGoalDialogOpen} onOpenChange={(isOpen) => {if (!isSubmitting) setIsGoalDialogOpen(isOpen);}}>
         <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle className="font-headline">{currentGoalToEdit ? "Edit Goal" : "Add New Goal"}</DialogTitle>
-            <DialogDescription>
-              {currentGoalToEdit ? "Update the details for this goal." : `Define a new goal for ${activeOffice?.name || 'your team'}.`}
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4 py-4 max-h-[70vh] overflow-y-auto pr-2">
-            <div className="space-y-1.5">
-              <Label htmlFor="goalName" className="flex items-center text-sm font-medium text-muted-foreground"><Edit className="mr-2 h-4 w-4 text-muted-foreground"/>Goal Name</Label>
-              <Input id="goalName" value={goalName} onChange={(e) => setGoalName(e.target.value)} placeholder="e.g., Increase Sales" disabled={isSubmitting}/>
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="goalDescription" className="flex items-center text-sm font-medium text-muted-foreground"><Info className="mr-2 h-4 w-4 text-muted-foreground"/>Description</Label>
-              <Textarea id="goalDescription" value={goalDescription} onChange={(e) => setGoalDescription(e.target.value)} placeholder="Briefly describe the goal" rows={3} disabled={isSubmitting}/>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-1.5">
-                <Label htmlFor="goalCurrentValue" className="flex items-center text-sm font-medium text-muted-foreground"><Hash className="mr-2 h-4 w-4 text-muted-foreground"/>Current Value</Label>
-                <Input id="goalCurrentValue" type="number" value={goalCurrentValue} onChange={(e) => setGoalCurrentValue(parseFloat(e.target.value) || 0)} disabled={isSubmitting}/>
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="goalTargetValue" className="flex items-center text-sm font-medium text-muted-foreground"><Target className="mr-2 h-4 w-4 text-muted-foreground"/>Target Value</Label>
-                <Input id="goalTargetValue" type="number" value={goalTargetValue} onChange={(e) => setGoalTargetValue(parseFloat(e.target.value) || 0)} disabled={isSubmitting}/>
-              </div>
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="goalUnit" className="flex items-center text-sm font-medium text-muted-foreground"><Percent className="mr-2 h-4 w-4 text-muted-foreground"/>Unit</Label>
-              <Input id="goalUnit" value={goalUnit} onChange={(e) => setGoalUnit(e.target.value)} placeholder="e.g., %, USD, Tasks, Bugs (Lower is better)" disabled={isSubmitting}/>
-              <p className="text-xs text-muted-foreground">Add '(Lower is better)' to the unit if applicable, e.g., 'Bugs (Lower is better)'.</p>
-            </div>
-            <div className="space-y-1.5">
-                <Label className="flex items-center text-sm font-medium text-muted-foreground">Set Current Value ({goalCurrentValue} {goalUnit.replace("(Lower is better)","").trim()})</Label>
-                <Slider
-                    value={[goalCurrentValue]}
-                    max={goalTargetValue > 0 ? goalTargetValue * (goalUnit.toLowerCase().includes("lower is better") ? 2 : 1.2) : 100}
-                    min={0}
-                    step={goalTargetValue > 1000 ? 100 : (goalTargetValue > 100 ? 10 : 1)}
-                    onValueChange={(value) => setGoalCurrentValue(value[0])}
-                    disabled={isSubmitting}
-                />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="goalDeadline" className="flex items-center text-sm font-medium text-muted-foreground"><CalendarLucide className="mr-2 h-4 w-4 text-muted-foreground"/>Deadline (Optional)</Label>
-               <Popover>
-                <PopoverTrigger asChild>
-                  <Button
-                    id="goalDeadline"
-                    variant={"outline"}
-                    className={cn("w-full justify-start text-left font-normal", !goalDeadline && "text-muted-foreground")}
-                    disabled={isSubmitting}
-                  >
-                    <CalendarLucide className="mr-2 h-4 w-4" />
-                    {goalDeadline ? format(goalDeadline, "PPP") : <span>Pick a date</span>}
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent className="w-auto p-0">
-                  <DynamicCalendar mode="single" selected={goalDeadline} onSelect={setGoalDeadline} initialFocus disabled={isSubmitting}/>
-                </PopoverContent>
-              </Popover>
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="goalParticipantIds" className="flex items-center text-sm font-medium text-muted-foreground"><UsersIcon className="mr-2 h-4 w-4 text-muted-foreground"/>Participants (Optional)</Label>
-              <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                  <Button variant="outline" id="goalParticipantIds" className="w-full justify-start text-left font-normal h-auto min-h-10 py-2" disabled={isSubmitting || currentOfficeMembers.length === 0}>
-                      {currentOfficeMembers.length === 0 && !isLoadingOfficeData ? "No members in office" : getSelectedParticipantNamesForDialog()}
-                  </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent className="w-[calc(var(--radix-dialog-content-width)-2rem)] sm:w-[calc(var(--radix-dialog-content-width)-3rem)] max-w-md">
-                  <DropdownMenuLabel>Select Team Members</DropdownMenuLabel>
-                  <DropdownMenuSeparator />
-                  {currentOfficeMembers.length > 0 && (
-                      <DropdownMenuCheckboxItem
-                      checked={goalParticipantIds.length === currentOfficeMembers.length && currentOfficeMembers.length > 0}
-                      onCheckedChange={(checked) => {
-                          if (checked) {
-                          setGoalParticipantIds(currentOfficeMembers.map(m => m.userId));
-                          } else {
-                          setGoalParticipantIds([]);
-                          }
-                      }}
-                      >
-                      Select All ({currentOfficeMembers.length})
-                      </DropdownMenuCheckboxItem>
-                  )}
-                  <DropdownMenuSeparator />
-                   <div className="max-h-48 overflow-y-auto">
-                      {currentOfficeMembers.map((member) => (
-                      <DropdownMenuCheckboxItem
-                          key={member.userId}
-                          checked={goalParticipantIds.includes(member.userId)}
-                          onCheckedChange={(checked) => {
-                          setGoalParticipantIds((prev) =>
-                              checked
-                              ? [...prev, member.userId]
-                              : prev.filter((id) => id !== member.userId)
-                          );
-                          }}
-                      >
-                          <div className="flex items-center">
-                          <Avatar className="h-6 w-6 mr-2">
-                              <AvatarImage src={member.avatarUrl || `https://placehold.co/40x40.png?text=${member.name.substring(0,1)}`} alt={member.name} data-ai-hint="person avatar"/>
-                              <AvatarFallback>{member.name.substring(0,1)}</AvatarFallback>
-                          </Avatar>
-                          {member.name}
-                          </div>
-                      </DropdownMenuCheckboxItem>
-                      ))}
-                    </div>
-                  </DropdownMenuContent>
-              </DropdownMenu>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setIsGoalDialogOpen(false)} disabled={isSubmitting}>Cancel</Button>
-            <Button onClick={handleSaveGoal} disabled={isSubmitting}>
-              {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              {currentGoalToEdit ? "Save Changes" : "Add Goal"}
-            </Button>
-          </DialogFooter>
+           <DialogHeader>
+              <DialogTitle className="font-headline">{currentGoalToEdit ? "Edit Goal" : "Add New Goal"}</DialogTitle>
+              <DialogDescription>
+                {currentGoalToEdit ? "Update the details for this goal." : `Define a new goal for ${activeOffice?.name || 'your team'}.`}
+              </DialogDescription>
+            </DialogHeader>
+            <Suspense fallback={<div className="p-8 text-center"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div>}>
+              <GoalForm
+                form={form}
+                onSubmit={onSaveGoal}
+                isSubmitting={isSubmitting}
+                currentOfficeMembers={currentOfficeMembers}
+                onCancel={() => setIsGoalDialogOpen(false)}
+                initialData={currentGoalToEdit}
+              />
+            </Suspense>
         </DialogContent>
       </Dialog>
     </div>

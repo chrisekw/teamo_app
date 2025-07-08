@@ -4,50 +4,43 @@
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
-import { PlusCircle, Edit3, Trash2, Loader2, CalendarDays, ChevronDown, Briefcase, Users as UsersIcon, Info, Percent, Hash, Edit as EditIcon } from "lucide-react";
-import { useState, useEffect, useCallback } from "react";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
+import { PlusCircle, Edit3, Trash2, Loader2, CalendarDays, ChevronDown, Briefcase, Users as UsersIcon } from "lucide-react";
+import { useState, useEffect, Suspense } from "react";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
-import { Slider } from "@/components/ui/slider";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import type { Task, OfficeMember, Office } from "@/types";
 import { useAuth } from "@/lib/firebase/auth";
 import { useToast } from "@/hooks/use-toast";
-import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
-import { cn } from "@/lib/utils";
 import { format } from "date-fns";
 import dynamic from 'next/dynamic';
 import { addTaskToOffice, onTasksUpdate, updateTaskInOffice, deleteTaskFromOffice } from "@/lib/firebase/firestore/tasks";
-import { onUserOfficesUpdate, getMembersForOffice, onMembersUpdate } from "@/lib/firebase/firestore/offices";
+import { onUserOfficesUpdate, onMembersUpdate } from "@/lib/firebase/firestore/offices";
 import { Skeleton } from "@/components/ui/skeleton";
 import Link from "next/link";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
-import {
-  DropdownMenu,
-  DropdownMenuCheckboxItem,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+import { DropdownMenu, DropdownMenuItem, DropdownMenuContent, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { useSearchParams, useRouter, usePathname } from 'next/navigation';
 import type { Unsubscribe } from "firebase/firestore";
+import * as z from 'zod';
+import { useForm, type SubmitHandler } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
 
-const DynamicCalendar = dynamic(() => import('@/components/ui/calendar').then(mod => mod.Calendar), {
+const TaskForm = dynamic(() => import('@/components/tasks/task-form'), {
   ssr: false,
-  loading: () => <Skeleton className="w-full h-[280px]" />
+  loading: () => <div className="p-8 text-center"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div>
 });
+
+const taskFormSchema = z.object({
+  name: z.string().min(1, "Task name cannot be empty."),
+  description: z.string().optional(),
+  assigneeIds: z.array(z.string()).optional(),
+  dueDate: z.date().optional(),
+  status: z.enum(["To Do", "In Progress", "Done", "Blocked"]),
+  priority: z.enum(["Low", "Medium", "High"]),
+  progress: z.number().min(0).max(100),
+});
+export type TaskFormValues = z.infer<typeof taskFormSchema>;
 
 const statusColors: Record<Task["status"], string> = {
   "To Do": "border-gray-500",
@@ -80,59 +73,46 @@ export default function TasksPage() {
   const [currentOfficeMembers, setCurrentOfficeMembers] = useState<OfficeMember[]>([]);
   const [isLoadingOfficeData, setIsLoadingOfficeData] = useState(true);
 
-  // Form state
-  const [taskName, setTaskName] = useState("");
-  const [taskDescription, setTaskDescription] = useState("");
-  const [taskAssigneeIds, setTaskAssigneeIds] = useState<string[]>([]);
-  const [taskDueDate, setTaskDueDate] = useState<Date | undefined>();
-  const [taskStatus, setTaskStatus] = useState<Task["status"]>("To Do");
-  const [taskPriority, setTaskPriority] = useState<Task["priority"]>("Medium");
-  const [taskProgress, setTaskProgress] = useState(0);
+  const form = useForm<TaskFormValues>({
+    resolver: zodResolver(taskFormSchema),
+    defaultValues: {
+      name: "",
+      description: "",
+      assigneeIds: [],
+      status: "To Do",
+      priority: "Medium",
+      progress: 0,
+    }
+  });
 
-  // FIX: Refactored office loading logic to prevent loops
-  // 1. Fetch user's offices.
   useEffect(() => {
     if (user && !authLoading) {
       setIsLoadingOfficeData(true);
       const unsubscribe = onUserOfficesUpdate(user.uid, (offices) => {
         setUserOffices(offices);
+        if (offices.length > 0) {
+          const officeIdFromUrl = searchParams.get('officeId');
+          const officeFromUrl = offices.find(o => o.id === officeIdFromUrl);
+          setActiveOffice(officeFromUrl || offices[0]);
+        } else {
+          setActiveOffice(null);
+        }
         setIsLoadingOfficeData(false);
       });
       return () => unsubscribe();
     } else if (!user && !authLoading) {
       setUserOffices([]);
+      setActiveOffice(null);
       setIsLoadingOfficeData(false);
     }
-  }, [user, authLoading]);
+  }, [user, authLoading, searchParams]);
 
-  // 2. Determine and set the active office from URL and office list.
   useEffect(() => {
-    if (isLoadingOfficeData) return; // Don't run until office list is loaded
-
-    const officeIdFromUrl = searchParams.get('officeId');
-    let targetOffice: Office | null = null;
-
-    if (userOffices.length > 0) {
-      if (officeIdFromUrl) {
-        targetOffice = userOffices.find(o => o.id === officeIdFromUrl) || null;
-      }
-      // If no office from URL, or invalid ID, default to first office in list.
-      if (!targetOffice) {
-        targetOffice = userOffices[0];
-      }
+    if (activeOffice && searchParams.get('officeId') !== activeOffice.id) {
+        router.replace(`${pathname}?officeId=${activeOffice.id}`, { scroll: false });
     }
-    
-    // Set the determined office as active.
-    setActiveOffice(targetOffice);
-    
-    // If the active office isn't the one in the URL (e.g. we defaulted), update URL.
-    if (targetOffice && targetOffice.id !== officeIdFromUrl) {
-        router.replace(`${pathname}?officeId=${targetOffice.id}`, { scroll: false });
-    }
+  }, [activeOffice, searchParams, router, pathname]);
 
-  }, [userOffices, isLoadingOfficeData, searchParams, pathname, router]);
-
-  // Real-time listener for members of the active office
   useEffect(() => {
     let unsubscribe: Unsubscribe | null = null;
     if (activeOffice) {
@@ -145,8 +125,6 @@ export default function TasksPage() {
     };
   }, [activeOffice]);
 
-
-  // Real-time listener for tasks in the active office
   useEffect(() => {
     let unsubscribe: Unsubscribe | null = null;
     if (user && activeOffice) {
@@ -164,62 +142,37 @@ export default function TasksPage() {
     };
   }, [user, activeOffice]);
 
-
-  const resetForm = () => {
-    setTaskName("");
-    setTaskDescription("");
-    setTaskAssigneeIds([]);
-    setTaskDueDate(undefined);
-    setTaskStatus("To Do");
-    setTaskPriority("Medium");
-    setTaskProgress(0);
-    setCurrentTaskToEdit(null);
-  };
-
   const handleOpenDialog = (task?: Task) => {
     if (task) {
       setCurrentTaskToEdit(task);
-      setTaskName(task.name);
-      setTaskDescription(task.description || "");
-      setTaskAssigneeIds(task.assigneeIds || []);
-      setTaskDueDate(task.dueDate);
-      setTaskStatus(task.status);
-      setTaskPriority(task.priority);
-      setTaskProgress(task.progress);
+      form.reset({
+        name: task.name,
+        description: task.description || "",
+        assigneeIds: task.assigneeIds || [],
+        dueDate: task.dueDate,
+        status: task.status,
+        priority: task.priority,
+        progress: task.progress,
+      });
     } else {
-      resetForm();
+      setCurrentTaskToEdit(null);
+      form.reset();
     }
     setIsTaskDialogOpen(true);
   };
 
-  const handleSaveTask = async () => {
+  const onSaveTask: SubmitHandler<TaskFormValues> = async (data) => {
     if (!user || !activeOffice) {
       toast({ variant: "destructive", title: "Error", description: "User or active office not found." });
       return;
     }
-    if (!taskName.trim()) {
-      toast({ variant: "destructive", title: "Validation Error", description: "Task name cannot be empty." });
-      return;
-    }
-
     setIsSubmitting(true);
-
-    const selectedAssigneeDetails = taskAssigneeIds
+    const selectedAssigneeDetails = (data.assigneeIds || [])
       .map(id => currentOfficeMembers.find(m => m.userId === id))
       .filter(Boolean) as OfficeMember[];
-    
     const assigneesDisplay = selectedAssigneeDetails.map(m => m.name).join(', ') || "Unassigned";
 
-    const taskData: Omit<Task, 'id' | 'createdAt' | 'updatedAt' | 'officeId' | 'creatorUserId'> = {
-      name: taskName,
-      description: taskDescription || undefined,
-      assigneeIds: taskAssigneeIds,
-      assigneesDisplay: assigneesDisplay,
-      dueDate: taskDueDate,
-      status: taskStatus,
-      priority: taskPriority,
-      progress: taskProgress,
-    };
+    const taskData = { ...data, assigneesDisplay };
     const actorName = user.displayName || user.email || "User";
 
     try {
@@ -231,7 +184,6 @@ export default function TasksPage() {
         toast({ title: "Task Added", description: `"${taskData.name}" has been added.` });
       }
       setIsTaskDialogOpen(false);
-      resetForm();
     } catch (error) {
       console.error("Failed to save task:", error);
       toast({ variant: "destructive", title: "Error", description: "Could not save task." });
@@ -254,18 +206,12 @@ export default function TasksPage() {
     }
   };
 
-  const getSelectedAssigneeNamesForDialog = () => {
-    if (taskAssigneeIds.length === 0) return "Select Assignee(s)";
-    const names = taskAssigneeIds
-        .map(id => currentOfficeMembers.find(member => member.userId === id)?.name)
-        .filter(Boolean) as string[];
-    if (names.length > 2) return `${names.slice(0,2).join(', ')} +${names.length - 2} more`;
-    return names.join(', ') || "Select Assignee(s)";
-  };
-
   const handleOfficeChange = (officeId: string) => {
     if (officeId && officeId !== activeOffice?.id) {
-        router.push(`${pathname}?officeId=${officeId}`);
+        const newActiveOffice = userOffices.find(o => o.id === officeId);
+        if (newActiveOffice) {
+            setActiveOffice(newActiveOffice);
+        }
     }
   };
 
@@ -407,7 +353,7 @@ export default function TasksPage() {
         </div>
       )}
 
-      <Dialog open={isTaskDialogOpen} onOpenChange={(isOpen) => { if (!isSubmitting) setIsTaskDialogOpen(isOpen); if(!isOpen) resetForm(); }}>
+      <Dialog open={isTaskDialogOpen} onOpenChange={(isOpen) => { if (!isSubmitting) setIsTaskDialogOpen(isOpen); }}>
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
             <DialogTitle className="font-headline">{currentTaskToEdit ? "Edit Task" : "Create New Task"}</DialogTitle>
@@ -415,127 +361,16 @@ export default function TasksPage() {
               {currentTaskToEdit ? "Update the details for this task." : "Define a new task for your team."}
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-4 py-4 max-h-[75vh] overflow-y-auto pr-2">
-            <div className="space-y-1.5">
-              <Label htmlFor="taskName" className="flex items-center text-sm font-medium text-muted-foreground"><EditIcon className="mr-2 h-4 w-4 text-muted-foreground"/>Task Name</Label>
-              <Input id="taskName" value={taskName} onChange={(e) => setTaskName(e.target.value)} placeholder="Enter task name" disabled={isSubmitting}/>
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="taskDescription" className="flex items-center text-sm font-medium text-muted-foreground"><Info className="mr-2 h-4 w-4 text-muted-foreground"/>Description (Optional)</Label>
-              <Textarea id="taskDescription" value={taskDescription} onChange={(e) => setTaskDescription(e.target.value)} placeholder="Provide task details" rows={3} disabled={isSubmitting}/>
-            </div>
-
-            <div className="space-y-1.5">
-              <Label htmlFor="taskAssigneeIds" className="flex items-center text-sm font-medium text-muted-foreground"><UsersIcon className="mr-2 h-4 w-4 text-muted-foreground"/>Assign To (Optional)</Label>
-              <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                  <Button variant="outline" id="taskAssigneeIds" className="w-full justify-start text-left font-normal h-auto min-h-10 py-2" disabled={isSubmitting || isLoadingOfficeData || currentOfficeMembers.length === 0}>
-                      {isLoadingOfficeData && currentOfficeMembers.length === 0 ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                      {getSelectedAssigneeNamesForDialog()}
-                  </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent className="w-[calc(var(--radix-dialog-content-width)-2rem)] sm:w-[calc(var(--radix-dialog-content-width)-3rem)] max-w-md">
-                  <DropdownMenuLabel>Select Team Members</DropdownMenuLabel>
-                  <DropdownMenuSeparator />
-                  {currentOfficeMembers.length > 0 && (
-                      <DropdownMenuCheckboxItem
-                      checked={taskAssigneeIds.length === currentOfficeMembers.length && currentOfficeMembers.length > 0}
-                      onCheckedChange={(checked) => {
-                          if (checked) {
-                          setTaskAssigneeIds(currentOfficeMembers.map(m => m.userId));
-                          } else {
-                          setTaskAssigneeIds([]);
-                          }
-                      }}
-                      disabled={isLoadingOfficeData}
-                      >
-                      Select All ({currentOfficeMembers.length})
-                      </DropdownMenuCheckboxItem>
-                  )}
-                  <DropdownMenuSeparator />
-                  {isLoadingOfficeData && currentOfficeMembers.length === 0 ? (
-                      <div className="flex justify-center p-2"><Loader2 className="h-5 w-5 animate-spin" /></div>
-                  ) : currentOfficeMembers.length === 0 ? (
-                      <div className="p-2 text-sm text-muted-foreground text-center">No members in this office to assign.</div>
-                  ) : (
-                      <div className="max-h-48 overflow-y-auto">
-                      {currentOfficeMembers.map((member) => (
-                      <DropdownMenuCheckboxItem
-                          key={member.userId}
-                          checked={taskAssigneeIds.includes(member.userId)}
-                          onCheckedChange={(checked) => {
-                          setTaskAssigneeIds((prev) =>
-                              checked
-                              ? [...prev, member.userId]
-                              : prev.filter((id) => id !== member.userId)
-                          );
-                          }}
-                      >
-                          <div className="flex items-center">
-                          <Avatar className="h-6 w-6 mr-2">
-                              <AvatarImage src={member.avatarUrl || `https://placehold.co/40x40.png?text=${member.name.substring(0,1)}`} alt={member.name} data-ai-hint="person avatar"/>
-                              <AvatarFallback>{member.name.substring(0,1)}</AvatarFallback>
-                          </Avatar>
-                          {member.name}
-                          </div>
-                      </DropdownMenuCheckboxItem>
-                      ))}
-                      </div>
-                  )}
-                  </DropdownMenuContent>
-              </DropdownMenu>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="space-y-1.5">
-                <Label htmlFor="taskDueDate" className="flex items-center text-sm font-medium text-muted-foreground"><CalendarDays className="mr-2 h-4 w-4 text-muted-foreground"/>Due Date (Optional)</Label>
-                <Popover>
-                  <PopoverTrigger asChild>
-                    <Button id="taskDueDate" variant={"outline"} className={cn("w-full justify-start text-left font-normal", !taskDueDate && "text-muted-foreground")} disabled={isSubmitting}>
-                      <CalendarDays className="mr-2 h-4 w-4" />
-                      {taskDueDate ? format(taskDueDate, "PPP") : <span>Pick a date</span>}
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-auto p-0">
-                    <DynamicCalendar mode="single" selected={taskDueDate} onSelect={setTaskDueDate} initialFocus disabled={isSubmitting}/>
-                  </PopoverContent>
-                </Popover>
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="taskStatus" className="flex items-center text-sm font-medium text-muted-foreground"><Hash className="mr-2 h-4 w-4 text-muted-foreground"/>Status</Label>
-                <Select value={taskStatus} onValueChange={(value) => setTaskStatus(value as Task["status"])} disabled={isSubmitting}>
-                  <SelectTrigger id="taskStatus"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    {taskStatuses.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div className="space-y-1.5">
-                    <Label htmlFor="taskPriority" className="flex items-center text-sm font-medium text-muted-foreground"><Percent className="mr-2 h-4 w-4 text-muted-foreground"/>Priority</Label>
-                    <Select value={taskPriority} onValueChange={(value) => setTaskPriority(value as Task["priority"])} disabled={isSubmitting}>
-                    <SelectTrigger id="taskPriority"><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                        <SelectItem value="Low">Low</SelectItem>
-                        <SelectItem value="Medium">Medium</SelectItem>
-                        <SelectItem value="High">High</SelectItem>
-                    </SelectContent>
-                    </Select>
-                </div>
-                <div className="space-y-1.5">
-                    <Label htmlFor="taskProgress" className="flex items-center text-sm font-medium text-muted-foreground"><Hash className="mr-2 h-4 w-4 text-muted-foreground"/>Progress ({taskProgress}%)</Label>
-                    <Slider id="taskProgress" value={[taskProgress]} onValueChange={(value) => setTaskProgress(value[0])} max={100} step={5} disabled={isSubmitting}/>
-                </div>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setIsTaskDialogOpen(false)} disabled={isSubmitting}>Cancel</Button>
-            <Button onClick={handleSaveTask} disabled={isSubmitting}>
-              {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              {currentTaskToEdit ? "Save Changes" : "Create Task"}
-            </Button>
-          </DialogFooter>
+          <Suspense fallback={<div className="p-8 text-center"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div>}>
+            <TaskForm 
+              form={form}
+              onSubmit={onSaveTask}
+              isSubmitting={isSubmitting}
+              currentOfficeMembers={currentOfficeMembers}
+              onCancel={() => setIsTaskDialogOpen(false)}
+              initialData={currentTaskToEdit}
+            />
+          </Suspense>
         </DialogContent>
       </Dialog>
     </div>
