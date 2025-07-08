@@ -20,7 +20,9 @@ export default function OfficeRoomPage() {
   const { user, loading: authLoading } = useAuth();
   const router = useRouter();
   const { toast } = useToast();
-  const { officeId, roomId } = useParams() as { officeId: string, roomId: string };
+  const params = useParams();
+  const officeId = params.officeId as string;
+  const roomId = params.roomId as string;
 
   const [officeDetails, setOfficeDetails] = useState<Office | null>(null);
   const [roomDetails, setRoomDetails] = useState<Room | null>(null);
