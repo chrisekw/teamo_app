@@ -4,7 +4,7 @@
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
-import { PlusCircle, Edit3, Trash2, Loader2, CalendarDays, ChevronDown, Briefcase, Users as UsersIcon } from "lucide-react";
+import { PlusCircle, Edit3, Trash2, Loader2, CalendarDays, MoreHorizontal, Briefcase, Users as UsersIcon } from "lucide-react";
 import { useState, useEffect, Suspense } from "react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
@@ -25,6 +25,8 @@ import type { Unsubscribe } from "firebase/firestore";
 import * as z from 'zod';
 import { useForm, type SubmitHandler } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
+import { cn } from "@/lib/utils";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 
 const TaskForm = dynamic(() => import('@/components/tasks/task-form'), {
   ssr: false,
@@ -49,11 +51,11 @@ const statusColors: Record<Task["status"], string> = {
   "Blocked": "border-red-500",
 };
 
-const priorityColors: Record<Task["priority"], string> = {
-  "Low": "bg-gray-400",
-  "Medium": "bg-yellow-500",
-  "High": "bg-red-500",
-}
+const priorityBorderClass: Record<Task["priority"], string> = {
+  "High": "border-destructive",
+  "Medium": "border-yellow-500",
+  "Low": "border-muted",
+};
 
 export default function TasksPage() {
   const { user, loading: authLoading } = useAuth();
@@ -291,62 +293,84 @@ export default function TasksPage() {
               {tasksByStatus[status].length === 0 ? (
                 <p className="text-sm text-muted-foreground p-2">No tasks in this status.</p>
               ) : (
-                tasksByStatus[status].map((task) => (
-                  <Card key={task.id} className="flex flex-col shadow-md hover:shadow-lg transition-shadow duration-300">
-                    <CardHeader className="pb-3">
-                      <div className="flex justify-between items-start">
-                         <button onClick={() => handleOpenDialog(task)} className="text-left w-full">
-                            <CardTitle className="font-headline text-base leading-tight hover:text-primary transition-colors">
-                               {task.name}
-                            </CardTitle>
-                         </button>
+                tasksByStatus[status].map((task) => {
+                  const priorityBorder = priorityBorderClass[task.priority];
+                  return (
+                    <Card
+                      key={task.id}
+                      className={cn("shadow-md hover:shadow-lg transition-shadow duration-300 cursor-pointer border-l-4", priorityBorder)}
+                      onClick={() => handleOpenDialog(task)}
+                    >
+                      <CardHeader className="flex flex-row justify-between items-start p-4 pb-2">
+                        <div className="flex-1 space-y-1" >
+                          <CardTitle className="text-base font-semibold leading-tight">{task.name}</CardTitle>
+                          {task.description && (
+                            <CardDescription className="text-sm line-clamp-2 pt-0.5">
+                              {task.description}
+                            </CardDescription>
+                          )}
+                        </div>
                         <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
+                          <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
                             <Button variant="ghost" size="icon" className="h-7 w-7 -mt-1 -mr-2 shrink-0">
-                              <ChevronDown className="h-4 w-4" />
+                              <MoreHorizontal className="h-4 w-4" />
                             </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
-                            <DropdownMenuItem onClick={() => handleOpenDialog(task)} disabled={isSubmitting}>
+                            <DropdownMenuItem onClick={(e) => { e.stopPropagation(); handleOpenDialog(task); }} disabled={isSubmitting}>
                               <Edit3 className="mr-2 h-4 w-4" /> Edit Task
                             </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => handleDeleteTask(task.id)} className="text-destructive focus:text-destructive focus:bg-destructive/10" disabled={isSubmitting}>
+                            <DropdownMenuItem
+                              onClick={(e) => { e.stopPropagation(); handleDeleteTask(task.id); }}
+                              className="text-destructive focus:text-destructive focus:bg-destructive/10"
+                              disabled={isSubmitting}
+                            >
                               <Trash2 className="mr-2 h-4 w-4" /> Delete Task
                             </DropdownMenuItem>
                           </DropdownMenuContent>
                         </DropdownMenu>
-                      </div>
-                       <CardDescription className="text-xs pt-1">
-                          Priority: <Badge variant="outline" className="px-1.5 py-0.5"><div className={`h-2 w-2 rounded-full mr-1 ${priorityColors[task.priority]}`}></div>{task.priority}</Badge>
-                        </CardDescription>
-                    </CardHeader>
-                    <CardContent className="flex-grow pt-0 pb-3">
-                      {task.assigneesDisplay && (
-                        <div className="flex items-center space-x-1 mb-2">
-                           <UsersIcon className="h-3 w-3 text-muted-foreground" />
-                           <span className="text-xs text-muted-foreground truncate">{task.assigneesDisplay}</span>
+                      </CardHeader>
+                      <CardContent className="p-4 pt-2">
+                        <div className="mb-4">
+                          <div className="flex justify-between text-xs font-medium mb-1 text-muted-foreground">
+                            <span>Progress</span>
+                            <span>{task.progress}%</span>
+                          </div>
+                          <Progress value={task.progress} className="h-2" indicatorClassName={task.progress === 100 ? "bg-green-500" : "bg-primary"} />
                         </div>
-                      )}
-                      {task.dueDate && (
-                        <p className="text-xs text-muted-foreground mb-2 flex items-center">
-                          <CalendarDays className="mr-1 h-3 w-3" />
-                          Due: {format(task.dueDate, "MMM d, yyyy")}
-                        </p>
-                      )}
-                      {task.description && <p className="text-sm text-muted-foreground line-clamp-2 mb-2">{task.description}</p>}
-                      <div>
-                        <div className="flex justify-between text-xs font-medium mb-1 text-muted-foreground">
-                          <span>Progress</span>
-                          <span>{task.progress}%</span>
+                        <div className="flex justify-between items-center text-xs text-muted-foreground">
+                          {task.dueDate ? (
+                            <div className="flex items-center">
+                              <CalendarDays className="mr-1.5 h-3.5 w-3.5" />
+                              <span>{format(task.dueDate, "MMM d")}</span>
+                            </div>
+                          ) : (
+                            <div /> // Placeholder for alignment
+                          )}
+
+                          {task.assigneeIds && task.assigneeIds.length > 0 && (
+                            <div className="flex -space-x-2">
+                              {task.assigneeIds.slice(0, 3).map(assigneeId => { // Limit to 3 avatars
+                                const member = currentOfficeMembers.find(m => m.userId === assigneeId);
+                                return member ? (
+                                  <Avatar key={member.userId} className="h-6 w-6 border-2 border-background">
+                                    <AvatarImage src={member.avatarUrl} alt={member.name} />
+                                    <AvatarFallback className="text-xs">{member.name.substring(0, 1)}</AvatarFallback>
+                                  </Avatar>
+                                ) : null;
+                              })}
+                              {task.assigneeIds.length > 3 && (
+                                 <Avatar className="h-6 w-6 border-2 border-background">
+                                    <AvatarFallback className="text-xs">+{task.assigneeIds.length - 3}</AvatarFallback>
+                                 </Avatar>
+                              )}
+                            </div>
+                          )}
                         </div>
-                        <Progress value={task.progress} className="h-2" indicatorClassName={task.progress === 100 ? "bg-green-500" : "bg-primary"}/>
-                      </div>
-                    </CardContent>
-                     <CardFooter className="pt-0 pb-3">
-                       <Button variant="outline" size="sm" className="w-full text-xs" onClick={() => handleOpenDialog(task)} disabled={isSubmitting}>Update Status/Progress</Button>
-                    </CardFooter>
-                  </Card>
-                ))
+                      </CardContent>
+                    </Card>
+                  )
+                })
               )}
             </div>
           ))}
