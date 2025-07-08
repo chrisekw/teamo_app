@@ -1,4 +1,3 @@
-
 rules_version = '2';
 
 service cloud.firestore {
@@ -52,18 +51,37 @@ service cloud.firestore {
 
     // --- CHAT DATA ---
     match /chatThreads/{threadId} {
-      function isParticipant() {
-        // Use `resource.data` for create/update rules, and `get()` for read/delete.
-        return request.auth.uid in (request.resource.data.participantIds != null ? request.resource.data.participantIds : get(/databases/$(database)/documents/chatThreads/$(threadId)).data.participantIds);
+      // Helper functions specific to chat threads
+      function isParticipantInExistingDoc() {
+        return request.auth.uid in get(/databases/$(database)/documents/chatThreads/$(threadId)).data.participantIds;
+      }
+      function isParticipantInNewDoc() {
+        return request.auth.uid in request.resource.data.participantIds;
       }
 
-      allow read, write: if isAuthenticated() && isParticipant();
+      // Read access: Must be a participant in the existing document.
+      allow get, list: if isAuthenticated() && isParticipantInExistingDoc();
+      
+      // Create access: Must be authenticated and a participant in the NEW document being created.
+      // participantIds must contain the creator.
+      allow create: if isAuthenticated() && isParticipantInNewDoc() && request.auth.uid in request.resource.data.participantIds;
+      
+      // Update access: Must be a participant in the existing document.
+      // This allows updating last message, call state, etc.
+      allow update: if isAuthenticated() && isParticipantInExistingDoc();
+      
+      // No one can delete chat threads for now.
+      allow delete: if false;
 
       match /messages/{messageId} {
-        allow read: if isAuthenticated() && isParticipant();
-        // A user must be a participant AND the sender to create a message.
-        allow create: if isAuthenticated() && isParticipant() && request.resource.data.senderId == request.auth.uid;
-        allow update, delete: if false; // Messages are immutable.
+        // Read access: Must be a participant in the parent chat thread.
+        allow read, list: if isAuthenticated() && isParticipantInExistingDoc();
+        
+        // Create access: Must be a participant and the sender of the message.
+        allow create: if isAuthenticated() && isParticipantInExistingDoc() && request.resource.data.senderId == request.auth.uid;
+        
+        // Messages are immutable.
+        allow update, delete: if false;
       }
     }
 
