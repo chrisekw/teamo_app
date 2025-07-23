@@ -23,6 +23,7 @@ import * as z from 'zod';
 import { useForm, type SubmitHandler } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Label } from "@/components/ui/label";
+import { format } from "date-fns";
 
 const GoalForm = dynamic(() => import('@/components/goals/goal-form'), {
   ssr: false,
@@ -234,7 +235,6 @@ export default function GoalsPage() {
         const newActiveOffice = userOffices.find(o => o.id === officeId);
         if (newActiveOffice) {
           setActiveOffice(newActiveOffice);
-          router.push(`${pathname}?officeId=${officeId}`);
         }
     }
   };

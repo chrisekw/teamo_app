@@ -4,7 +4,7 @@
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
-import { PlusCircle, Edit3, Trash2, Loader2, CalendarDays, MoreHorizontal, Briefcase, Users as UsersIcon } from "lucide-react";
+import { PlusCircle, Edit3, Trash2, Loader2, CalendarDays, MoreHorizontal, Briefcase, Users as UsersIcon, Edit } from "lucide-react";
 import { useState, useEffect, Suspense } from "react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
@@ -277,7 +277,7 @@ export default function TasksPage() {
       
       {activeOffice && !isLoadingTasks && tasks.length === 0 && (
          <div className="text-center py-12 bg-muted/10 rounded-lg">
-          <Edit3 className="mx-auto h-16 w-16 text-muted-foreground mb-4" />
+          <Edit className="mx-auto h-16 w-16 text-muted-foreground mb-4" />
           <p className="text-lg text-muted-foreground">No tasks found for {activeOffice.name}.</p>
           <p className="text-sm text-muted-foreground">Click "Create New Task" to get started.</p>
         </div>

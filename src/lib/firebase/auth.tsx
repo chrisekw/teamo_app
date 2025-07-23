@@ -7,14 +7,16 @@ import {
   createUserWithEmailAndPassword, 
   signInWithEmailAndPassword, 
   signOut as firebaseSignOut,
-  updateProfile
+  updateProfile,
+  signInWithPopup,
+  GoogleAuthProvider
 } from 'firebase/auth';
 import React, { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import { auth } from './client'; // Your Firebase client instance
 import { useRouter } from 'next/navigation';
 import type { z } from 'zod';
-import type { loginSchema, signupSchema } from '@/app/(auth)/schemas'; // Assuming schemas are defined here
-import { getOrCreateUserProfile } from './firestore/userProfile'; // Import the new function
+import type { loginSchema, signupSchema } from '@/app/(auth)/schemas';
+import { getOrCreateUserProfile } from './firestore/userProfile'; 
 
 type LoginInput = z.infer<typeof loginSchema>;
 type SignupInput = z.infer<typeof signupSchema>;
@@ -25,6 +27,7 @@ interface AuthContextType {
   error: AuthError | null;
   signUp: (data: SignupInput) => Promise<void>;
   signIn: (data: LoginInput) => Promise<void>;
+  signInWithGoogle: () => Promise<void>;
   signOut: () => Promise<void>;
 }
 
@@ -44,52 +47,66 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     return () => unsubscribe();
   }, []);
 
+  const handleSuccessfulLogin = async (firebaseUser: FirebaseUser) => {
+    let initialDisplayName = firebaseUser.displayName || 'New User';
+     if (!initialDisplayName.trim()) {
+      initialDisplayName = 'User-' + firebaseUser.uid.substring(0, 5);
+    }
+    
+    await getOrCreateUserProfile(firebaseUser.uid, {
+      displayName: initialDisplayName,
+      email: firebaseUser.email || '',
+      avatarUrl: firebaseUser.photoURL || undefined,
+    });
+    
+    setUser(auth.currentUser);
+    router.push('/dashboard');
+  }
+
   const signUp = async (data: SignupInput) => {
     setLoading(true);
     setError(null);
     try {
       const userCredential = await createUserWithEmailAndPassword(auth, data.email, data.password);
       const firebaseUser = userCredential.user;
-
-      if (firebaseUser) {
-        if (data.name) {
-          await updateProfile(firebaseUser, { displayName: data.name });
-        }
-        // Ensure displayName and photoURL are up-to-date before creating profile
-        await firebaseUser.reload(); 
-        
-        let initialDisplayName = firebaseUser.displayName || data.name || 'New User';
-        if (!initialDisplayName.trim()) {
-          initialDisplayName = 'User-' + firebaseUser.uid.substring(0, 5); // Fallback if name is empty/whitespace
-        }
-
-        // Create or get the user profile in Firestore
-        await getOrCreateUserProfile(firebaseUser.uid, {
-          displayName: initialDisplayName,
-          email: firebaseUser.email || '', // Email should always exist from createUserWithEmailAndPassword
-          avatarUrl: firebaseUser.photoURL || undefined,
-        });
-
-        setUser(auth.currentUser); // Update context user with latest from auth instance
+      if (data.name) {
+        await updateProfile(firebaseUser, { displayName: data.name });
       }
-      router.push('/dashboard');
+      await firebaseUser.reload();
+      await handleSuccessfulLogin(firebaseUser);
     } catch (e) {
       setError(e as AuthError);
-      throw e; // Re-throw for form error handling
+      throw e;
     } finally {
       setLoading(false);
     }
   };
+  
+  const signInWithGoogle = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const provider = new GoogleAuthProvider();
+      const result = await signInWithPopup(auth, provider);
+      await handleSuccessfulLogin(result.user);
+    } catch (e) {
+      setError(e as AuthError);
+      throw e;
+    } finally {
+      setLoading(false);
+    }
+  }
+
 
   const signIn = async (data: LoginInput) => {
     setLoading(true);
     setError(null);
     try {
-      await signInWithEmailAndPassword(auth, data.email, data.password);
-      router.push('/dashboard');
+      const userCredential = await signInWithEmailAndPassword(auth, data.email, data.password);
+      await handleSuccessfulLogin(userCredential.user);
     } catch (e) {
       setError(e as AuthError);
-      throw e; // Re-throw for form error handling
+      throw e;
     } finally {
       setLoading(false);
     }
@@ -110,7 +127,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, error, signUp, signIn, signOut }}>
+    <AuthContext.Provider value={{ user, loading, error, signUp, signIn, signInWithGoogle, signOut }}>
       {children}
     </AuthContext.Provider>
   );

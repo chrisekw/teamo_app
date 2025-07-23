@@ -18,7 +18,7 @@ import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/firebase/auth";
 import type { ChatMessage, ChatUser, Office, ChatThread } from "@/types";
-import { getOfficesForUser, getMembersForOffice } from '@/lib/firebase/firestore/offices';
+import { getOfficesForUser, getMembersForOffice, onUserOfficesUpdate } from '@/lib/firebase/firestore/offices';
 import {
   getOrCreateDmThread,
   addChatMessageAndNotify,
@@ -84,43 +84,64 @@ export default function ChatPage() {
     }
   }, [user, authLoading]);
 
+  // Combined effect to handle initial data loading and chat initialization
   useEffect(() => {
-    const fetchInitialData = async () => {
-      if (user && currentUserForChat) {
-        const offices = await getOfficesForUser(user.uid);
-        setUserOfficesList(offices);
-        if (offices.length > 0) {
-          setActiveOfficeForChat(offices[0]);
-        } else {
-          setActiveOfficeForChat(null);
-          setCurrentOfficeMembers([]);
-        }
-      }
-    };
-    if (user && !authLoading && currentUserForChat) {
-      fetchInitialData();
-    }
-  }, [user, authLoading, currentUserForChat]);
+    if (!user || authLoading) return;
 
-  useEffect(() => {
-    const fetchMembers = async () => {
-      if (activeOfficeForChat && user) {
-        const members = await getMembersForOffice(activeOfficeForChat.id);
+    // 1. Fetch user's offices and set an initial active office.
+    const unsubOffices = onUserOfficesUpdate(user.uid, async (offices) => {
+      setUserOfficesList(offices);
+      
+      const threadIdFromUrl = searchParams.get('threadId');
+      const officeGeneralFromUrl = searchParams.get('officeGeneral');
+      
+      let currentActiveOffice = offices.find(o => o.id === officeGeneralFromUrl) || offices[0] || null;
+      setActiveOfficeForChat(currentActiveOffice);
+
+      // 2. Fetch members for the determined active office
+      if (currentActiveOffice) {
+        const members = await getMembersForOffice(currentActiveOffice.id);
         const chatUsers: ChatUser[] = members.map(m => ({
-          id: m.userId,
-          name: m.name,
-          role: m.role,
-          avatarUrl: m.avatarUrl,
+          id: m.userId, name: m.name, role: m.role, avatarUrl: m.avatarUrl,
         }));
         setCurrentOfficeMembers(chatUsers.filter(m => m.id !== user.uid));
       } else {
         setCurrentOfficeMembers([]);
       }
-    };
-    if (activeOfficeForChat !== undefined) {
-        fetchMembers();
-    }
-  }, [activeOfficeForChat, user]);
+      
+      // 3. Initialize chat based on URL params or default to general chat
+      if (threadIdFromUrl) {
+          try {
+            const threadDataSnap = await getDoc(doc(db, 'chatThreads', threadIdFromUrl));
+            if (threadDataSnap.exists()) {
+              const threadData = threadDataSnap.data() as ChatThread;
+              const targetId = threadData.participantIds.find(pid => pid !== user?.uid);
+              let targetUserInfo: ChatUser | undefined;
+              if (targetId && threadData.participantInfo && threadData.participantInfo[targetId]) {
+                targetUserInfo = { id: targetId, name: threadData.participantInfo[targetId].name, role: 'User', avatarUrl: threadData.participantInfo[targetId].avatarUrl };
+              }
+              if (targetUserInfo) {
+                await selectChat(threadIdFromUrl, 'dm', targetUserInfo);
+              } else {
+                console.warn(`Could not find target user info for thread ${threadIdFromUrl}`);
+                if (currentActiveOffice) await selectChat(`general-${currentActiveOffice.id}`, 'general');
+              }
+            } else {
+              if (currentActiveOffice) await selectChat(`general-${currentActiveOffice.id}`, 'general');
+            }
+          } catch (e) {
+            console.error("Error fetching thread from URL:", e);
+            if (currentActiveOffice) await selectChat(`general-${currentActiveOffice.id}`, 'general');
+          }
+      } else if (currentActiveOffice) {
+        await selectChat(`general-${currentActiveOffice.id}`, 'general');
+      } else {
+        setActiveChatId(null);
+      }
+    });
+
+    return () => unsubOffices();
+  }, [user, authLoading, searchParams]); // Depends on user and URL params to start
 
 
   const selectChat = useCallback(async (chatId: string, type: 'dm' | 'general', targetUser?: ChatUser) => {
@@ -129,7 +150,6 @@ export default function ChatPage() {
     setActiveChatId(chatId);
     setActiveChatType(type);
     setActiveChatTargetUser(targetUser || null);
-    // setIsLoadingMessages(true); // Will be set by onSnapshot initial call
 
     if (type === 'dm') {
       await markNotificationsAsReadByLink(user.uid, `/chat?threadId=${chatId}`);
@@ -174,80 +194,6 @@ export default function ChatPage() {
 
 
   useEffect(() => {
-    if (authLoading || !currentUserForChat || activeChatId || activeOfficeForChat === undefined) {
-      return;
-    }
-
-    const threadIdFromUrl = searchParams.get('threadId');
-    const officeGeneralFromUrl = searchParams.get('officeGeneral');
-
-    const initializeChat = async () => {
-      // setIsLoadingMessages(true); // Moved to onSnapshot listener effect
-      try {
-        if (threadIdFromUrl) {
-          const threadDataSnap = await getDoc(doc(db, 'chatThreads', threadIdFromUrl));
-          if (threadDataSnap.exists()) {
-            const threadData = threadDataSnap.data() as ChatThread;
-            const targetId = threadData.participantIds.find(pid => pid !== user?.uid);
-
-            let targetUserInfo: ChatUser | undefined;
-
-            if (targetId && threadData.participantInfo && threadData.participantInfo[targetId]) {
-              targetUserInfo = {
-                id: targetId,
-                name: threadData.participantInfo[targetId].name,
-                role: 'User',
-                avatarUrl: threadData.participantInfo[targetId].avatarUrl
-              };
-            } else if (targetId) {
-              const membersOfActiveOffice = activeOfficeForChat ? await getMembersForOffice(activeOfficeForChat.id) : [];
-              const memberDetails = membersOfActiveOffice.find(m => m.userId === targetId);
-              if (memberDetails) {
-                  targetUserInfo = { id: memberDetails.userId, name: memberDetails.name, role: memberDetails.role, avatarUrl: memberDetails.avatarUrl };
-              } else {
-                console.warn(`Target user info for ${targetId} not readily available.`);
-              }
-            }
-
-            if (targetUserInfo) {
-              await selectChat(threadIdFromUrl, 'dm', targetUserInfo);
-            } else if (targetId && !targetUserInfo){
-                await selectChat(threadIdFromUrl, 'dm', {id: targetId, name: `User ${targetId.substring(0,4)}`, role: 'User'});
-            } else if (activeOfficeForChat) {
-              await selectChat(`general-${activeOfficeForChat.id}`, 'general');
-            } else {
-              setActiveChatId(null); // No specific chat selected
-            }
-          } else if (activeOfficeForChat) {
-            await selectChat(`general-${activeOfficeForChat.id}`, 'general');
-          } else {
-            setActiveChatId(null);
-          }
-        } else if (officeGeneralFromUrl && activeOfficeForChat && officeGeneralFromUrl === activeOfficeForChat.id) {
-          await selectChat(`general-${activeOfficeForChat.id}`, 'general');
-        } else if (activeOfficeForChat) {
-          await selectChat(`general-${activeOfficeForChat.id}`, 'general');
-        } else {
-          setActiveChatId(null);
-        }
-      } catch (error) {
-        console.error("Error initializing chat from URL:", error);
-        toast({ variant: "destructive", title: "Error", description: "Could not initialize chat." });
-        if (activeOfficeForChat) {
-          await selectChat(`general-${activeOfficeForChat.id}`, 'general');
-        } else {
-          setActiveChatId(null);
-        }
-      }
-      // setIsLoadingMessages(false); // Moved to onSnapshot listener effect
-    };
-
-    if (activeOfficeForChat !== undefined || threadIdFromUrl) {
-      initializeChat();
-    }
-  }, [user, currentUserForChat, activeOfficeForChat, searchParams, toast, authLoading, router, selectChat, activeChatId]);
-
-  useEffect(() => {
     if (scrollAreaRef.current) {
       const viewport = scrollAreaRef.current.querySelector('div[data-radix-scroll-area-viewport]');
       if (viewport) {
@@ -268,7 +214,6 @@ export default function ChatPage() {
     const currentMsgText = newMessage;
     setNewMessage("");
 
-    // Optimistic update (optional but good for UX)
     const tempMessageId = Date.now().toString();
     const optimisticMessage: ChatMessage = {
       id: tempMessageId, text: currentMsgText, senderId: currentUserForChat.id,
@@ -292,9 +237,8 @@ export default function ChatPage() {
       } else if (activeChatType === 'general' && activeOfficeForChat) {
         await addGeneralOfficeMessage(activeOfficeForChat.id, messageContent, currentUserForChat);
       }
-      // Message will be added via onSnapshot listener, remove optimistic one if IDs don't match or handle potential duplicates if IDs are same
       setAllMessages(prev => ({
-         ...prev, [activeChatId]: (prev[activeChatId] || []).filter(m => m.id !== tempMessageId || m.text !== currentMsgText) // Simple removal, real message comes via listener
+         ...prev, [activeChatId]: (prev[activeChatId] || []).filter(m => m.id !== tempMessageId || m.text !== currentMsgText)
       }));
 
 
@@ -320,7 +264,6 @@ export default function ChatPage() {
 
     const durationFormatted = `${String(Math.floor(durationSeconds / 60)).padStart(2, '0')}:${String(durationSeconds % 60).padStart(2, '0')}`;
     
-    // Optimistic update
     const tempMessageId = Date.now().toString();
     const optimisticMessage: ChatMessage = {
       id: tempMessageId, text: `Voice Note (${durationFormatted})`, senderId: currentUserForChat.id,
@@ -504,12 +447,18 @@ export default function ChatPage() {
     }
   };
 
-  const handleOfficeChange = (officeId: string) => {
+  const handleOfficeChange = async (officeId: string) => {
     const newActiveOffice = userOfficesList.find(o => o.id === officeId);
     if (newActiveOffice && newActiveOffice.id !== activeOfficeForChat?.id) {
-        setActiveOfficeForChat(newActiveOffice);
-        selectChat(`general-${newActiveOffice.id}`, 'general');
-        router.replace(`/chat?officeGeneral=${newActiveOffice.id}`, { scroll: false });
+        setActiveOfficeForChat(newActiveOffice); // Triggers re-render and member fetch
+        if (currentUserForChat) {
+          const members = await getMembersForOffice(newActiveOffice.id);
+          const chatUsers: ChatUser[] = members.map(m => ({
+            id: m.userId, name: m.name, role: m.role, avatarUrl: m.avatarUrl,
+          }));
+          setCurrentOfficeMembers(chatUsers.filter(m => m.id !== user?.uid));
+          await selectChat(`general-${newActiveOffice.id}`, 'general');
+        }
     }
   };
 
@@ -707,5 +656,3 @@ export default function ChatPage() {
     </div>
   );
 }
-
-    
