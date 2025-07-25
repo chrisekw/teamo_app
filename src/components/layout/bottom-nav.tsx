@@ -3,7 +3,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutGrid, MessageCircleMore, CalendarDays, ClipboardCheck, Settings, Loader2 } from "lucide-react";
+import { LayoutGrid, MessageCircleMore, CalendarDays, ClipboardCheck, TrendingUp, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { NavItem } from "@/types";
 import { Badge } from "@/components/ui/badge";
@@ -17,7 +17,7 @@ const bottomNavItems: NavItem[] = [
   { title: "Chat", href: "/chat", icon: MessageCircleMore },
   { title: "Meetings", href: "/meetings", icon: CalendarDays },
   { title: "Tasks", href: "/tasks", icon: ClipboardCheck },
-  { title: "Settings", href: "/settings", icon: Settings },
+  { title: "Goals", href: "/goals", icon: TrendingUp },
 ];
 
 export function BottomNav() {
