@@ -1,3 +1,4 @@
+
 rules_version = '2';
 
 service cloud.firestore {
@@ -20,7 +21,7 @@ service cloud.firestore {
     function isOfficeAdminOrOwner(officeId) {
       // This is for existing offices.
       return isOfficeMember(officeId) &&
-             (get(/databases/$(database)/documents/offices/$(officeId)/members/$(request.auth.uid)).data.role in ['Admin', 'Owner']);
+             get(/databases/$(database)/documents/offices/$(officeId)/members/$(request.auth.uid)).data.role in ['Admin', 'Owner'];
     }
     
     function isOwnerOfNewOffice() {
@@ -80,10 +81,8 @@ service cloud.firestore {
       // --- Subcollections of an Office ---
       match /members/{memberUserId} {
         allow read, list: if isOfficeMember(officeId);
-        // To create a member doc:
-        // 1. You must be an admin of that office.
-        // 2. OR you are the user being created AND you are the owner of the office being created (handles initial owner setup).
-        allow create: if isOfficeAdminOrOwner(officeId) || (isTheUser(memberUserId) && request.resource.data.role == 'Owner');
+        // Corrected rule for member creation
+        allow create: if isOfficeAdminOrOwner(officeId) || (isTheUser(memberUserId) && getAfter(/databases/$(database)/documents/offices/$(officeId)).data.ownerId == request.auth.uid);
         allow update: if isOfficeAdminOrOwner(officeId);
         // An admin can remove another member. A member can remove themselves unless they are the owner.
         allow delete: if (isOfficeAdminOrOwner(officeId) && request.auth.uid != memberUserId) || (isTheUser(memberUserId) && !isOwnerOfExistingOffice(officeId));
