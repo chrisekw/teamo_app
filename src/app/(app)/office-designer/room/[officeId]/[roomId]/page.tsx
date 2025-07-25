@@ -5,16 +5,19 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Loader2, Video, VideoOff, Mic, MicOff, ScreenShare, ScreenShareOff, PhoneOff, ArrowLeft, Users, ShieldCheck, Settings2, UserCircle as UserIconLucide } from "lucide-react";
+import { Loader2, Video, VideoOff, Mic, MicOff, ScreenShare, ScreenShareOff, Phone, MessageSquare, Users, Settings, ArrowLeft } from "lucide-react";
 import { useAuth } from "@/lib/firebase/auth";
 import { useToast } from "@/hooks/use-toast";
 import type { Office, Room, OfficeMember } from "@/types";
 import { getOfficeDetails, getRoomDetails, getMembersForOffice } from "@/lib/firebase/firestore/offices";
-import { Skeleton } from '@/components/ui/skeleton';
 import { ParticipantVideo } from '@/components/meetings/participant-video';
 import { cn } from '@/lib/utils';
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
+import { Separator } from '@/components/ui/separator';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
 
 export default function OfficeRoomPage() {
   const { user, loading: authLoading } = useAuth();
@@ -32,7 +35,6 @@ export default function OfficeRoomPage() {
   const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
   const [screenStream, setScreenStream] = useState<MediaStream | null>(null);
   const [hasPermission, setHasPermission] = useState<boolean | undefined>(undefined);
-  const [isScreenShareSupported, setIsScreenShareSupported] = useState(false);
   
   const [isMicOn, setIsMicOn] = useState(true);
   const [isCameraOn, setIsCameraOn] = useState(true);
@@ -57,12 +59,6 @@ export default function OfficeRoomPage() {
   }, [officeId, router]);
 
 
-  useEffect(() => {
-      if (typeof window !== 'undefined' && navigator.mediaDevices && 'getDisplayMedia' in navigator.mediaDevices) {
-          setIsScreenShareSupported(true);
-      }
-  }, []);
-
   const fetchRoomAndOfficeData = useCallback(async () => {
     if (!officeId || !roomId) return;
     setIsLoadingData(true);
@@ -85,9 +81,8 @@ export default function OfficeRoomPage() {
       }
       setOfficeDetails(officeData);
       setRoomDetails(roomData);
-      const roomParticipants = membersData.filter(member => roomData.participantIds?.includes(member.userId) || roomData.creatorUserId === member.userId);
-      setOfficeMembers(roomParticipants.length > 0 ? roomParticipants : membersData || []);
-
+      // For this room, we'll assume all office members are potential participants
+      setOfficeMembers(membersData || []);
 
     } catch (error) {
       console.error("Failed to fetch room/office details:", error);
@@ -143,10 +138,6 @@ export default function OfficeRoomPage() {
   };
   
   const handleToggleScreenShare = async () => {
-      if (!isScreenShareSupported) {
-          toast({ variant: "destructive", title: "Not Supported", description: "Screen sharing is not supported by your browser." });
-          return;
-      }
       if (isScreenSharing) {
           stopStream(screenStream);
           setScreenStream(null);
@@ -165,39 +156,19 @@ export default function OfficeRoomPage() {
           }
       }
   };
-
-  if (authLoading || isLoadingData) {
+  
+  if (authLoading || isLoadingData || hasPermission === undefined) {
     return (
-      <div className="container mx-auto p-4 sm:p-6 lg:p-8 space-y-6">
-        <div className="flex justify-between items-center">
-          <Skeleton className="h-8 w-1/4" />
-          <Skeleton className="h-10 w-32" />
-        </div>
-        <Card className="shadow-xl">
-          <CardHeader className="flex flex-row justify-between items-center">
-            <Skeleton className="h-7 w-3/5" />
-            <Skeleton className="h-10 w-24" />
-          </CardHeader>
-          <CardContent className="space-y-4">
-             <Skeleton className="w-full aspect-video rounded-md" />
-          </CardContent>
-          <CardFooter className="flex flex-col sm:flex-row justify-center items-center space-y-2 sm:space-y-0 sm:space-x-3 pt-4 border-t">
-            <Skeleton className="h-12 w-24" />
-            <Skeleton className="h-12 w-28" />
-            <Skeleton className="h-12 w-32" />
-          </CardFooter>
-        </Card>
+      <div className="flex h-screen w-screen items-center justify-center bg-muted">
+        <Loader2 className="h-12 w-12 animate-spin text-primary" />
+        <p className="ml-4 text-muted-foreground">Joining room...</p>
       </div>
     );
   }
 
-  if (!officeDetails || !roomDetails) {
-    return <div className="container mx-auto p-8 text-center">Error loading details. Redirecting...</div>;
-  }
-  
   if (hasPermission === false) {
     return (
-       <Card className="shadow-xl flex flex-col h-full items-center justify-center p-4">
+       <div className="flex h-screen w-screen flex-col items-center justify-center bg-muted p-4">
            <Alert variant="destructive" className="max-w-md">
                <VideoOff className="h-4 w-4" />
                <AlertTitle>Media Access Denied</AlertTitle>
@@ -206,7 +177,7 @@ export default function OfficeRoomPage() {
                </AlertDescription>
            </Alert>
            <Button onClick={cleanupAndLeave} variant="secondary" className="mt-4">Back to Office</Button>
-       </Card>
+       </div>
     )
   }
 
@@ -217,7 +188,8 @@ export default function OfficeRoomPage() {
     avatarUrl: user.photoURL || undefined,
   } : undefined;
 
-  const otherParticipants = officeMembers.filter(p => p.userId !== user?.uid);
+  // Simulate other participants being in the call for UI purposes
+  const otherParticipants = officeMembers.filter(p => p.userId !== user?.uid).slice(0, 5); // Limit for demo
   const allParticipantsInGrid = selfParticipant ? [selfParticipant, ...otherParticipants] : otherParticipants;
   const totalTiles = allParticipantsInGrid.length + (isScreenSharing ? 1 : 0);
 
@@ -225,38 +197,36 @@ export default function OfficeRoomPage() {
     if (count <= 1) return "grid-cols-1";
     if (count === 2) return "grid-cols-2";
     if (count <= 4) return "grid-cols-2";
+    if (count <= 6) return "grid-cols-2 md:grid-cols-3";
     if (count <= 9) return "grid-cols-3";
     return "grid-cols-4";
   };
   const gridLayoutClass = getGridClasses(totalTiles);
 
-
   return (
-    <div className="container mx-auto p-4 sm:p-6 lg:p-8 space-y-6">
-      <div className="flex justify-between items-center">
-        <Button variant="outline" size="sm" asChild>
-            <Link href={`/office-designer?officeId=${officeId}`}>
-            <ArrowLeft className="mr-2 h-4 w-4" />
-            Office: {officeDetails.name}
+    <div className="flex h-screen w-screen flex-col bg-background text-foreground">
+      {/* Header */}
+      <header className="flex h-16 flex-shrink-0 items-center justify-between border-b px-4">
+        <div className="flex items-center space-x-2">
+            <Link href={`/office-designer?officeId=${officeId}`} className="flex items-center text-sm text-muted-foreground hover:text-foreground">
+                <ArrowLeft className="mr-2 h-4 w-4" />
+                <span className="hidden sm:inline">Back to {officeDetails?.name}</span>
             </Link>
-        </Button>
-         <Button variant="destructive" onClick={cleanupAndLeave}>
-           <PhoneOff className="mr-2 h-4 w-4" /> Leave Room
-        </Button>
-      </div>
+        </div>
+        <div className="text-center">
+            <h1 className="text-lg font-semibold">{roomDetails?.name}</h1>
+        </div>
+        <div className="flex items-center space-x-2">
+            <span className="text-sm text-muted-foreground hidden sm:flex items-center"><Users className="mr-1 h-4 w-4" />{allParticipantsInGrid.length}</span>
+            <span className="text-sm text-muted-foreground font-mono bg-muted px-2 py-1 rounded-md hidden md:block">14:25</span>
+        </div>
+      </header>
 
-      <Card className="shadow-xl">
-        <CardHeader className="flex flex-row justify-between items-center">
-          <CardTitle className="font-headline flex items-center">
-            <Video className="mr-2 h-5 w-5 text-primary" />
-            {roomDetails.name}
-          </CardTitle>
-          <span className="text-sm text-muted-foreground flex items-center"><Users className="mr-1 h-4 w-4" /> {allParticipantsInGrid.length} in call</span>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className={cn("grid w-full h-full gap-2 sm:gap-4", gridLayoutClass)}>
+      {/* Main Content */}
+      <main className="flex-1 overflow-hidden bg-black/80">
+         <div className={cn("grid w-full h-full p-4 gap-4", gridLayoutClass)}>
             {isScreenSharing && (
-                <div className="bg-black rounded-md relative flex items-center justify-center overflow-hidden border-2 border-primary shadow-lg">
+                <div className="bg-black rounded-lg relative flex items-center justify-center overflow-hidden border-2 border-primary shadow-lg">
                     <video key="screen" ref={node => {if(node) node.srcObject = screenStream}} className="w-full h-full object-contain" autoPlay/>
                     <p className="absolute bottom-2 left-2 z-20 text-white font-medium bg-black/40 px-2 py-1 rounded-md text-sm">
                         Your Screen Share
@@ -274,22 +244,83 @@ export default function OfficeRoomPage() {
                 />
             ))}
           </div>
-        </CardContent>
-        <CardFooter className="flex flex-col sm:flex-row justify-center items-center space-y-2 sm:space-y-0 sm:space-x-3 pt-4 border-t">
-            <Button variant={!isMicOn ? "destructive" : "outline"} size="lg" onClick={handleToggleMic} disabled={!hasPermission}>
-                {isMicOn ? <Mic className="mr-2 h-5 w-5" /> : <MicOff className="mr-2 h-5 w-5" />}
-                {isMicOn ? 'Mute' : 'Unmute'}
+      </main>
+
+      {/* Footer Controls */}
+      <footer className="flex h-20 flex-shrink-0 items-center justify-center border-t bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+        <div className="flex items-center space-x-2 sm:space-x-4">
+             <Button variant={!isMicOn ? "destructive" : "secondary"} size="lg" className="rounded-full h-14 w-14 p-0" onClick={handleToggleMic} disabled={!hasPermission}>
+                {isMicOn ? <Mic className="h-6 w-6" /> : <MicOff className="h-6 w-6" />}
             </Button>
-            <Button variant={!isCameraOn ? "destructive" : "outline"} size="lg" onClick={handleToggleCamera} disabled={!hasPermission}>
-                {isCameraOn ? <Video className="mr-2 h-5 w-5" /> : <VideoOff className="mr-2 h-5 w-5" />}
-                {isCameraOn ? 'Stop Video' : 'Start Video'}
+             <Button variant={!isCameraOn ? "destructive" : "secondary"} size="lg" className="rounded-full h-14 w-14 p-0" onClick={handleToggleCamera} disabled={!hasPermission}>
+                {isCameraOn ? <Video className="h-6 w-6" /> : <VideoOff className="h-6 w-6" />}
             </Button>
-            <Button variant={isScreenSharing ? "default" : "outline"} size="lg" onClick={handleToggleScreenShare} disabled={!hasPermission || !isScreenShareSupported}>
-                {isScreenSharing ? <ScreenShareOff className="mr-2 h-5 w-5" /> : <ScreenShare className="mr-2 h-5 w-5" />}
-                {isScreenSharing ? 'Stop Sharing' : 'Share Screen'}
+            <Button variant={isScreenSharing ? "default" : "secondary"} size="lg" className="rounded-full h-14 w-14 p-0" onClick={handleToggleScreenShare} disabled={!hasPermission}>
+                {isScreenSharing ? <ScreenShareOff className="h-6 w-6" /> : <ScreenShare className="h-6 w-6" />}
             </Button>
-        </CardFooter>
-      </Card>
+
+            <Separator orientation="vertical" className="h-8 mx-2 hidden sm:block" />
+
+            {/* Side Panel Toggles */}
+             <Sheet>
+                <SheetTrigger asChild>
+                    <Button variant="secondary" size="lg" className="rounded-full h-14 w-14 p-0 hidden sm:flex">
+                        <Users className="h-6 w-6" />
+                    </Button>
+                </SheetTrigger>
+                <SheetContent>
+                    <SheetHeader>
+                        <SheetTitle>Participants ({allParticipantsInGrid.length})</SheetTitle>
+                    </SheetHeader>
+                    <div className="py-4 space-y-4">
+                        {allParticipantsInGrid.map(p => (
+                            <div key={p.userId} className="flex items-center justify-between">
+                                <div className="flex items-center space-x-3">
+                                    <Avatar>
+                                        <AvatarImage src={p.avatarUrl} alt={p.name} data-ai-hint="person avatar" />
+                                        <AvatarFallback>{p.name.substring(0,1)}</AvatarFallback>
+                                    </Avatar>
+                                    <div className="flex flex-col">
+                                       <span className="font-medium">{p.name} {p.userId === user?.uid && '(You)'}</span>
+                                       <Badge variant="outline" className="w-fit">{p.role}</Badge>
+                                    </div>
+                                </div>
+                                <div className="flex items-center space-x-2">
+                                   <Mic className="h-5 w-5 text-muted-foreground" />
+                                   <Video className="h-5 w-5 text-muted-foreground" />
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </SheetContent>
+            </Sheet>
+            <Sheet>
+                <SheetTrigger asChild>
+                     <Button variant="secondary" size="lg" className="rounded-full h-14 w-14 p-0 hidden sm:flex">
+                        <MessageSquare className="h-6 w-6" />
+                    </Button>
+                </SheetTrigger>
+                <SheetContent>
+                    <SheetHeader>
+                        <SheetTitle>Meeting Chat</SheetTitle>
+                    </SheetHeader>
+                    <div className="h-full flex flex-col pt-4">
+                        <div className="flex-1 text-center text-muted-foreground text-sm flex items-center justify-center">
+                            Chat is not yet implemented.
+                        </div>
+                        <div className="mt-auto flex space-x-2">
+                            <Input placeholder="Type a message..." />
+                            <Button>Send</Button>
+                        </div>
+                    </div>
+                </SheetContent>
+            </Sheet>
+
+            <Button variant="destructive" size="lg" onClick={cleanupAndLeave} className="h-14 px-6 rounded-full">
+               <Phone className="mr-2 h-6 w-6" /> End Call
+            </Button>
+        </div>
+      </footer>
     </div>
   );
 }

@@ -584,11 +584,9 @@ export default function OfficeDesignerPage() {
                                     </CardHeader>
                                     <CardContent className="flex-grow"><div className="aspect-video bg-muted rounded-md overflow-hidden relative"><Image src={room.coverImageUrl || `https://placehold.co/400x225.png?text=${encodeURIComponent(room.name)}`} alt={room.name} layout="fill" objectFit="cover" data-ai-hint={room.coverImageUrl && !room.coverImageUrl.startsWith('https://placehold.co') ? roomTypeDetails[room.type]?.imageHint || "office room interior" : "default room image"}/></div></CardContent>
                                     <CardFooter>
-                                      {room.type === "Meeting Room" && activeOffice ? (
-                                        <Button variant="outline" className="w-full" asChild>
-                                          <Link href={`/office-designer/room/${activeOffice.id}/${room.id}`}><Video className="mr-2 h-4 w-4" /> Enter Meeting Room</Link>
-                                        </Button>
-                                      ) : ( <Button variant="outline" className="w-full" disabled><ExternalLink className="mr-2 h-4 w-4" /> Enter Room (Future)</Button> )}
+                                      <Button variant="outline" className="w-full" asChild>
+                                        <Link href={`/office-designer/room/${activeOffice.id}/${room.id}`}><ExternalLink className="mr-2 h-4 w-4" /> Enter Room</Link>
+                                      </Button>
                                     </CardFooter>
                                 </Card>
                                 )
