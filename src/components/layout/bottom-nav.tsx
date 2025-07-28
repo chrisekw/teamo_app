@@ -54,7 +54,7 @@ export function BottomNav() {
     <nav className="fixed bottom-0 left-0 right-0 h-16 bg-background border-t border-border shadow-lg md:hidden z-50">
       <div className="flex justify-around items-center h-full">
         {bottomNavItems.map((item) => {
-          const isActive = pathname.startsWith(item.href) && (item.href !== "/" || pathname === "/");
+          const isActive = pathname.startsWith(item.href) && (item.href !== "/dashboard" || pathname === "/dashboard");
           const Icon = item.icon;
           const isChatIcon = item.title === "Chat";
 
@@ -84,5 +84,3 @@ export function BottomNav() {
     </nav>
   );
 }
-
-    

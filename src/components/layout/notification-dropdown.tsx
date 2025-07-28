@@ -47,7 +47,7 @@ export function NotificationDropdown() {
         user.uid,
         (notifs) => {
           setNotifications(notifs);
-          setIsLoading(false); // Set loading false after first notifications data retrieval
+          setIsLoading(false);
         },
         { count: 10 }
       );
@@ -56,10 +56,8 @@ export function NotificationDropdown() {
         user.uid,
         (count) => {
           setUnreadCount(count);
-          // If notifications haven't loaded yet but count has, also consider loading done
-          // This handles cases where there might be 0 notifications but the count listener responds first.
-          if (notifications.length === 0 && isLoading) {
-             // setIsLoading(false); // This might be redundant if the notifications listener sets it.
+          if (isLoading) {
+             setIsLoading(false);
           }
         }
       );
@@ -73,7 +71,7 @@ export function NotificationDropdown() {
       setUnreadCount(0);
       setIsLoading(false);
     }
-  }, [user, authLoading]); // Removed 'isLoading' from dependency array
+  }, [user, authLoading]);
 
 
   const handleNotificationClick = async (notification: UserNotification) => {
@@ -160,7 +158,7 @@ export function NotificationDropdown() {
         )}
         <DropdownMenuSeparator />
         <DropdownMenuItem className="justify-center text-sm text-muted-foreground hover:text-primary" asChild>
-            <Link href="/settings/notifications">View all (future)</Link>
+            <Link href="/notifications">View all notifications</Link>
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
@@ -180,4 +178,3 @@ const NotificationItemContent = ({ notification }: { notification: UserNotificat
     </p>
   </>
 );
-

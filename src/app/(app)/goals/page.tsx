@@ -6,13 +6,13 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Progress } from "@/components/ui/progress";
 import { PlusCircle, Target, Edit3, Trash2, CheckCircle2, Loader2, Award, Briefcase } from "lucide-react";
 import { useState, useEffect, useCallback, Suspense } from "react";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogTrigger } from "@/components/ui/dialog";
 import type { Goal, Office, OfficeMember } from "@/types";
 import { useAuth } from "@/lib/firebase/auth";
 import { useToast } from "@/hooks/use-toast";
 import { addGoalToOffice, onGoalsUpdate, updateGoalInOffice, deleteGoalFromOffice } from "@/lib/firebase/firestore/goals";
 import dynamic from 'next/dynamic';
-import { onUserOfficesUpdate } from "@/lib/firebase/firestore/offices";
+import { onUserOfficesUpdate, getMembersForOffice } from "@/lib/firebase/firestore/offices";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import type { Unsubscribe } from "firebase/firestore";
@@ -24,6 +24,7 @@ import { useForm, type SubmitHandler } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Label } from "@/components/ui/label";
 import { format } from "date-fns";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 
 const GoalForm = dynamic(() => import('@/components/goals/goal-form'), {
   ssr: false,
@@ -38,6 +39,8 @@ const goalFormSchema = z.object({
   unit: z.string().min(1, "Unit is required."),
   deadline: z.date().optional(),
   participantIds: z.array(z.string()).optional(),
+  progress: z.number().optional(), // Progress is calculated, but can be on schema for consistency
+  status: z.enum(["On Track", "At Risk", "Done"]).optional(),
 });
 export type GoalFormValues = z.infer<typeof goalFormSchema>;
 
@@ -55,6 +58,7 @@ export default function GoalsPage() {
   const [isLoadingGoals, setIsLoadingGoals] = useState(true);
   const [isGoalDialogOpen, setIsGoalDialogOpen] = useState(false);
   const [currentGoalToEdit, setCurrentGoalToEdit] = useState<Goal | null>(null);
+  const [goalToDelete, setGoalToDelete] = useState<Goal | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   
   const [userOffices, setUserOffices] = useState<Office[]>([]);
@@ -79,12 +83,18 @@ export default function GoalsPage() {
       setIsLoadingOfficeData(true);
       const unsubscribe = onUserOfficesUpdate(user.uid, (offices) => {
         setUserOffices(offices);
-        if (offices.length > 0 && (!activeOffice || !offices.find(o => o.id === activeOffice.id))) {
-          const officeIdFromUrl = searchParams.get('officeId');
-          const officeFromUrl = offices.find(o => o.id === officeIdFromUrl);
-          setActiveOffice(officeFromUrl || offices[0]);
-        } else if (offices.length === 0) {
-          setActiveOffice(null);
+        if (offices.length > 0) {
+           const officeIdFromUrl = searchParams.get('officeId');
+           const officeFromUrl = offices.find(o => o.id === officeIdFromUrl);
+           const currentActiveStillExists = activeOffice && offices.some(o => o.id === activeOffice.id);
+
+           if (officeFromUrl) {
+               setActiveOffice(officeFromUrl);
+           } else if (!currentActiveStillExists) {
+               setActiveOffice(offices[0]);
+           }
+        } else {
+           setActiveOffice(null);
         }
         setIsLoadingOfficeData(false);
       });
@@ -94,29 +104,16 @@ export default function GoalsPage() {
       setActiveOffice(null);
       setIsLoadingOfficeData(false);
     }
-  }, [user, authLoading, searchParams, activeOffice]);
+  }, [user, authLoading]);
 
   useEffect(() => {
     if (activeOffice && searchParams.get('officeId') !== activeOffice.id) {
         router.replace(`${pathname}?officeId=${activeOffice.id}`, { scroll: false });
     }
-  }, [activeOffice, searchParams, router, pathname]);
-
-  useEffect(() => {
-    let unsubMembers: Unsubscribe | null = null;
     if (activeOffice) {
-        unsubMembers = onUserOfficesUpdate(activeOffice.id, (offices) => {
-            const office = offices.find(o => o.id === activeOffice.id);
-            // This is a placeholder, you would likely fetch members specifically
-            // For now, we assume members can be derived or this needs a specific member fetch call
-        });
-    } else {
-        setCurrentOfficeMembers([]);
+        getMembersForOffice(activeOffice.id).then(setCurrentOfficeMembers);
     }
-    return () => {
-        if (unsubMembers) unsubMembers();
-    };
-  }, [activeOffice]);
+  }, [activeOffice, searchParams, router, pathname]);
 
   useEffect(() => {
     let unsubscribe: Unsubscribe | null = null;
@@ -177,7 +174,15 @@ export default function GoalsPage() {
       });
     } else {
       setCurrentGoalToEdit(null);
-      form.reset();
+      form.reset({
+        name: "",
+        description: "",
+        targetValue: 100,
+        currentValue: 0,
+        unit: "%",
+        participantIds: [],
+        deadline: undefined,
+      });
     }
     setIsGoalDialogOpen(true);
   };
@@ -193,15 +198,20 @@ export default function GoalsPage() {
       .filter(Boolean) as string[];
     const participantsDisplay = selectedParticipantNames.join(', ') || "No participants";
 
+    const progress = getProgressPercentage(data.currentValue, data.targetValue, data.unit);
+    const status: Goal['status'] = progress >= 100 ? "Done" : "On Track";
+
     const goalData = {
       ...data,
       participantsDisplay: participantsDisplay,
+      status,
+      progress,
     };
     const actorName = user.displayName || user.email || "User";
 
     try {
       if (currentGoalToEdit) {
-        await updateGoalInOffice(activeOffice.id, currentGoalToEdit.id, goalData, user.uid, actorName, activeOffice.name);
+        await updateGoalInOffice(activeOffice.id, currentGoalToEdit.id, goalData, actorName, user.uid, activeOffice.name);
         toast({ title: "Goal Updated", description: `"${goalData.name}" has been updated.` });
       } else {
         await addGoalToOffice(activeOffice.id, user.uid, goalData, actorName, activeOffice.name);
@@ -216,17 +226,18 @@ export default function GoalsPage() {
     }
   };
 
-  const handleDeleteGoal = async (goalId: string) => {
-    if (!user || !activeOffice) return;
+  const handleDeleteGoal = async () => {
+    if (!user || !activeOffice || !goalToDelete) return;
     setIsSubmitting(true); 
     try {
-        await deleteGoalFromOffice(activeOffice.id, goalId, user.uid, user.displayName || "User");
+        await deleteGoalFromOffice(activeOffice.id, goalToDelete.id, user.uid, user.displayName || "User");
         toast({ title: "Goal Deleted", description: "The goal has been removed." });
     } catch (error) {
         console.error("Failed to delete goal:", error);
         toast({ variant: "destructive", title: "Error", description: "Could not delete goal." });
     } finally {
         setIsSubmitting(false);
+        setGoalToDelete(null);
     }
   };
 
@@ -257,9 +268,27 @@ export default function GoalsPage() {
               <Button variant="ghost" size="icon" onClick={() => handleOpenDialog(goal)} disabled={isSubmitting}>
                 <Edit3 className="h-4 w-4" />
               </Button>
-              <Button variant="ghost" size="icon" onClick={() => handleDeleteGoal(goal.id)} disabled={isSubmitting}>
-                <Trash2 className="h-4 w-4 text-destructive" />
-              </Button>
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                    <Button variant="ghost" size="icon" onClick={() => setGoalToDelete(goal)} disabled={isSubmitting}>
+                        <Trash2 className="h-4 w-4 text-destructive" />
+                    </Button>
+                </AlertDialogTrigger>
+                {goalToDelete && goalToDelete.id === goal.id && (
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                    <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+                    <AlertDialogDescription>This will permanently delete the goal "{goalToDelete.name}".</AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                    <AlertDialogCancel onClick={() => setGoalToDelete(null)}>Cancel</AlertDialogCancel>
+                    <AlertDialogAction onClick={handleDeleteGoal} className="bg-destructive hover:bg-destructive/90" disabled={isSubmitting}>
+                        {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin"/>} Delete
+                    </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+                )}
+              </AlertDialog>
             </div>
           </div>
           <CardDescription>{goal.description}</CardDescription>
@@ -303,32 +332,56 @@ export default function GoalsPage() {
 
   return (
     <div className="container mx-auto p-4 sm:p-6 lg:p-8">
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4">
+      <div className="flex flex-col sm:flex-row justify-between items-center mb-4 text-center sm:text-left">
         <h1 className="text-3xl font-headline font-bold mb-4 sm:mb-0">Goal Tracker</h1>
-        <Button onClick={() => handleOpenDialog()} disabled={isSubmitting || !activeOffice}>
-          <PlusCircle className="mr-2 h-4 w-4" /> Add New Goal
-        </Button>
+        <Dialog open={isGoalDialogOpen} onOpenChange={(isOpen) => {if (!isSubmitting) setIsGoalDialogOpen(isOpen);}}>
+            <DialogTrigger asChild>
+                <Button onClick={() => handleOpenDialog()} disabled={isSubmitting || !activeOffice}>
+                    <PlusCircle className="mr-2 h-4 w-4" /> Add New Goal
+                </Button>
+            </DialogTrigger>
+            <DialogContent className="sm:max-w-md">
+                <DialogHeader>
+                    <DialogTitle className="font-headline">{currentGoalToEdit ? "Edit Goal" : "Add New Goal"}</DialogTitle>
+                    <DialogDescription>
+                        {currentGoalToEdit ? "Update the details for this goal." : `Define a new goal for ${activeOffice?.name || 'your team'}.`}
+                    </DialogDescription>
+                </DialogHeader>
+                <Suspense fallback={<div className="p-8 text-center"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div>}>
+                    <GoalForm
+                        form={form}
+                        onSubmit={onSaveGoal}
+                        isSubmitting={isSubmitting}
+                        currentOfficeMembers={currentOfficeMembers}
+                        onCancel={() => setIsGoalDialogOpen(false)}
+                        initialData={currentGoalToEdit}
+                    />
+                </Suspense>
+            </DialogContent>
+        </Dialog>
       </div>
 
-       <div className="mb-6">
-          <Label htmlFor="office-switcher" className="text-sm font-medium text-muted-foreground">Active Office</Label>
-          <Select value={activeOffice?.id || ''} onValueChange={handleOfficeChange} disabled={userOffices.length <= 1}>
-              <SelectTrigger id="office-switcher" className="w-full sm:w-[280px] mt-1">
-                  <SelectValue placeholder="Select an office" />
-              </SelectTrigger>
-              <SelectContent>
-                  {userOffices.map(office => (
-                      <SelectItem key={office.id} value={office.id}>{office.name}</SelectItem>
-                  ))}
-              </SelectContent>
-          </Select>
+       <div className="mb-6 flex justify-center sm:justify-start">
+          <div className="w-full max-w-xs sm:max-w-none sm:w-auto">
+            <Label htmlFor="office-switcher" className="text-sm font-medium text-muted-foreground sr-only sm:not-sr-only">Active Office</Label>
+            <Select value={activeOffice?.id || ''} onValueChange={handleOfficeChange} disabled={userOffices.length <= 1}>
+                <SelectTrigger id="office-switcher" className="w-full sm:w-[280px] mt-1">
+                    <SelectValue placeholder="Select an office" />
+                </SelectTrigger>
+                <SelectContent>
+                    {userOffices.map(office => (
+                        <SelectItem key={office.id} value={office.id}>{office.name}</SelectItem>
+                    ))}
+                </SelectContent>
+            </Select>
+          </div>
       </div>
 
       {isLoadingGoals && <div className="text-center py-12"><Loader2 className="h-10 w-10 animate-spin text-primary" /></div>}
 
       {!isLoadingGoals && !activeOffice && (
-         <Card className="shadow-lg">
-             <CardContent className="text-center py-10 text-muted-foreground">
+         <Card className="shadow-lg text-center">
+             <CardContent className="py-10 text-muted-foreground">
                  <Briefcase className="mx-auto h-12 w-12 mb-3 text-gray-400" />
                  Please create or select an office to manage goals.
                  <Button asChild variant="link" className="block mx-auto mt-2">
@@ -348,13 +401,13 @@ export default function GoalsPage() {
         !isLoadingGoals && activeOffice && (
           <div className="space-y-8">
             <div>
-              <h2 className="text-2xl font-headline font-semibold mb-4">Active Goals ({activeGoals.length})</h2>
+              <h2 className="text-2xl font-headline font-semibold mb-4 text-center sm:text-left">Active Goals ({activeGoals.length})</h2>
               {activeGoals.length > 0 ? (
                  <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
                     {activeGoals.map(renderGoalCard)}
                  </div>
               ) : (
-                <p className="text-muted-foreground">No active goals. Well done!</p>
+                <p className="text-muted-foreground text-center sm:text-left">No active goals. Well done!</p>
               )}
             </div>
 
@@ -378,27 +431,6 @@ export default function GoalsPage() {
           </div>
         )
       )}
-
-      <Dialog open={isGoalDialogOpen} onOpenChange={(isOpen) => {if (!isSubmitting) setIsGoalDialogOpen(isOpen);}}>
-        <DialogContent className="sm:max-w-md">
-           <DialogHeader>
-              <DialogTitle className="font-headline">{currentGoalToEdit ? "Edit Goal" : "Add New Goal"}</DialogTitle>
-              <DialogDescription>
-                {currentGoalToEdit ? "Update the details for this goal." : `Define a new goal for ${activeOffice?.name || 'your team'}.`}
-              </DialogDescription>
-            </DialogHeader>
-            <Suspense fallback={<div className="p-8 text-center"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div>}>
-              <GoalForm
-                form={form}
-                onSubmit={onSaveGoal}
-                isSubmitting={isSubmitting}
-                currentOfficeMembers={currentOfficeMembers}
-                onCancel={() => setIsGoalDialogOpen(false)}
-                initialData={currentGoalToEdit}
-              />
-            </Suspense>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }

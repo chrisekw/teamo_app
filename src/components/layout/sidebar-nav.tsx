@@ -14,9 +14,9 @@ import {
   Settings,
   ChevronDown,
   ChevronRight,
-  Palette, // Example new icon
-  Users, // Example new icon
-  FileText, // Example new icon
+  Bell,
+  Users,
+  FileText,
 } from "lucide-react";
 
 import type { NavItem } from "@/types";
@@ -65,6 +65,11 @@ const navItems: NavItem[] = [
     title: "Goal Tracker",
     href: "/goals",
     icon: TrendingUp,
+  },
+   {
+    title: "Notifications",
+    href: "/notifications",
+    icon: Bell,
   },
   {
     title: "AI Assistant",

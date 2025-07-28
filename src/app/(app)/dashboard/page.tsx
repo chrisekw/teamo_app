@@ -3,7 +3,7 @@
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Activity, Briefcase, MessageCircle, Users, Zap, ArrowUpRight, CalendarPlus, ListChecks, UserPlus, Target, TrendingUp, CheckSquare, Edit3, PlusCircle, Building } from "lucide-react";
+import { Activity, Briefcase, MessageCircle, Users, Zap, ArrowUpRight, CalendarPlus, ListChecks, UserPlus, Target, TrendingUp, CheckSquare, Edit3, PlusCircle, Building, Award } from "lucide-react";
 import Image from "next/image";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
@@ -15,9 +15,12 @@ import type { ChartConfig } from "@/components/ui/chart";
 import { useAuth } from "@/lib/firebase/auth";
 import { onUserOfficesUpdate, onMembersUpdate, type Office } from "@/lib/firebase/firestore/offices";
 import { onActivityLogUpdate, type ActivityLogItem } from "@/lib/firebase/firestore/activity";
-import { onGoalsUpdate } from "@/lib/firebase/firestore/goals"; // Import goals listener
+import { onGoalsUpdate, type Goal } from "@/lib/firebase/firestore/goals";
 import { Loader2 } from "lucide-react";
 import Link from "next/link";
+import { Progress } from "@/components/ui/progress";
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
+import { format } from "date-fns";
 import type { Unsubscribe } from "firebase/firestore";
 
 const activityIconMap: Record<string, React.ElementType> = {
@@ -48,26 +51,26 @@ export default function DashboardPage() {
   const { user, loading: authLoading } = useAuth();
   const [activeOfficesCount, setActiveOfficesCount] = useState(0);
   const [teamMembersCount, setTeamMembersCount] = useState(0);
-  const [activeGoalsCount, setActiveGoalsCount] = useState(0); // New state for goals count
+  const [activeGoals, setActiveGoals] = useState<Goal[]>([]);
   const [activityFeed, setActivityFeed] = useState<ActivityLogItem[]>([]);
   const [isLoadingStats, setIsLoadingStats] = useState(true);
   const [isLoadingActivity, setIsLoadingActivity] = useState(true);
+  const [isLoadingGoals, setIsLoadingGoals] = useState(true);
   const [selectedOfficeForDashboard, setSelectedOfficeForDashboard] = useState<Office | null>(null);
 
-  // Listener for user's offices to update count and select the first one for details
   useEffect(() => {
     if (user && !authLoading) {
-      setIsLoadingStats(true); // For office count part
+      setIsLoadingStats(true);
       const unsubscribeOffices = onUserOfficesUpdate(user.uid, (offices) => {
         setActiveOfficesCount(offices.length);
         if (offices.length > 0) {
-          if (!selectedOfficeForDashboard || selectedOfficeForDashboard.id !== offices[0].id) {
+          if (!selectedOfficeForDashboard || !offices.some(o => o.id === selectedOfficeForDashboard.id)) {
             setSelectedOfficeForDashboard(offices[0]);
           }
         } else {
           setSelectedOfficeForDashboard(null);
           setTeamMembersCount(0);
-          setActiveGoalsCount(0);
+          setActiveGoals([]);
         }
         setIsLoadingStats(false);
       });
@@ -76,54 +79,46 @@ export default function DashboardPage() {
       setActiveOfficesCount(0);
       setSelectedOfficeForDashboard(null);
       setTeamMembersCount(0);
-      setActiveGoalsCount(0);
+      setActiveGoals([]);
       setIsLoadingStats(false);
     }
-  }, [user, authLoading, selectedOfficeForDashboard]);
+  }, [user, authLoading]);
 
-  // Listener for members of the selected office
   useEffect(() => {
-    if (selectedOfficeForDashboard) {
-      setIsLoadingStats(true); // For team members count part
-      const unsubscribeMembers = onMembersUpdate(selectedOfficeForDashboard.id, (members) => {
+    let unsubs: Unsubscribe[] = [];
+    if (selectedOfficeForDashboard && user) {
+      setIsLoadingStats(true);
+      setIsLoadingActivity(true);
+      setIsLoadingGoals(true);
+
+      const unsubMembers = onMembersUpdate(selectedOfficeForDashboard.id, (members) => {
         setTeamMembersCount(members.length);
         setIsLoadingStats(false);
       });
-      return () => unsubscribeMembers();
-    } else {
-      setTeamMembersCount(0);
-      if (!isLoadingStats) setIsLoadingStats(false);
-    }
-  }, [selectedOfficeForDashboard]);
+      unsubs.push(unsubMembers);
 
-   // Listener for goals of the selected office
-   useEffect(() => {
-    if (selectedOfficeForDashboard && user) {
-      const unsubscribeGoals = onGoalsUpdate(selectedOfficeForDashboard.id, user.uid, (goals) => {
-        setActiveGoalsCount(goals.filter(g => g.status !== 'Done').length); // Example: Count non-completed goals
+      const unsubGoals = onGoalsUpdate(selectedOfficeForDashboard.id, user.uid, (goals) => {
+        setActiveGoals(goals.filter(g => getProgressPercentage(g.currentValue, g.targetValue, g.unit) < 100));
+        setIsLoadingGoals(false);
       });
-      return () => unsubscribeGoals();
-    } else {
-      setActiveGoalsCount(0);
-    }
-   }, [selectedOfficeForDashboard, user]);
+      unsubs.push(unsubGoals);
 
-
-  // Listener for activity feed of the selected office
-  useEffect(() => {
-    if (selectedOfficeForDashboard) {
-      setIsLoadingActivity(true);
-      const unsubscribeActivity = onActivityLogUpdate(selectedOfficeForDashboard.id, (activities) => {
+      const unsubActivity = onActivityLogUpdate(selectedOfficeForDashboard.id, (activities) => {
         setActivityFeed(activities);
         setIsLoadingActivity(false);
       }, 7);
-      return () => unsubscribeActivity();
-    } else {
-      setActivityFeed([]);
-      setIsLoadingActivity(false);
-    }
-  }, [selectedOfficeForDashboard]);
+      unsubs.push(unsubActivity);
 
+    } else {
+        setTeamMembersCount(0);
+        setActiveGoals([]);
+        setActivityFeed([]);
+        if (!isLoadingStats) setIsLoadingStats(false);
+        setIsLoadingActivity(false);
+        setIsLoadingGoals(false);
+    }
+    return () => unsubs.forEach(unsub => unsub());
+  }, [selectedOfficeForDashboard, user]);
 
   const formatTimeAgo = (date: Date): string => {
     const seconds = Math.floor((new Date().getTime() - date.getTime()) / 1000);
@@ -139,6 +134,17 @@ export default function DashboardPage() {
     if (interval > 1) return Math.floor(interval) + "m ago";
     return Math.floor(seconds) + "s ago";
   };
+  
+  const getProgressPercentage = (current: number, target: number, unit: string) => {
+    if (unit.toLowerCase().includes("lower is better")) {
+        if (target === 0 && current === 0) return 100;
+        if (current <= target) return 100;
+        if (target === 0 && current > 0) return 0;
+        return Math.max(0, ( (target * 1.5) - current) / ( (target*1.5) - target) * 100 );
+    }
+    if (target === 0) return current > 0 ? 100 : 0;
+    return Math.min(Math.max((current / target) * 100, 0), 100);
+  };
 
   if (authLoading) {
     return <div className="container mx-auto p-8 text-center"><Loader2 className="h-12 w-12 animate-spin text-primary" /></div>;
@@ -146,8 +152,8 @@ export default function DashboardPage() {
 
   return (
     <div className="container mx-auto p-4 sm:p-6 lg:p-8">
-      <div className="flex items-center mb-8">
-         <TrendingUp className="h-8 w-8 mr-3 text-primary" />
+      <div className="flex items-center justify-center sm:justify-start mb-8 text-center sm:text-left">
+         <TrendingUp className="h-8 w-8 mr-3 text-primary hidden sm:block" />
          <h1 className="text-3xl font-headline font-bold">Team Dashboard</h1>
       </div>
 
@@ -182,7 +188,7 @@ export default function DashboardPage() {
             <Target className="h-5 w-5 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            {isLoadingStats && activeGoalsCount === 0 && selectedOfficeForDashboard ? <Skeleton className="h-8 w-1/4" /> : <div className="text-2xl font-bold">{activeGoalsCount}</div>}
+            {isLoadingStats && activeGoals.length === 0 && selectedOfficeForDashboard ? <Skeleton className="h-8 w-1/4" /> : <div className="text-2xl font-bold">{activeGoals.length}</div>}
             <p className="text-xs text-muted-foreground">
               {selectedOfficeForDashboard ? `In "${selectedOfficeForDashboard.name}"` : "No active office selected"}
             </p>
@@ -200,14 +206,54 @@ export default function DashboardPage() {
           </CardContent>
         </Card>
       </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
+      
+       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
         <Card className="lg:col-span-2 shadow-lg hover:shadow-xl transition-shadow duration-300 flex flex-col">
           <CardHeader>
-            <CardTitle className="font-headline flex items-center"><Activity className="mr-2 h-5 w-5" />Recent Team Activity</CardTitle>
+            <CardTitle className="font-headline flex items-center"><Target className="mr-2 h-5 w-5"/>Active Team Goals</CardTitle>
             <CardDescription>
-              {selectedOfficeForDashboard ? `Latest updates from "${selectedOfficeForDashboard.name}".` : "No office selected for activity."}
+              {selectedOfficeForDashboard ? `Current goals for "${selectedOfficeForDashboard.name}".` : "No office selected for goals."}
             </CardDescription>
+          </CardHeader>
+          <CardContent className="flex-grow p-0">
+             <ScrollArea className="h-96 px-6">
+                {isLoadingGoals ? (
+                  <div className="space-y-4 pt-2">
+                    {[...Array(3)].map((_, i) => <Skeleton key={i} className="h-16 w-full" />)}
+                  </div>
+                ) : activeGoals.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center h-full text-center text-muted-foreground">
+                        <Award className="h-12 w-12 mb-2" />
+                        <p>No active goals.</p>
+                        <p className="text-xs">Looks like the team has achieved everything!</p>
+                    </div>
+                ) : (
+                    <div className="space-y-4">
+                        {activeGoals.map((goal) => (
+                             <div key={goal.id} className="space-y-2">
+                                <p className="text-sm font-medium flex justify-between">
+                                    <span>{goal.name}</span>
+                                    <span className="text-muted-foreground">{Math.round(getProgressPercentage(goal.currentValue, goal.targetValue, goal.unit))}%</span>
+                                </p>
+                                <Progress value={getProgressPercentage(goal.currentValue, goal.targetValue, goal.unit)} className="h-2" />
+                                <p className="text-xs text-muted-foreground">{goal.currentValue.toLocaleString()} / {goal.targetValue.toLocaleString()} {goal.unit.replace("(Lower is better)","").trim()}</p>
+                            </div>
+                        ))}
+                    </div>
+                )}
+             </ScrollArea>
+          </CardContent>
+           <CardFooter className="pt-6 border-t">
+                <Button variant="ghost" size="sm" className="w-full" asChild>
+                    <Link href="/goals">View All Goals <ArrowUpRight className="ml-1 h-4 w-4"/></Link>
+                </Button>
+           </CardFooter>
+        </Card>
+        
+        <Card className="lg:col-span-1 shadow-lg hover:shadow-xl transition-shadow duration-300 flex flex-col">
+          <CardHeader>
+            <CardTitle className="font-headline flex items-center"><Activity className="mr-2 h-5 w-5" />Recent Activity</CardTitle>
+            <CardDescription>Latest team updates.</CardDescription>
           </CardHeader>
           <CardContent className="flex-grow p-0">
             <ScrollArea className="h-96 px-6">
@@ -216,7 +262,7 @@ export default function DashboardPage() {
                     {[...Array(5)].map((_, i) => <Skeleton key={i} className="h-12 w-full" />)}
                  </div>
               ) : activityFeed.length === 0 ? (
-                <p className="text-muted-foreground text-sm text-center py-10">No recent activity in this office.</p>
+                <p className="text-muted-foreground text-sm text-center py-10">No recent activity.</p>
               ) : (
                 <div className="space-y-6">
                   {activityFeed.map((item) => {
@@ -238,19 +284,6 @@ export default function DashboardPage() {
                 </div>
               )}
             </ScrollArea>
-          </CardContent>
-           <CardFooter className="pt-6 border-t">
-                <Button variant="ghost" size="sm" className="w-full" disabled>View All Activity (Future) <ArrowUpRight className="ml-1 h-4 w-4"/></Button>
-           </CardFooter>
-        </Card>
-
-        <Card className="lg:col-span-1 shadow-lg hover:shadow-xl transition-shadow duration-300 flex flex-col">
-          <CardHeader>
-            <CardTitle className="font-headline flex items-center"><TrendingUp className="mr-2 h-5 w-5"/>Progress Overview</CardTitle>
-            <CardDescription>Team's cumulative progress (feature pending).</CardDescription>
-          </CardHeader>
-          <CardContent className="flex-grow flex items-center justify-center">
-             <DynamicProgressChart data={[]} config={chartConfig} />
           </CardContent>
         </Card>
       </div>
