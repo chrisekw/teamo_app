@@ -165,5 +165,3 @@ export default function GoalForm({ form, onSubmit, isSubmitting, currentOfficeMe
     </form>
   );
 }
-
-    
