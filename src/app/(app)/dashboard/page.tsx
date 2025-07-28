@@ -22,6 +22,7 @@ import { Progress } from "@/components/ui/progress";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { format } from "date-fns";
 import type { Unsubscribe } from "firebase/firestore";
+import { onUnreadNotificationCountByTypeUpdate } from "@/lib/firebase/firestore/notifications";
 
 const activityIconMap: Record<string, React.ElementType> = {
   "task-new": ListChecks,
@@ -57,6 +58,8 @@ export default function DashboardPage() {
   const [isLoadingActivity, setIsLoadingActivity] = useState(true);
   const [isLoadingGoals, setIsLoadingGoals] = useState(true);
   const [selectedOfficeForDashboard, setSelectedOfficeForDashboard] = useState<Office | null>(null);
+  const [unreadChatCount, setUnreadChatCount] = useState(0);
+
 
   useEffect(() => {
     if (user && !authLoading) {
@@ -82,7 +85,7 @@ export default function DashboardPage() {
       setActiveGoals([]);
       setIsLoadingStats(false);
     }
-  }, [user, authLoading]);
+  }, [user, authLoading, selectedOfficeForDashboard]);
 
   useEffect(() => {
     let unsubs: Unsubscribe[] = [];
@@ -119,6 +122,20 @@ export default function DashboardPage() {
     }
     return () => unsubs.forEach(unsub => unsub());
   }, [selectedOfficeForDashboard, user]);
+  
+  useEffect(() => {
+      let unsubscribe: Unsubscribe | null = null;
+      if (user && !authLoading) {
+        unsubscribe = onUnreadNotificationCountByTypeUpdate(
+          user.uid,
+          "chat-new-message",
+          setUnreadChatCount
+        );
+      }
+      return () => {
+        if (unsubscribe) unsubscribe();
+      };
+  }, [user, authLoading]);
 
   const formatTimeAgo = (date: Date): string => {
     const seconds = Math.floor((new Date().getTime() - date.getTime()) / 1000);
@@ -201,8 +218,8 @@ export default function DashboardPage() {
             <MessageCircle className="h-5 w-5 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">0</div>
-            <p className="text-xs text-muted-foreground">Pending chat migration</p>
+            <div className="text-2xl font-bold">{unreadChatCount}</div>
+            <p className="text-xs text-muted-foreground">Across all conversations</p>
           </CardContent>
         </Card>
       </div>
@@ -336,3 +353,5 @@ export default function DashboardPage() {
     </div>
   );
 }
+
+    

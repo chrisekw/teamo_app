@@ -1,7 +1,7 @@
 
 "use client";
 
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useAuth } from '@/lib/firebase/auth';
 import { onUserNotificationsUpdate, markNotificationAsRead, markAllUserNotificationsAsRead, type UserNotification } from '@/lib/firebase/firestore/notifications';
@@ -67,7 +67,7 @@ export default function NotificationsPage() {
         <div className="container mx-auto p-4 sm:p-6 lg:p-8">
             <Card className="w-full max-w-3xl mx-auto shadow-lg">
                 <CardHeader>
-                    <div className="flex flex-col sm:flex-row justify-between items-center">
+                    <div className="flex flex-col sm:flex-row justify-between items-center text-center sm:text-left">
                         <CardTitle className="font-headline text-2xl flex items-center mb-2 sm:mb-0">
                             <Bell className="mr-2 h-6 w-6 text-primary" />
                             All Notifications
@@ -115,7 +115,7 @@ export default function NotificationsPage() {
                                                     <p className="text-sm text-muted-foreground line-clamp-2">
                                                         {notif.message}
                                                     </p>
-                                                    <p className="text-xs text-muted-foreground/80 mt-1">
+                                                    <p className="text-xs text-muted-foreground/80 mt-0.5">
                                                         {formatDistanceToNow(notif.timestamp, { addSuffix: true })}
                                                     </p>
                                                 </div>
@@ -132,3 +132,5 @@ export default function NotificationsPage() {
         </div>
     );
 }
+
+    

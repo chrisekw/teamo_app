@@ -104,7 +104,7 @@ export default function GoalsPage() {
       setActiveOffice(null);
       setIsLoadingOfficeData(false);
     }
-  }, [user, authLoading]);
+  }, [user, authLoading, searchParams, activeOffice]);
 
   useEffect(() => {
     if (activeOffice && searchParams.get('officeId') !== activeOffice.id) {
@@ -434,3 +434,5 @@ export default function GoalsPage() {
     </div>
   );
 }
+
+    

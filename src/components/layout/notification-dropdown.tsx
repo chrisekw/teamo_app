@@ -40,37 +40,36 @@ export function NotificationDropdown() {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
 
   useEffect(() => {
+    let unsubs: Unsubscribe[] = [];
     if (user && !authLoading) {
       setIsLoading(true); 
 
-      const unsubscribeNotifications = onUserNotificationsUpdate(
+      const unsubNotifications = onUserNotificationsUpdate(
         user.uid,
         (notifs) => {
           setNotifications(notifs);
-          setIsLoading(false);
+          if (isLoading) setIsLoading(false);
         },
         { count: 10 }
       );
+      unsubs.push(unsubNotifications);
 
       const unsubscribeCount = onUnreadNotificationCountUpdate(
         user.uid,
         (count) => {
           setUnreadCount(count);
-          if (isLoading) {
-             setIsLoading(false);
-          }
+          if (isLoading) setIsLoading(false);
         }
       );
+      unsubs.push(unsubscribeCount);
 
-      return () => {
-        unsubscribeNotifications();
-        unsubscribeCount();
-      };
     } else if (!user && !authLoading) {
       setNotifications([]);
       setUnreadCount(0);
       setIsLoading(false);
     }
+    
+    return () => unsubs.forEach(unsub => unsub());
   }, [user, authLoading]);
 
 
@@ -178,3 +177,5 @@ const NotificationItemContent = ({ notification }: { notification: UserNotificat
     </p>
   </>
 );
+
+    

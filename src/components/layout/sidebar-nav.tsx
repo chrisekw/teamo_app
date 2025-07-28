@@ -138,7 +138,7 @@ export function SidebarNav() {
             <SidebarMenuItem key={item.title}>
               <Link href={item.href}>
                 <SidebarMenuButton
-                  isActive={pathname.startsWith(item.href)}
+                  isActive={pathname.startsWith(item.href) && (item.href !== "/dashboard" || pathname === "/dashboard")}
                   tooltip={{
                     children: item.title,
                     className: "group-data-[collapsible=icon]:block hidden",
@@ -156,3 +156,5 @@ export function SidebarNav() {
     </ScrollArea>
   );
 }
+
+    

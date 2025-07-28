@@ -129,7 +129,6 @@ export default function OfficeDesignerPage() {
 
   // Effect 2: Determine and set the active office from the list and URL.
   useEffect(() => {
-    // Don't run until the list of offices has been loaded.
     if (isLoadingUserOffices) {
       return;
     }
@@ -138,22 +137,16 @@ export default function OfficeDesignerPage() {
     let targetOffice: Office | null = null;
 
     if (userOffices.length > 0) {
-      // If there's an office ID in the URL, try to find it in the user's list.
       if (officeIdFromUrl) {
         targetOffice = userOffices.find(o => o.id === officeIdFromUrl) || null;
       }
-      // If no valid office was found from the URL, or if there was no ID in the URL,
-      // default to the first office in the user's list.
       if (!targetOffice) {
         targetOffice = userOffices[0];
       }
     }
     
-    // Set the determined office as active.
     setActiveOffice(targetOffice);
     
-    // If the active office is not the one in the URL (e.g., we defaulted),
-    // update the URL to match the active state.
     if (targetOffice && targetOffice.id !== officeIdFromUrl) {
         router.replace(`${pathname}?officeId=${targetOffice.id}`, { scroll: false });
     }
@@ -166,7 +159,7 @@ export default function OfficeDesignerPage() {
       setActiveOfficeRooms([]);
       setActiveOfficeMembers([]);
       setCanManageOffice(false);
-      setIsLoadingDetails(false); // Ensure loading is off if there's no office
+      setIsLoadingDetails(false); 
       return;
     }
     setIsLoadingDetails(true);
@@ -175,7 +168,7 @@ export default function OfficeDesignerPage() {
       setActiveOfficeMembers(members);
       const currentUserInOffice = members.find(m => m.userId === user.uid);
       setCanManageOffice(currentUserInOffice?.role === 'Owner' || currentUserInOffice?.role === 'Admin');
-      setIsLoadingDetails(false); // Details are loaded
+      setIsLoadingDetails(false); 
     });
     return () => {
       unsubRooms();
@@ -235,12 +228,14 @@ export default function OfficeDesignerPage() {
       return;
     }
     setIsSubmitting(true);
-    let logoUrlForCreate = newOfficeLogoFile ? `https://placehold.co/100x100.png?text=${newOfficeLogoFile.name.substring(0,3)}` : undefined;
-    let bannerUrlForCreate = newOfficeBannerFile ? `https://placehold.co/1200x300.png?text=${newOfficeBannerFile.name.substring(0,10)}` : undefined;
+    
+    // Using the preview URLs directly for creation as a placeholder for real uploads
+    let logoUrlForCreate = logoPreview || undefined;
+    let bannerUrlForCreate = bannerPreview || undefined;
 
     try {
       const newOffice = await createOffice(user.uid, user.displayName || "User", user.photoURL || undefined, newOfficeName, newOfficeSector || undefined, newOfficeCompanyName || undefined, logoUrlForCreate, bannerUrlForCreate);
-      handleSetActiveOffice(newOffice.id); // This will trigger URL change and useEffects
+      handleSetActiveOffice(newOffice.id); 
       resetCreateOfficeForm();
       setIsCreateOfficeDialogOpen(false);
       toast({ title: "Office Created!", description: `Your new office "${newOffice.name}" is ready.` });
@@ -291,7 +286,7 @@ export default function OfficeDesignerPage() {
     const roomName = newRoomName.trim() === "" ? `${details.defaultName} ${activeOfficeRooms.filter(r => r.type === selectedRoomType).length + 1}` : newRoomName;
 
     setIsSubmitting(true);
-    let coverImageUrlForCreate = newRoomCoverImageFile ? `https://placehold.co/400x225.png?text=${newRoomCoverImageFile.name.substring(0,10)}` : undefined;
+    let coverImageUrlForCreate = newRoomCoverImagePreview || undefined;
 
     try {
       const addedRoom = await addRoomToOffice(activeOffice.id, { name: roomName, type: selectedRoomType, iconName: details.iconName, coverImageUrl: coverImageUrlForCreate }, user.uid, user.displayName || "User");
@@ -807,3 +802,5 @@ export default function OfficeDesignerPage() {
     </div>
   );
 }
+
+    

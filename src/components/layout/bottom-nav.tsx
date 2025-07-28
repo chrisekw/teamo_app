@@ -29,18 +29,18 @@ export function BottomNav() {
   useEffect(() => {
     let unsubscribe: Unsubscribe | null = null;
     if (user && !authLoading) {
-      setIsLoadingCount(true); // Set loading true when starting to listen
+      setIsLoadingCount(true); 
       unsubscribe = onUnreadNotificationCountByTypeUpdate(
         user.uid,
         "chat-new-message",
         (count) => {
           setUnreadChatCount(count);
-          setIsLoadingCount(false); // Set loading false once count is received
+          setIsLoadingCount(false); 
         }
       );
     } else if (!user && !authLoading) {
       setUnreadChatCount(0);
-      setIsLoadingCount(false); // Not loading if no user or not authLoading
+      setIsLoadingCount(false); 
     }
     return () => {
       if (unsubscribe) {
@@ -84,3 +84,5 @@ export function BottomNav() {
     </nav>
   );
 }
+
+    

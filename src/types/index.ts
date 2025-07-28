@@ -65,7 +65,7 @@ export interface Goal {
   officeId: string; 
   creatorUserId: string;
   name: string;
-  description: string;
+  description?: string;
   targetValue: number;
   currentValue: number;
   unit: string;
@@ -296,3 +296,5 @@ export interface UserNotification {
 export type UserNotificationFirestoreData = Omit<UserNotification, 'id' | 'timestamp' | 'userId'> & {
   timestamp: Timestamp;
 };
+
+    

@@ -18,7 +18,7 @@ import {
   DropdownMenuSeparator, DropdownMenuTrigger
 } from "@/components/ui/dropdown-menu";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Loader2, CalendarIcon as CalendarLucide, Info, Percent, Hash, Edit, Users as UsersIcon } from "lucide-react";
+import { Loader2, CalendarIcon as CalendarLucide, Info, Percent, Hash, Edit, Users as UsersIcon, Target } from "lucide-react";
 import type { Goal, OfficeMember } from '@/types';
 import type { GoalFormValues } from '@/app/(app)/goals/page';
 
@@ -165,3 +165,5 @@ export default function GoalForm({ form, onSubmit, isSubmitting, currentOfficeMe
     </form>
   );
 }
+
+    

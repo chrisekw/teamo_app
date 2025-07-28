@@ -10,10 +10,10 @@ import {
   SidebarInset,
 } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
-import { TeamoTextLogo } from "@/components/icons"; // Keep TeamoTextLogo for non-splash usage
+import { TeamoTextLogo } from "@/components/icons";
 import { SidebarNav } from "@/components/layout/sidebar-nav";
 import { Header } from "@/components/layout/header";
-import { Plus, Play, Apple, Sparkles, Loader2, ChevronDown, ChevronUp } from "lucide-react";
+import { Plus, Play, Apple, Sparkles, Loader2, ChevronDown } from "lucide-react";
 import Image from "next/image";
 import { Card, CardContent } from "@/components/ui/card";
 import { useIsMobile } from "@/hooks/use-mobile";
@@ -23,66 +23,39 @@ import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/firebase/auth";
 import { useRouter } from "next/navigation";
 import React, { useEffect, useState } from "react";
-import SplashScreen from "@/components/layout/SplashScreen"; // Import the new SplashScreen
+import SplashScreen from "@/components/layout/SplashScreen";
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const isMobile = useIsMobile();
   const { user, loading: authLoading } = useAuth();
   const router = useRouter();
   const [aiFabMode, setAiFabMode] = useState<'expanded' | 'collapsed'>('collapsed');
-  const [showAppContent, setShowAppContent] = useState(false); // Controls visibility of main app vs splash
+  const [showAppContent, setShowAppContent] = useState(false); 
 
   useEffect(() => {
     if (!authLoading && !user) {
-      // Auth state resolved, no user, redirect to login
-      // This might happen after splash screen finishes, so ensure no content is shown.
       router.push('/login');
     }
-    // If authLoading is true, or if user exists, we let the splash screen logic handle showAppContent
   }, [user, authLoading, router]);
 
   const handleSplashScreenFinished = () => {
-    // Only show app content if authentication is also complete and user exists
     if (!authLoading && user) {
       setShowAppContent(true);
-    } else if (!authLoading && !user) {
-      // This case implies auth finished, no user, redirect should already be in progress or have happened.
-      // Splash finished but there's no user to show the app to.
     }
-    // If auth is still loading when splash animation finishes, we wait.
-    // The main `if (authLoading || !showAppContent)` will keep showing splash.
   };
   
-  // This effect ensures that if auth completes *while* splash is showing,
-  // and there's no user, we transition out of splash logic correctly.
-  // And if user *is* present when auth completes, `handleSplashScreenFinished` will eventually show content.
   useEffect(() => {
-    if (!authLoading && user && showAppContent) {
-        // Auth is done, user exists, splash has called onFinished
-        // This is the final state to show the app.
-    } else if (!authLoading && !user) {
-        // If auth is done, no user, ensure we are not trying to show app content
-        // and rely on the redirect. If splash was visible, it might call handleSplashScreenFinished,
-        // but the outer condition `(authLoading || !showAppContent)` should eventually become false
-        // and hit the `if (!user)` check below.
+    if (!authLoading && user && !showAppContent) {
+        setShowAppContent(true);
     }
   }, [authLoading, user, showAppContent]);
 
 
-  // Show SplashScreen if:
-  // 1. Authentication is still loading OR
-  // 2. Authentication is done, but the splash screen animation hasn't called `onFinished` yet (showAppContent is false)
   if (authLoading || !showAppContent) {
-    // If authLoading is false here, it means user is authenticated (otherwise redirect would occur)
-    // but splash animation is not yet complete.
     return <SplashScreen onFinished={handleSplashScreenFinished} />;
   }
 
-  // If we reach here, auth loading is false, AND splash screen has finished.
-  // Now, double-check if user is actually present. (Should be, due to logic above)
   if (!user) {
-    // This state implies auth is done, splash is done, but no user.
-    // Should have been redirected. Show a loader as a fallback during this transition.
     return (
       <div className="flex items-center justify-center h-screen bg-background">
         <Loader2 className="h-12 w-12 animate-spin text-primary" />
@@ -90,7 +63,6 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     );
   }
 
-  // All checks passed: Auth is done, user exists, splash screen has finished. Render the app.
   return (
     <SidebarProvider defaultOpen={true}>
       {!isMobile && (
@@ -194,3 +166,5 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     </SidebarProvider>
   );
 }
+
+    
